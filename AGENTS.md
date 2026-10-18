@@ -11,6 +11,7 @@ AI エージェントがこのリポジトリで作業するときの指示書�
 | 文書 | 内容 |
 |---|---|
 | [docs/design.md](docs/design.md) | 仕様の正本。実装前に必ず読む |
+| [docs/architecture.md](docs/architecture.md) | パッケージ構成、責務、依存の向き、テスト方法の正本。実装前に必ず読む |
 | [docs/tech-stack.md](docs/tech-stack.md) | 採用技術と、使わない技術 |
 | [docs/development.md](docs/development.md) | 開発環境（WSL）、コマンド、Git の運用 |
 
@@ -34,6 +35,7 @@ AI エージェントがこのリポジトリで作業するときの指示書�
 - パスワード、ハッシュ、リクエストボディをログに出さない
 - テストを通すために、テストや仕様の側を書き換えない
 - tech-stack.md の「使わないもの」にある技術を、相談なしに導入しない
+- architecture.md で決めた依存の向きに反する import をしない
 
 ## コメント
 
