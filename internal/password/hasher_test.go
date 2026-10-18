@@ -35,9 +35,27 @@ func newTestHasher(t testing.TB) *Hasher {
 	return hasher
 }
 
-func mustHash(t testing.TB, hasher *Hasher, password string) string {
+func mustPassword(t testing.TB, raw string) Password {
 	t.Helper()
-	encoded, err := hasher.Hash(context.Background(), password)
+	password, err := ParsePassword(raw)
+	if err != nil {
+		t.Fatalf("ParsePassword() error = %v", err)
+	}
+	return password
+}
+
+func mustEncodedHash(t testing.TB, raw string) EncodedHash {
+	t.Helper()
+	encoded, err := ParseEncodedHash(raw)
+	if err != nil {
+		t.Fatalf("ParseEncodedHash() error = %v", err)
+	}
+	return encoded
+}
+
+func mustHash(t testing.TB, hasher *Hasher, raw string) EncodedHash {
+	t.Helper()
+	encoded, err := hasher.Hash(context.Background(), mustPassword(t, raw))
 	if err != nil {
 		t.Fatalf("Hash() error = %v", err)
 	}
@@ -63,20 +81,26 @@ func TestNewKeepsParamsAndSemaphore(t *testing.T) {
 	}
 }
 
-func TestZeroValueHasher(t *testing.T) {
-	var hasher Hasher
-	for name, operation := range testOperations(&hasher, fixturePHC) {
-		t.Run(name, func(t *testing.T) {
-			if err := operation(context.Background()); !errors.Is(err, ErrInvalidParams) {
-				t.Fatalf("zero-value Hasher: got %v, want ErrInvalidParams", err)
-			}
-		})
+func TestUnusableHasher(t *testing.T) {
+	for kind, hasher := range map[string]*Hasher{"zero": {}, "nil": nil} {
+		for name, operation := range testOperations(t, hasher, mustEncodedHash(t, fixturePHC)) {
+			t.Run(kind+"/"+name, func(t *testing.T) {
+				if err := operation(context.Background()); !errors.Is(err, ErrInvalidParams) {
+					t.Fatalf("unusable Hasher: got %v, want ErrInvalidParams", err)
+				}
+			})
+		}
 	}
 }
 
 func TestHashVerify(t *testing.T) {
 	hasher := newTestHasher(t)
 	encoded := mustHash(t, hasher, validPassword)
+	stored, err := encoded.PHC()
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded = mustEncodedHash(t, stored)
 	for _, tt := range []struct {
 		name     string
 		password string
@@ -88,7 +112,7 @@ func TestHashVerify(t *testing.T) {
 		{"short", "short", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			ok, err := hasher.Verify(context.Background(), tt.password, encoded)
+			ok, err := hasher.Verify(context.Background(), mustPassword(t, tt.password), encoded)
 			if err != nil || ok != tt.want {
 				t.Fatalf("Verify(): match = %t, error = %v, want match = %t", ok, err, tt.want)
 			}
@@ -98,15 +122,10 @@ func TestHashVerify(t *testing.T) {
 
 func TestHashUsesFreshSalt(t *testing.T) {
 	hasher := newTestHasher(t)
-	first, err := parseHash(mustHash(t, hasher, validPassword))
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := parseHash(mustHash(t, hasher, validPassword))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Equal(first.salt, second.salt) || bytes.Equal(first.key, second.key) {
+	first := mustHash(t, hasher, validPassword)
+	second := mustHash(t, hasher, validPassword)
+	if bytes.Equal(first.hash().decoded.salt, second.hash().decoded.salt) ||
+		bytes.Equal(first.hash().decoded.key, second.hash().decoded.key) {
 		t.Fatal("repeated hashes reused a salt or key")
 	}
 }
@@ -126,7 +145,7 @@ func TestNormalizationConsistency(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			hasher := newTestHasher(t)
 			encoded := mustHash(t, hasher, tt.stored)
-			if ok, err := hasher.Verify(context.Background(), tt.input, encoded); err != nil || !ok {
+			if ok, err := hasher.Verify(context.Background(), mustPassword(t, tt.input), encoded); err != nil || !ok {
 				t.Fatalf("equivalent normalized input: match = %t, error = %v", ok, err)
 			}
 		})
@@ -143,29 +162,28 @@ func TestHashPolicy(t *testing.T) {
 		{"eleven", strings.Repeat("a", 11), false},
 		{"twelve", strings.Repeat("a", 12), true},
 		{"maximum", strings.Repeat("a", 128), true},
-		{"over_maximum", strings.Repeat("a", 129), false},
 		{"japanese", strings.Repeat("あ", 12), true},
 		{"emoji_eleven", strings.Repeat("😀", 11), false},
 		{"emoji_twelve", strings.Repeat("😀", 12), true},
 		{"emoji_maximum", strings.Repeat("😀", 128), true},
-		{"emoji_over_maximum", strings.Repeat("😀", 129), false},
 		{"expands_below_minimum", strings.Repeat("㍿", 2), false},
 		{"expands_to_minimum", strings.Repeat("㍿", 3), true},
 		{"expands_to_maximum", strings.Repeat("㍿", 32), true},
-		{"expands_over_maximum", strings.Repeat("㍿", 33), false},
 		{"contracts_below_minimum", strings.Repeat("e\u0301", 11), false},
 		{"contracts_to_minimum", strings.Repeat("e\u0301", 12), true},
 		{"contracts_to_maximum", strings.Repeat("e\u0301", 128), true},
-		{"contracts_over_maximum", strings.Repeat("e\u0301", 129), false},
-		{"invalid_utf8", strings.Repeat("\xff", 12), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			hasher := newTestHasher(t)
-			encoded, err := hasher.Hash(context.Background(), tt.password)
+			password := mustPassword(t, tt.password)
+			encoded, err := hasher.Hash(context.Background(), password)
 			if !tt.valid {
-				if encoded != "" || !errors.Is(err, ErrPolicyViolation) {
-					t.Fatalf("invalid password: output present = %t, error = %v", encoded != "", err)
+				if !errors.Is(err, ErrPolicyViolation) {
+					t.Fatalf("invalid password: error = %v, want ErrPolicyViolation", err)
+				}
+				if raw, phcErr := encoded.PHC(); raw != "" || !errors.Is(phcErr, ErrInvalidHash) {
+					t.Fatal("failed Hash returned an initialized hash")
 				}
 				if tt.password != "" && strings.Contains(err.Error(), tt.password) {
 					t.Fatal("error contains the password input")
@@ -175,7 +193,7 @@ func TestHashPolicy(t *testing.T) {
 			if err != nil {
 				t.Fatalf("valid password rejected: %v", err)
 			}
-			if ok, err := hasher.Verify(context.Background(), tt.password, encoded); err != nil || !ok {
+			if ok, err := hasher.Verify(context.Background(), password, encoded); err != nil || !ok {
 				t.Fatalf("valid password did not verify: match = %t, error = %v", ok, err)
 			}
 		})
@@ -183,39 +201,71 @@ func TestHashPolicy(t *testing.T) {
 }
 
 func TestVerifyExistingShortPassword(t *testing.T) {
-	salt := []byte("legacy-salt-1234")
-	key := argon2.IDKey([]byte("old"), salt, 1, 64, 1, 32)
-	encoded := "$argon2id$v=19$m=64,t=1,p=1$" +
-		base64.RawStdEncoding.EncodeToString(salt) + "$" + base64.RawStdEncoding.EncodeToString(key)
-	if ok, err := newTestHasher(t).Verify(context.Background(), "old", encoded); err != nil || !ok {
-		t.Fatalf("existing short credential: match = %t, error = %v", ok, err)
+	tests := []struct {
+		name     string
+		password string
+		salt     string
+	}{
+		{"short", "old", "legacy-salt-1234"},
+		{"empty", "", "legacy-salt-1234"},
+		{"short_salt", "old", "x"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			salt := []byte(tt.salt)
+			key := argon2.IDKey([]byte(tt.password), salt, 1, 64, 1, 32)
+			raw := "$argon2id$v=19$m=64,t=1,p=1$" +
+				base64.RawStdEncoding.EncodeToString(salt) + "$" + base64.RawStdEncoding.EncodeToString(key)
+			encoded := mustEncodedHash(t, raw)
+			password := mustPassword(t, tt.password)
+			if ok, err := newTestHasher(t).Verify(context.Background(), password, encoded); err != nil || !ok {
+				t.Fatalf("legacy credential: match = %t, error = %v", ok, err)
+			}
+		})
 	}
 }
 
-func TestVerifyMaximumLengthBeforePHC(t *testing.T) {
-	hasher := newTestHasher(t)
-	for _, password := range []string{strings.Repeat("a", 129), strings.Repeat("㍿", 33)} {
-		ok, err := hasher.Verify(context.Background(), password, "invalid PHC")
-		if ok || err != nil {
-			t.Fatalf("overlong input: match = %t, error = %v, want false and nil", ok, err)
-		}
+func TestHasherRejectsZeroValuesBeforeAcquire(t *testing.T) {
+	password := mustPassword(t, validPassword)
+	encoded := mustEncodedHash(t, fixturePHC)
+	tests := []struct {
+		name      string
+		operation func(*Hasher) error
+		want      error
+	}{
+		{"hash_password", func(h *Hasher) error {
+			_, err := h.Hash(context.Background(), Password{})
+			return err
+		}, ErrInvalidPassword},
+		{"rehash_password", func(h *Hasher) error {
+			_, err := h.Rehash(context.Background(), Password{})
+			return err
+		}, ErrInvalidPassword},
+		{"verify_password", func(h *Hasher) error {
+			_, err := h.Verify(context.Background(), Password{}, encoded)
+			return err
+		}, ErrInvalidPassword},
+		{"verify_hash", func(h *Hasher) error {
+			_, err := h.Verify(context.Background(), password, EncodedHash{})
+			return err
+		}, ErrInvalidHash},
 	}
-}
-
-func TestVerifyRejectsInvalidUTF8(t *testing.T) {
-	password := strings.Repeat("\xff", 12)
-	salt := []byte("legacy-salt-1234")
-	key := argon2.IDKey([]byte(password), salt, 1, 64, 1, 32)
-	encoded := encodeHash(Params{MemoryKiB: 64, Iterations: 1, Parallelism: 1}, salt, key)
-	if ok, err := newTestHasher(t).Verify(context.Background(), password, encoded); ok || err != nil {
-		t.Fatalf("invalid UTF-8 input: match = %t, error = %v, want false and nil", ok, err)
-	}
-}
-
-func TestVerifyRejectsInvalidPHC(t *testing.T) {
-	ok, err := newTestHasher(t).Verify(context.Background(), validPassword, "invalid PHC")
-	if ok || !errors.Is(err, ErrInvalidHash) {
-		t.Fatalf("invalid PHC: match = %t, error = %v", ok, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				hasher := newTestHasher(t)
+				for range cap(hasher.slots) {
+					hasher.slots <- struct{}{}
+				}
+				start := time.Now()
+				if err := tt.operation(hasher); !errors.Is(err, tt.want) {
+					t.Fatalf("zero value: error = %v, want %v", err, tt.want)
+				}
+				if time.Since(start) != 0 || len(hasher.slots) != cap(hasher.slots) {
+					t.Fatal("zero value waited for or changed semaphore slots")
+				}
+			})
+		})
 	}
 }
 
@@ -243,45 +293,99 @@ func TestNeedsRehashAndStoredParameters(t *testing.T) {
 				t.Fatal(err)
 			}
 			encoded := mustHash(t, oldHasher, validPassword)
+			stored, err := encoded.PHC()
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded = mustEncodedHash(t, stored)
 			current := newTestHasher(t)
 			if got := current.NeedsRehash(encoded); got != tt.want {
 				t.Fatalf("NeedsRehash() = %t, want %t", got, tt.want)
 			}
-			if ok, err := current.Verify(context.Background(), validPassword, encoded); err != nil || !ok {
+			if ok, err := current.Verify(context.Background(), mustPassword(t, validPassword), encoded); err != nil || !ok {
 				t.Fatalf("stored parameters were not used: match = %t, error = %v", ok, err)
 			}
 		})
 	}
 }
 
-func TestNeedsRehashInvalidPHC(t *testing.T) {
+func TestNeedsRehashNonCanonicalPHC(t *testing.T) {
 	hasher := newTestHasher(t)
-	for _, encoded := range []string{"", "invalid PHC", strings.Replace(fixturePHC, "t=1", "t=11", 1)} {
-		if !hasher.NeedsRehash(encoded) {
-			t.Fatal("invalid PHC did not require rehash")
+	if hasher.NeedsRehash(mustEncodedHash(t, fixturePHC)) {
+		t.Fatal("canonical PHC with current parameters required rehash")
+	}
+	reordered := strings.Replace(fixturePHC, "m=64,t=1,p=1", "t=1,m=64,p=1", 1)
+	if !hasher.NeedsRehash(mustEncodedHash(t, reordered)) {
+		t.Fatal("non-canonical PHC did not require rehash")
+	}
+}
+
+func TestNeedsRehashInvalidValues(t *testing.T) {
+	encoded := mustEncodedHash(t, fixturePHC)
+	var nilHasher *Hasher
+	for name, needs := range map[string]bool{
+		"zero_hash":   newTestHasher(t).NeedsRehash(EncodedHash{}),
+		"zero_hasher": (&Hasher{}).NeedsRehash(encoded),
+		"nil_hasher":  nilHasher.NeedsRehash(encoded),
+	} {
+		if needs {
+			t.Errorf("%s: NeedsRehash() = true, want false", name)
 		}
 	}
 }
 
-func testOperations(hasher *Hasher, encoded string) map[string]func(context.Context) error {
+func TestRehashShortLegacyPassword(t *testing.T) {
+	salt := []byte("legacy-salt-1234")
+	key := argon2.IDKey([]byte("short"), salt, 2, 64, 1, 32)
+	legacy := mustEncodedHash(t, encodeHash(Params{MemoryKiB: 64, Iterations: 2, Parallelism: 1}, salt, key))
+	hasher := newTestHasher(t)
+	password := mustPassword(t, "short")
+	if ok, err := hasher.Verify(context.Background(), password, legacy); err != nil || !ok {
+		t.Fatalf("legacy credential: match = %t, error = %v", ok, err)
+	}
+	if !hasher.NeedsRehash(legacy) {
+		t.Fatal("legacy credential with old parameters did not require rehash")
+	}
+	if _, err := hasher.Hash(context.Background(), password); !errors.Is(err, ErrPolicyViolation) {
+		t.Fatalf("Hash() error = %v, want ErrPolicyViolation", err)
+	}
+	rehashed, err := hasher.Rehash(context.Background(), password)
+	if err != nil {
+		t.Fatalf("Rehash() error = %v", err)
+	}
+	if hasher.NeedsRehash(rehashed) {
+		t.Fatal("rehashed credential still requires rehash")
+	}
+	if ok, err := hasher.Verify(context.Background(), password, rehashed); err != nil || !ok {
+		t.Fatalf("rehashed credential: match = %t, error = %v", ok, err)
+	}
+}
+
+func testOperations(t testing.TB, hasher *Hasher, encoded EncodedHash) map[string]func(context.Context) error {
+	t.Helper()
+	password := mustPassword(t, validPassword)
 	return map[string]func(context.Context) error{
 		"hash": func(ctx context.Context) error {
-			_, err := hasher.Hash(ctx, validPassword)
+			_, err := hasher.Hash(ctx, password)
+			return err
+		},
+		"rehash": func(ctx context.Context) error {
+			_, err := hasher.Rehash(ctx, password)
 			return err
 		},
 		"verify": func(ctx context.Context) error {
-			_, err := hasher.Verify(ctx, validPassword, encoded)
+			_, err := hasher.Verify(ctx, password, encoded)
 			return err
 		},
 	}
 }
 
 func TestSemaphoreTimeoutAndReuse(t *testing.T) {
-	for _, name := range []string{"hash", "verify"} {
+	for _, name := range []string{"hash", "rehash", "verify"} {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				hasher := newTestHasher(t)
-				operation := testOperations(hasher, mustHash(t, hasher, validPassword))[name]
+				operation := testOperations(t, hasher, mustHash(t, hasher, validPassword))[name]
 				for range cap(hasher.slots) {
 					hasher.slots <- struct{}{}
 				}
@@ -322,8 +426,8 @@ func TestSemaphoreCanceledBeforeAcquire(t *testing.T) {
 		wantOccupied := len(hasher.slots)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		for name, operation := range testOperations(hasher, encoded) {
-			t.Run(name+"/occupied="+map[bool]string{false: "false", true: "true"}[occupied], func(t *testing.T) {
+		for name, operation := range testOperations(t, hasher, encoded) {
+			t.Run(fmt.Sprintf("%s/occupied=%t", name, occupied), func(t *testing.T) {
 				// select は空き枠と Done をランダムに選ぶため、取得後に枠を返す分岐も通るよう繰り返す。
 				for range 64 {
 					if err := operation(ctx); !errors.Is(err, ErrBusy) || !errors.Is(err, context.Canceled) {
@@ -339,11 +443,11 @@ func TestSemaphoreCanceledBeforeAcquire(t *testing.T) {
 }
 
 func TestSemaphoreCanceledWhileWaiting(t *testing.T) {
-	for _, name := range []string{"hash", "verify"} {
+	for _, name := range []string{"hash", "rehash", "verify"} {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				hasher := newTestHasher(t)
-				operation := testOperations(hasher, mustHash(t, hasher, validPassword))[name]
+				operation := testOperations(t, hasher, mustHash(t, hasher, validPassword))[name]
 				for range cap(hasher.slots) {
 					hasher.slots <- struct{}{}
 				}
@@ -371,11 +475,11 @@ func TestSemaphoreCanceledWhileWaiting(t *testing.T) {
 }
 
 func TestSemaphoreContextDeadline(t *testing.T) {
-	for _, name := range []string{"hash", "verify"} {
+	for _, name := range []string{"hash", "rehash", "verify"} {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				hasher := newTestHasher(t)
-				operation := testOperations(hasher, mustHash(t, hasher, validPassword))[name]
+				operation := testOperations(t, hasher, mustHash(t, hasher, validPassword))[name]
 				for range cap(hasher.slots) {
 					hasher.slots <- struct{}{}
 				}
@@ -395,20 +499,23 @@ func TestSemaphoreContextDeadline(t *testing.T) {
 
 func TestConcurrentHashAndVerify(t *testing.T) {
 	hasher := newTestHasher(t)
+	password := mustPassword(t, validPassword)
 	const workers = 8
 	var group sync.WaitGroup
 	failures := make(chan error, workers)
 	for range workers {
 		group.Go(func() {
-			encoded, err := hasher.Hash(context.Background(), validPassword)
+			encoded, err := hasher.Hash(context.Background(), password)
 			if err != nil {
 				failures <- err
 				return
 			}
-			ok, err := hasher.Verify(context.Background(), validPassword, encoded)
+			ok, err := hasher.Verify(context.Background(), password, encoded)
 			if err != nil {
 				failures <- err
-			} else if !ok {
+				return
+			}
+			if !ok {
 				failures <- errors.New("concurrent round trip did not match")
 			}
 		})
@@ -424,10 +531,10 @@ func TestConcurrentHashAndVerify(t *testing.T) {
 }
 
 func TestSlotHeldDuringDerivation(t *testing.T) {
-	for _, name := range []string{"hash", "verify"} {
+	for _, name := range []string{"hash", "rehash", "verify"} {
 		t.Run(name, func(t *testing.T) {
 			hasher := newTestHasher(t)
-			operation := testOperations(hasher, mustHash(t, hasher, validPassword))[name]
+			operation := testOperations(t, hasher, mustHash(t, hasher, validPassword))[name]
 			original := deriveKey
 			t.Cleanup(func() { deriveKey = original })
 			var held []int
@@ -450,9 +557,10 @@ func BenchmarkHash(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	password := mustPassword(b, validPassword)
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := hasher.Hash(context.Background(), validPassword); err != nil {
+		if _, err := hasher.Hash(context.Background(), password); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -464,12 +572,13 @@ func BenchmarkHashSaturated(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
+	password := mustPassword(b, validPassword)
 	b.ReportAllocs()
 	for b.Loop() {
 		var group sync.WaitGroup
 		for range params.MaxConcurrent {
 			group.Go(func() {
-				if _, err := hasher.Hash(context.Background(), validPassword); err != nil {
+				if _, err := hasher.Hash(context.Background(), password); err != nil {
 					b.Error(err)
 				}
 			})
@@ -489,8 +598,9 @@ func BenchmarkHashCandidates(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
+				password := mustPassword(b, validPassword)
 				for b.Loop() {
-					if _, err := hasher.Hash(context.Background(), validPassword); err != nil {
+					if _, err := hasher.Hash(context.Background(), password); err != nil {
 						b.Fatal(err)
 					}
 				}

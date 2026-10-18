@@ -12,6 +12,7 @@ Claude Code がこのリポジトリで作業するときの指示書。
 |---|---|
 | [docs/design.md](docs/design.md) | 仕様の正本。実装前に必ず読む |
 | [docs/architecture.md](docs/architecture.md) | パッケージ構成、責務、依存の向き、テスト方法の正本。実装前に必ず読む |
+| [docs/go-coding-guidelines.md](docs/go-coding-guidelines.md) | Go のコーディング方針。実装前に必ず読む。仕様と構成は design.md・architecture.md を優先する |
 | [docs/tech-stack.md](docs/tech-stack.md) | 採用技術と、使わない技術 |
 | [docs/development.md](docs/development.md) | 開発環境（WSL）、コマンド、Git の運用 |
 

@@ -1,4 +1,4 @@
-# 認証基盤バックエンド 設計書（学習用 v0.9）
+# 認証基盤バックエンド 設計書（学習用 v0.11）
 
 ## 1. 目的
 
@@ -103,27 +103,43 @@ salt と hash は base64（パディングなし、`base64.RawStdEncoding`）。
 - パラメータは `m`・`t`・`p` がそれぞれ 1 回ずつ必要。解析時の順序は問わないが、生成時は `m,t,p` の順にする
 - 不足・重複・未知の項目、数字以外を含む値、先頭が 0 の値、整数の桁あふれ、4.2 の範囲外の値を拒否する
 - ソルトと出力の符号化後の長さを検査してからデコードする。パディング、不正文字、改行、不正な末尾ビット、空要素を拒否する
-- `Verify` と `NeedsRehash` は同じ PHC パーサーを使う
+- `ParseEncodedHash` が PHC を 1 回だけ解析する。`Verify` と `NeedsRehash` は、その解析済みの値を使う
 
 ### 4.4 API
 
-状態（パラメータ・セマフォ）を持つため、関数ではなく構造体のメソッドとして提供する。
+状態（パラメータ・セマフォ）を持つため、ハッシュ処理は構造体のメソッドとして提供する。外部の文字列は境界で値オブジェクトに解析し、内側ではその型を使う。
 
 ```go
-params := password.DefaultParams()
-h, err := password.New(params) // (*password.Hasher, error)
+func DefaultParams() Params
+func New(params Params) (*Hasher, error)
+
+func ParsePassword(raw string) (Password, error)
+func ParseEncodedHash(encoded string) (EncodedHash, error)
+func (h EncodedHash) PHC() (string, error)
+
+func (h *Hasher) Hash(ctx context.Context, password Password) (EncodedHash, error)
+func (h *Hasher) Rehash(ctx context.Context, password Password) (EncodedHash, error)
+func (h *Hasher) Verify(ctx context.Context, password Password, encoded EncodedHash) (bool, error)
+func (h *Hasher) NeedsRehash(encoded EncodedHash) bool
 ```
 
 | メソッド | 振る舞い |
 |---|---|
-| `Hash(ctx, password) (string, error)` | **NFKC 正規化 → ポリシー検査（4.5）** → セマフォ取得 → ソルト生成 → Argon2id → PHC 文字列 |
-| `Verify(ctx, password, encoded) (bool, error)` | **NFKC 正規化 → 不正な UTF-8 と最大長の検査** → PHC をパース → セマフォ取得 → 保存済みパラメータとソルトでハッシュ → 定数時間比較。不一致・最大長超過・不正な UTF-8 は `(false, nil)`、PHC 異常はエラー |
-| `NeedsRehash(encoded) bool` | memory・iterations・parallelism・ソルト長・出力長のいずれかが現行設定と異なれば `true`。PHC が不正な場合も `true`。同時数と待機時間は比較しない |
+| `ParsePassword(raw)` | NFKC 正規化 → UTF-8 と最大 128 文字の検査 → `Password`。最小長は検査せず、空文字や短い既存パスワードも受理する。違反時は `ErrPolicyViolation` |
+| `ParseEncodedHash(encoded)` | 4.3 の規則で PHC を解析 → `EncodedHash`。異常時は `ErrInvalidHash` |
+| `EncodedHash.PHC()` | 保存用の PHC 文字列を返す。解析した PHC は元の表記を保持する。ゼロ値では `ErrInvalidHash` |
+| `Hash(ctx, password)` | `Password` のゼロ値の検査（`ErrInvalidPassword`）と最小 12 文字の検査（`ErrPolicyViolation`）→ セマフォ取得 → ソルト生成 → Argon2id → 正規の PHC を持つ `EncodedHash` |
+| `Rehash(ctx, password)` | ログイン成功後の再ハッシュ用。最小長を検査しない点を除き `Hash` と同じ。短い既存パスワードも現行パラメータへ移行できる。登録には使わない |
+| `Verify(ctx, password, encoded)` | 両方の値のゼロ値を検査（`Password` は `ErrInvalidPassword`、`EncodedHash` は `ErrInvalidHash`）→ セマフォ取得 → 解析済みの保存パラメータとソルトでハッシュ → 定数時間比較。不一致は `(false, nil)` |
+| `NeedsRehash(encoded)` | memory・iterations・parallelism・ソルト長・出力長のいずれかが現行設定と異なるか、保存済みの表記が正規の表記（`m,t,p` の順）と異なれば `true`。`EncodedHash` のゼロ値と、ゼロ値・nil の `Hasher` では `false`（保存済みの資格情報を上書きしない）。同時数と待機時間は比較しない |
 
-- `New(params Params) (*Hasher, error)` は設定を検証し、値のコピーとセマフォを保持する
-- エラーは `ErrInvalidParams`（生成設定。`New` を通さないゼロ値の `Hasher` で `Hash`・`Verify` を呼んだ場合も含む）、`ErrPolicyViolation`（Hash のポリシー違反）、`ErrInvalidHash`（PHC 異常）、`ErrBusy`（セマフォ待機の打ち切り）とし、`errors.Is` で判定できる
-- `Hash` と `Verify` は**同じ正規化処理**を通す。正規化をずらすと、全角文字などを含むパスワードで「登録できるがログインできない」状態になる
-- `Verify` では最小長を検査しない（ポリシーを後から強化しても既存ユーザーがログインできなくなるのを防ぐ）
+- `Params` は設定を組み立てるための入力であり、公開フィールドを維持する。`New` は設定を検証し、値のコピーとセマフォを保持する
+- `Password` は正規化済み文字列とコードポイント数を、非公開の関数値の奥に保持する。`==` では比較できない。解析済みの空文字は有効な値であり、未初期化のゼロ値と区別する。ゼロ値を `Hash`・`Rehash`・`Verify` に渡すと `ErrInvalidPassword` を返し、暗号計算は開始しない
+- `EncodedHash` は元の PHC 文字列・解析済みパラメータ・ソルト・出力を、非公開の関数値の奥に保持し、変更可能な内部データは公開しない。ゼロ値を `Verify` に渡すと `ErrInvalidHash`。生成済みのハッシュも再解析せず、この型で返す
+- 両型は `fmt.Formatter` を実装し、値の有効状態や書式にかかわらず固定文字列 `[REDACTED]` を出力する（`%q` は引用符付き）。`String()`・`GoString()` も同じ文字列を返す。fmt は関数値をどの書式でもアドレスとしてしか表示しないため、秘密を関数値の奥に置き、両型を別の構造体の非公開フィールドに入れて表示しても中身が出ないようにする。PHC の保存には `PHC()` を明示的に使う
+- エラーは `ErrInvalidParams`（生成設定。有効な引数でゼロ値または nil の `Hasher` の `Hash`・`Rehash`・`Verify` を呼んだ場合も含む）、`ErrPolicyViolation`（パスワードの解析・Hash の最小長。利用者の入力の違反に限る）、`ErrInvalidPassword`（Password のゼロ値。プログラムの誤り）、`ErrInvalidHash`（PHC の解析・EncodedHash のゼロ値）、`ErrBusy`（セマフォ待機の打ち切り）とし、文脈を付けて包む場合も `errors.Is` で判定できる
+- `Hash` と `Verify` は、**同じ `ParsePassword` で正規化した値**を使い、正規化や最大長の検査を繰り返さない。従来 `Verify` が `(false, nil)` にしていた最大長超過・不正な UTF-8 は、解析時の `ErrPolicyViolation` となり、auth がログイン時の認証失敗へ変換する
+- `Verify` と `Rehash` では最小長を検査しない（ポリシーを後から強化しても、既存ユーザーがログインできなくなったり、現行パラメータへ移行できなくなったりするのを防ぐ）
 - セマフォの待機は `ctx` のキャンセル・期限切れとタイムアウト（既定 5 秒）で打ち切り、いずれも `ErrBusy` を返す。`ctx` による打ち切りでは `ctx.Err()` も包み、クライアントの切断や期限切れを `errors.Is` で過負荷と区別できるようにする。キャンセル済みの `ctx` では、空き枠があっても計算を開始しない
 - パスワードと PHC をログやエラーメッセージに含めない
 
@@ -132,7 +148,7 @@ h, err := password.New(params) // (*password.Hasher, error)
 - NFKC 正規化した後の **Unicode コードポイント数**（`utf8.RuneCountInString`）で長さを判定する
 - 最小 12 文字、最大 128 文字
 - 文字種の組み合わせは強制しない
-- 不正な UTF-8 を含む入力は拒否する（`Hash` は `ErrPolicyViolation`、`Verify` は `(false, nil)`）
+- `ParsePassword` が不正な UTF-8 と最大長超過を `ErrPolicyViolation` で拒否し、`Hash` が最小長を検査する。`Verify` と `Rehash` は解析済みの短い値や空文字も扱える
 
 ### 4.6 同時実行制限
 
@@ -147,13 +163,16 @@ h, err := password.New(params) // (*password.Hasher, error)
 | 正常系 | Hash → Verify が true |
 | 誤パスワード | Verify が false |
 | 正規化の一貫性 | 全角英数字で Hash し、半角英数字で Verify して true（逆も同様） |
-| PHC パース異常 | アルゴリズム名・バージョン・パラメータ・base64 の不正でエラー |
-| NeedsRehash | パラメータ変更後に true、同一なら false、不正な PHC で true |
-| ポリシー境界値 | 11 / 12 / 128 / 129 文字、NFKC で文字数が変わる入力、不正な UTF-8 |
+| PHC パース異常 | `ParseEncodedHash` がアルゴリズム名・バージョン・パラメータ・base64 の不正でエラー。解析後の `PHC()` は元の表記を返す |
+| NeedsRehash | パラメータ変更後と非正規の表記で true、同一なら false、EncodedHash のゼロ値と無効な Hasher で false |
+| Rehash | 短い既存パスワードを現行パラメータで再ハッシュでき、ゼロ値は `ErrInvalidPassword` |
+| ポリシー境界値 | 11 / 12 / 128 / 129 文字、NFKC で文字数が変わる入力、不正な UTF-8。解析時の最大長検査と Hash の最小長検査を分けて検証 |
+| 値オブジェクト | 解析済みの空文字とゼロ値の区別、両型のゼロ値、全書式と非公開フィールドでの伏字、エラーに秘密を含めないこと |
 | セマフォ | 同時数を超えた呼び出しがタイムアウトで `ErrBusy` になる。Argon2id の計算中は枠を保持し、終了後に解放する |
 | ベンチマーク | `BenchmarkHash`（既定のパラメータ）、`BenchmarkHashSaturated`（既定のパラメータで同時ハッシュ数いっぱいに並列実行したときの 1 回あたりの所要時間）、`BenchmarkHashCandidates`（下記の候補）。`go test -bench=. ./internal/password` で計測 |
 
 - 単体テストは小さい計算パラメータを使う。セマフォのテストはテスト側で枠を占有し、重い計算の実行時間に依存させない
+- v0.10 以降のベンチマークは `Password` の解析を計測外で済ませ、型付き API のハッシュ処理を測る。従来の文字列 API の測定値は正規化も含むため、測定回と API の版を区別して記録する。今回の型移行では既定パラメータを調整せず、`BenchmarkHash` を 3 回測って中央値が 200〜500ms に入るか確認する
 - ベンチマークは WSL の Go 1.27.2、`CGO_ENABLED=0` で 3 回測定し、中央値を使う。まず 64 MiB・並列 2 のまま反復 2〜10 を評価する
 - 候補は `go test -run='^$' -bench=BenchmarkHashCandidates -count=3 ./internal/password` で測る。`BenchmarkHashCandidates` は 64 MiB と 128 MiB の反復 2〜10 を含む。ほかのメモリ設定を評価するときは候補に加える
 - 目標の 200〜500ms に入る候補が無ければ、速すぎる場合は 128→256 MiB、遅すぎる場合は 32→19 MiB の順に評価する。最初に目標に入るメモリ設定で、中央値が 300ms に最も近い反復数を採用する。同差なら反復数が多い方を採用する
@@ -166,7 +185,7 @@ h, err := password.New(params) // (*password.Hasher, error)
 - 初期値（64 MiB・反復 3・並列 2）：55.459 / 50.652 / 50.809 ms、中央値 **50.809 ms**。下の候補表とは別に測定したため、候補表の同じ構成（50.873 ms）とは一致しない
 - 採用候補（128 MiB・反復 9・並列 2）：306.265 / 318.128 / 313.139 ms、中央値 **313.139 ms**
 - 採用値を `DefaultParams()` に反映した直後の `BenchmarkHash`（第 1 回）：347.418 / 308.070 / 304.739 ms、中央値 **308.070 ms**（目標の 200〜500 ms 内）
-- PR #3 作成前の `BenchmarkHash` 再測定（第 2 回、対象コミット `d0883fc`）：351.634 / 329.852 / 338.685 ms、中央値 **338.685 ms**（目標の 200〜500 ms 内）。これが最新の測定結果で、PR 説明にも同じ値を記録している
+- PR #3 作成前の文字列 API の `BenchmarkHash` 再測定（第 2 回、対象コミット `d0883fc`）：351.634 / 329.852 / 338.685 ms、中央値 **338.685 ms**（目標の 200〜500 ms 内）。PR #3 説明にも同じ値を記録している
 - 採用値で同時ハッシュ数いっぱい（4 並列）に飽和させた `BenchmarkHashSaturated`：1073.526 / 961.919 / 875.585 ms、中央値 **961.919 ms**。4 件を同時に計算し終えるまでの時間で、競合時のハッシュ 1 回の所要時間にあたる。1 回あたりの確保量は約 512 MiB（4 × 128 MiB）
 - 64 MiB では反復 2〜10 の全候補が 200 ms 未満だったため、次の 128 MiB を評価した。128 MiB の目標内の候補では反復 9 が 300 ms に最も近いため採用した
 
@@ -183,6 +202,14 @@ h, err := password.New(params) // (*password.Hasher, error)
 | 8 | 129.069 | 273.917 |
 | 9 | 143.897 | 313.139 |
 | 10 | 162.180 | 349.729 |
+
+#### 型付き API 移行後の再測定（2026-10-19）
+
+環境は上記と同じ WSL Ubuntu 24.04、Go 1.27.2、linux/amd64、`CGO_ENABLED=0`、Intel Core i7-12700、`GOMAXPROCS=4`。v0.10 の型付き API で、`ParsePassword` は計測外に置いた。
+
+- 既定値（128 MiB・反復 9・並列 2）の `BenchmarkHash`：358.733 / 399.144 / 351.600 ms、中央値 **358.733 ms**。目標の 200〜500 ms 内であり、既定パラメータは変更しない
+- 測定コマンド：`CGO_ENABLED=0 go test -run=^$ -bench=^BenchmarkHash$ -benchmem -count=3 ./internal/password`
+- 2026-10-18 の文字列 API の結果は正規化も計測内に含む。今回の測定は解析済みの `Password` を渡すため、測定範囲を区別して記録する
 
 ## 5. データベース
 
@@ -258,7 +285,7 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 | 状況 | ステータス |
 |---|---|
 | JSON 不正 | 400 |
-| 認証失敗（ユーザー不在・パスワード不一致・最大長超過・ログイン時のメールアドレス形式不正を区別しない） | 401 |
+| 認証失敗（ユーザー不在・パスワード不一致・ログイン時のパスワード解析失敗（最大長超過・不正な UTF-8）・ログイン時のメールアドレス形式不正を区別しない） | 401 |
 | メールアドレス重複 | 409 |
 | ボディ上限（16 KiB）超過 | 413 |
 | パスワードポリシー違反、登録時のメールアドレス形式不正 | 422 |
@@ -271,13 +298,16 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 
 ### 6.4 ログインの振る舞い
 
+登録・ログインの入口では `ParsePassword` を 1 回呼ぶ。解析失敗は登録時に `ErrWeakPassword`（422）、ログイン時に `ErrInvalidCredentials`（401）へ変換する。ログインの解析失敗ではユーザー検索や暗号計算を行わず、存在の有無を問わず同じ認証失敗を返す。登録の Hash で最小長に違反した場合も `ErrWeakPassword` とする。
+
 1. メールアドレスを正規化してユーザーを検索する
    - 形式が不正な場合は 422 にせず、ユーザー不在と同じ扱いにする（2 へ進む）。形式チェックだけ速く返すと応答時間がずれるため
 2. ユーザーが存在しなければ、**ダミーハッシュ**に対して Verify を実行し、応答時間を揃える
-   - ダミーハッシュは**起動時に現行パラメータで生成**する（ポリシーを満たすランダムな文字列を `Hash` する）。古いパラメータのダミーを使うと、存在しないユーザーの方が応答が速くなり、列挙対策が崩れる。逆に、パラメータを引き上げた後は、まだ再ハッシュされていない既存ユーザーが旧パラメータで検証されるため、ダミーより速く応答する（7 章の既知の制限）
-   - 保存済みハッシュが不正（`ErrInvalidHash`）な場合も、ダミーハッシュに対して Verify を実行して応答時間を揃え、`slog` でエラーを出して 401 にする（ハッシュはログに出さない）。即座に失敗を返すと、応答時間から壊れた行の存在が分かるため
+   - ダミーハッシュは**起動時に現行パラメータで生成**する（ポリシーを満たすランダムな文字列を `ParsePassword` で解析して `Hash` し、`EncodedHash` として保持する）。古いパラメータのダミーを使うと、存在しないユーザーの方が応答が速くなり、列挙対策が崩れる。逆に、パラメータを引き上げた後は、まだ再ハッシュされていない既存ユーザーが旧パラメータで検証されるため、ダミーより速く応答する（7 章の既知の制限）
+   - 保存済みの PHC は auth で `ParseEncodedHash` を 1 回呼び、以降の Verify と NeedsRehash で同じ値を使う。解析失敗（`ErrInvalidHash`）ではダミーハッシュに対して Verify を実行して応答時間を揃え、`slog` でエラーを出して 401 にする（ハッシュはログに出さない）。即座に失敗を返すと、応答時間から壊れた行の存在が分かるため。このダミー検証が `ErrBusy` で失敗した場合は、通常のログインと同じく `ErrBusy`（503）を返す。負荷時は存在するユーザーでも同じ 503 になるため、応答から行の存在は分からない。PHC 異常の記録は auth の 1 回だけとし、`ErrBusy` は別の障害として 6.5 の規則で扱う
 3. 失敗時のメッセージは、原因を問わず「メールアドレスまたはパスワードが正しくありません」に統一する
 4. 成功時に `NeedsRehash` が true なら、再ハッシュして `password_credentials` を更新する
+   - 解析済みの同じ `Password` を `Rehash` に渡す。`Rehash` は最小長を検査しないため、短い既存パスワードも移行できる。生成した `EncodedHash` は `PHC()` で文字列へ変換して保存する。登録時は `Hash` で同じ手順で保存し、UserStore の文字列の契約は維持する
    - 再ハッシュや保存に失敗しても認証自体は成功しているため、`slog` で警告を出して 200 を返す。次回ログイン時に再試行される
 
 ### 6.5 横断的な要件
@@ -289,6 +319,8 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 | ボディ上限 | 16 KiB（`http.MaxBytesReader`） |
 | サーバータイムアウト | 6.6 の値を設定 |
 | 設定 | 環境変数 `DATABASE_PATH`（必須。未設定なら起動エラー）、`PORT`（任意、既定 8080） |
+
+通常の予期しないエラーは httpapi で 1 回だけログに出す。6.4 の再ハッシュ失敗と保存済み PHC 異常は auth で記録する例外とし、httpapi は成功または通常の認証失敗として扱って重複記録しない。
 
 ### 6.6 サーバータイムアウト
 
@@ -344,14 +376,14 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 |---|---|---|---|
 | 1 | モジュールパスとフォルダ名 | どちらも `auth-server`。フォルダは改名済み | 3 章 |
 | 2 | password の API の形 | `password.New(Params) (*Hasher, error)` で設定を検証し、メソッドで提供 | 4.4 |
-| 3 | ログイン時のポリシー適用 | 最小長は検査しない。NFKC 正規化と最大長のみ | 4.4 |
+| 3 | ログイン時のポリシー適用 | ParsePassword で NFKC 正規化・UTF-8・最大長を検査し、Verify では最小長を検査しない | 4.4 |
 | 4 | 文字数の数え方 | NFKC 正規化後の Unicode コードポイント数 | 4.5 |
 | 5 | セマフォ待機タイムアウト | 5 秒（設定可能）。タイムアウト時は 503 | 4.2、4.6、6.2 |
 | 6 | エラー時のステータス | JSON 不正 400、ポリシー違反 422、ボディ上限超過 413 | 6.2 |
 | 7 | メールアドレスの形式チェック | `net/mail.ParseAddress` で解析でき、表示名を含まない | 6.3 |
 | 8 | UUID の生成元 | アプリ側で `github.com/google/uuid` の v4 | 5.2 |
 | 9 | テスト方法 | DB は `t.TempDir()` の SQLite、auth と API は偽 `UserStore` | 5.5、6.7 |
-| 10 | 不正な PHC の `NeedsRehash` | `true` を返す | 4.4 |
+| 10 | 不正な PHC と `NeedsRehash` | ParseEncodedHash が解析エラーを返す。NeedsRehash は非正規の表記で `true`、EncodedHash のゼロ値で `false` を返す | 4.4 |
 | 11 | `DATABASE_PATH` 未設定 | 起動エラー | 6.5 |
 | 12 | ログイン時のメールアドレス形式不正 | ユーザー不在と同じ扱い（ダミー Verify → 401） | 6.2、6.4 |
 | 13 | ログイン時の再ハッシュ失敗 | 警告ログを出して 200 | 6.4 |
@@ -359,6 +391,8 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 
 ## 変更履歴
 
+- v0.11：コードレビューの指摘を反映。両型に `fmt.Formatter` を実装し、秘密を関数値の奥に置いて、全書式と非公開フィールドでの伏字を保証。`Password` を `==` で比較できないようにした。ゼロ値の `Password` は `ErrInvalidPassword` に分離。最小長を検査しない `Rehash` を追加し、短い既存パスワードも再ハッシュできるようにした。`NeedsRehash` は非正規の表記で `true`、ゼロ値と無効な `Hasher` で `false` に変更。nil の `Hasher` をゼロ値と同じく扱う。6.2 の 401 に不正な UTF-8 を追記し、6.4 に保存済み PHC 異常時のダミー検証が `ErrBusy` になった場合の扱いを追記
+- v0.10：Go のコーディング方針を文書化。`Password`・`EncodedHash` と公開コンストラクタを導入し、Hash・Verify・NeedsRehash を型付き API に変更。正規化と入力検証を境界へ移し、ゼロ値・伏字・明示的な PHC 取得の契約を確定。auth のエラー変換と保存処理を追随させ、ログ記録の例外とベンチマークの測定範囲を明記
 - v0.9：コードレビューの指摘を反映。生成設定のソルト長の下限を 16 バイトに変更。PHC の先頭が 0 の値と、不正な UTF-8 のパスワードを拒否。ゼロ値の `Hasher` は `ErrInvalidParams`、`ctx` による打ち切りの `ErrBusy` は `ctx.Err()` も包むよう変更。4.6 の制限を枠数として書き直し、メモリの最悪値を明記。保存済みハッシュ不正時のログインの扱いを追記。6.6 の見積もりを再ハッシュ込みに直し、`WriteTimeout` を 30 秒に変更。ベンチマークに飽和時と候補の計測を追加し、飽和時の測定結果を記録。既知の制限（パラメータ引き上げ後の応答時間差、未割り当て文字の正規化）を追記
 - v0.8：password の設定構造体と `DefaultParams()`、設定検証・エラーを確定。`New` に error を追加。生成設定と PHC の固定範囲、PHC の解析規則、再ハッシュ比較項目、キャンセルとセマフォ解放、性能調整の手順と測定結果を追記。採用値を 128 MiB・反復 9・並列 2 に調整
 - v0.7：architecture.md（3 層構成）に合わせ、ディレクトリ構成に `internal/auth` を追加。テスト方針と作業手順を auth 層前提に修正

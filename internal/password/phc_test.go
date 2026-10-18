@@ -17,36 +17,44 @@ func TestEncodeHash(t *testing.T) {
 	}
 }
 
-func TestParseHash(t *testing.T) {
-	got, err := parseHash(fixturePHC)
+func TestParseEncodedHashFixture(t *testing.T) {
+	got, err := ParseEncodedHash(fixturePHC)
 	if err != nil {
-		t.Fatalf("parseHash() error = %v", err)
+		t.Fatalf("ParseEncodedHash() error = %v", err)
 	}
 	want := Params{MemoryKiB: 64, Iterations: 1, Parallelism: 1, SaltLength: 16, KeyLength: 32}
-	if got.params != want {
-		t.Fatalf("parsed parameters = %+v, want %+v", got.params, want)
+	decoded := got.hash().decoded
+	if decoded.params != want {
+		t.Fatalf("parsed parameters = %+v, want %+v", decoded.params, want)
 	}
-	if !bytes.Equal(got.salt, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}) ||
-		!bytes.Equal(got.key, make([]byte, 32)) {
+	if !bytes.Equal(decoded.salt, []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}) ||
+		!bytes.Equal(decoded.key, make([]byte, 32)) {
 		t.Fatal("parsed bytes do not match the fixed fixture")
+	}
+	if encoded, err := got.PHC(); err != nil || encoded != fixturePHC {
+		t.Fatalf("PHC() did not preserve the fixture: %v", err)
 	}
 }
 
-func TestParseHashAcceptsParameterOrder(t *testing.T) {
+func TestParseEncodedHashAcceptsParameterOrder(t *testing.T) {
 	for _, cost := range []string{
 		"m=64,t=1,p=1", "m=64,p=1,t=1", "t=1,m=64,p=1",
 		"t=1,p=1,m=64", "p=1,m=64,t=1", "p=1,t=1,m=64",
 	} {
 		t.Run(cost, func(t *testing.T) {
 			encoded := strings.Replace(fixturePHC, "m=64,t=1,p=1", cost, 1)
-			if _, err := parseHash(encoded); err != nil {
+			got, err := ParseEncodedHash(encoded)
+			if err != nil {
 				t.Fatalf("valid parameter order rejected: %v", err)
+			}
+			if preserved, err := got.PHC(); err != nil || preserved != encoded {
+				t.Fatalf("PHC() did not preserve the parameter order: %v", err)
 			}
 		})
 	}
 }
 
-func TestParseHashAcceptsBounds(t *testing.T) {
+func TestParseEncodedHashAcceptsBounds(t *testing.T) {
 	tests := []struct {
 		name string
 		cost string
@@ -60,14 +68,18 @@ func TestParseHashAcceptsBounds(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			encoded := "$argon2id$v=19$" + tt.cost + "$" + tt.salt + "$" + tt.key
-			if _, err := parseHash(encoded); err != nil {
+			got, err := ParseEncodedHash(encoded)
+			if err != nil {
 				t.Fatalf("valid parameter bounds rejected: %v", err)
+			}
+			if preserved, err := got.PHC(); err != nil || preserved != encoded {
+				t.Fatalf("PHC() did not preserve the accepted input: %v", err)
 			}
 		})
 	}
 }
 
-func TestParseHashRejectsInvalidPHC(t *testing.T) {
+func TestParseEncodedHashRejectsInvalidPHC(t *testing.T) {
 	parts := strings.Split(fixturePHC, "$")
 	withCost := func(cost string) string {
 		return "$argon2id$v=19$" + cost + "$" + parts[4] + "$" + parts[5]
@@ -139,12 +151,18 @@ func TestParseHashRejectsInvalidPHC(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := parseHash(tt.encoded)
+			got, err := ParseEncodedHash(tt.encoded)
 			if !errors.Is(err, ErrInvalidHash) {
 				t.Fatalf("got error %v, want ErrInvalidHash", err)
 			}
+			if !got.isZero() {
+				t.Fatal("failed parsing returned an initialized encoded hash")
+			}
 			if tt.encoded != "" && strings.Contains(err.Error(), tt.encoded) {
 				t.Fatal("error contains the PHC input")
+			}
+			if preserved, err := got.PHC(); preserved != "" || !errors.Is(err, ErrInvalidHash) {
+				t.Fatalf("PHC() after failed parsing error = %v, want empty string and ErrInvalidHash", err)
 			}
 		})
 	}
