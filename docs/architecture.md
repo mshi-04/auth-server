@@ -102,12 +102,13 @@ type Credential struct {
 | `ErrInvalidCredentials` | ログイン失敗（原因を区別しない） | 401 |
 | `ErrBusy` | ハッシュのセマフォ待機タイムアウト | 503 |
 | `ErrUserNotFound` | `UserStore` が返す。`Login` の中で `ErrInvalidCredentials` に変換し、外へは出さない | — |
+| `password.ErrInvalidHash` | 保存済みハッシュが壊れているときに `Verify` が返す。`Login` の中でダミーハッシュの Verify を実行して応答時間を揃え、エラーログを出して `ErrInvalidCredentials` に変換する | — |
 
 ## テスト
 
 | 対象 | 方法 |
 |---|---|
-| `password` | 単体テスト。ベンチマークは初期値のパラメータで計測し、それ以外は小さいパラメータで実行する |
+| `password` | 単体テスト。ベンチマークは既定のパラメータ（`BenchmarkHash`、`BenchmarkHashSaturated`）と性能調整の候補（`BenchmarkHashCandidates`）で計測し、それ以外は小さいパラメータで実行する。初期値と性能調整後の測定結果は design.md に記録する |
 | `auth` | メモリ上の偽 `UserStore` と、小さいパラメータの本物の `password.Hasher` で実行する。ダミーハッシュの経路、再ハッシュ、再ハッシュの保存失敗、エラーの統一をここで検証する |
 | `store/sqlite` | `t.TempDir()` に SQLite ファイルを作り、毎回まっさらな DB で実行する |
 | `httpapi` | `httptest` と、本物の `auth.Service`（偽 `UserStore`）で実行する。ステータスコードと Problem Details の形を検証する |
