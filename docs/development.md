@@ -5,13 +5,15 @@
 ## 開発環境
 
 - Go は WSL（ディストリビューション名 `Ubuntu-24.04`）にだけ入っている。Windows 側には無い
-- ソースは Windows 側の `C:\Users\masato\repos\auth-server` に置く。WSL からは `/mnt/c/Users/masato/repos/auth-server` で見える
+- ソースは Windows 側のフォルダ（例：`C:\Users\<ユーザー名>\repos\auth-server`）に置く。WSL からは `/mnt/c/Users/<ユーザー名>/repos/auth-server` で見える
 - Go のモジュールキャッシュは WSL 側（`~/go`）に置かれる
 
 ### Windows から Go のコマンドを実行する
 
+Windows 側のリポジトリのルートで実行する。wsl.exe は呼び出し元のフォルダを WSL のパスに変換して作業ディレクトリにするため、`cd` は要らない。
+
 ```
-wsl -d Ubuntu-24.04 --exec bash -lc 'cd /mnt/c/Users/masato/repos/auth-server && go test ./...'
+wsl -d Ubuntu-24.04 --exec bash -lc 'go test ./...'
 ```
 
 - `--exec` を必ず付ける。付けないと wsl.exe が外側のシェルでコマンドを解釈し、`$VAR` が bash に渡る前に空へ展開される
