@@ -1,4 +1,4 @@
-# 認証基盤バックエンド 設計書（学習用 v0.6）
+# 認証基盤バックエンド 設計書（学習用 v0.7）
 
 ## 1. 目的
 
@@ -20,16 +20,19 @@ JWT・リフレッシュトークン、ペッパー、メール確認、パス�
 
 Go のモジュールパスは `auth-server`。プロジェクトのフォルダ名も `auth-server`（旧フォルダ名 `auth-sever` から改名済み）。
 
+パッケージの責務と依存の向きは [architecture.md](architecture.md) を正本とする。
+
 ```
 auth-server/
 ├── cmd/authd/              # エントリポイント
 ├── internal/
 │   ├── config/             # 環境変数（DATABASE_PATH、PORT）
+│   ├── httpapi/            # ハンドラ、ミドルウェア、Problem Details
+│   ├── auth/               # 登録とログインの処理
 │   ├── password/           # Argon2id とパスワードポリシー
-│   ├── store/sqlite/       # SQLite による永続化（init.sql を埋め込んで起動時に実行）
-│   └── httpapi/            # ハンドラ、ミドルウェア、Problem Details
+│   └── store/sqlite/       # SQLite による永続化（init.sql を埋め込んで起動時に実行）
 ├── db/init.sql             # テーブル作成（マイグレーションツールは使わない）
-├── docs/design.md
+├── docs/                   # design.md、architecture.md など
 └── README.md
 ```
 
@@ -229,7 +232,9 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 
 ### 6.7 テスト
 
-- ハンドラのテストはメモリ上の偽 Repository で行う（`httptest` を使用）
+- 登録とログインの処理（ダミーハッシュの経路、再ハッシュ、エラーの統一）は、`auth` のテストで偽 `UserStore` を使って検証する
+- ハンドラのテストは `httptest` で行い、ステータスコードと Problem Details の形を検証する
+- パッケージごとのテスト方法は [architecture.md](architecture.md) の「テスト」を参照
 
 ## 7. 既知の制限（README に明記する）
 
@@ -255,7 +260,7 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 1. ファイル構成と作業手順を提示して確認を取る
 2. password パッケージを実装し、テストとベンチマークを通す
 3. DB（init.sql、store/sqlite）を実装し、テストを通す
-4. API を実装し、テストを通す
+4. auth と API（httpapi）を実装し、テストを通す
 5. README を書き、完了条件を確認する
 
 各段階でテストが通ってから次へ進む。不明点や本書と矛盾する点があれば、推測で進めず質問する。
@@ -272,7 +277,7 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 | 6 | エラー時のステータス | JSON 不正 400、ポリシー違反 422、ボディ上限超過 413 | 6.2 |
 | 7 | メールアドレスの形式チェック | `net/mail.ParseAddress` で解析でき、表示名を含まない | 6.3 |
 | 8 | UUID の生成元 | アプリ側で `github.com/google/uuid` の v4 | 5.2 |
-| 9 | テスト方法 | DB は `t.TempDir()` の SQLite、API は偽 Repository | 5.5、6.7 |
+| 9 | テスト方法 | DB は `t.TempDir()` の SQLite、auth と API は偽 `UserStore` | 5.5、6.7 |
 | 10 | 不正な PHC の `NeedsRehash` | `true` を返す | 4.4 |
 | 11 | `DATABASE_PATH` 未設定 | 起動エラー | 6.5 |
 | 12 | ログイン時のメールアドレス形式不正 | ユーザー不在と同じ扱い（ダミー Verify → 401） | 6.2、6.4 |
@@ -281,5 +286,6 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 
 ## 変更履歴
 
+- v0.7：architecture.md（3 層構成）に合わせ、ディレクトリ構成に `internal/auth` を追加。テスト方針と作業手順を auth 層前提に修正
 - v0.6：ログイン時のメールアドレス形式不正を 401 に統一。再ハッシュ失敗時の扱いを追記。サーバータイムアウト値を確定（6.6）。フォルダ改名済みを反映
 - v0.5：Hash の処理順を「正規化 → ポリシー検査」に修正。Verify にも NFKC 正規化と最大長検査を追加。PRAGMA を DSN 指定に変更し `_txlock=immediate` を追加。ダミーハッシュを起動時に現行パラメータで生成する旨を追記。未決事項を確定し本文に反映。フォルダ名を `auth-server` に統一
