@@ -66,6 +66,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (userID str
 - ストアから取得した PHC は `password.ParseEncodedHash` で 1 回解析し、Verify と NeedsRehash に同じ `password.EncodedHash` を渡す。再ハッシュでは解析済みの Password を `Rehash` に渡す（最小長を検査しないため、短い既存パスワードも移行できる）
 - 登録・再ハッシュの保存時は `EncodedHash.PHC()` を明示的に呼ぶ。UserStore と入出力用構造体の文字列は維持し、httpapi は password を直接使わない
 - `Login` で再ハッシュの保存に失敗しても、警告ログを出して成功として返す
+- `NewService` は nil の依存を拒否する。Service と HTTP ハンドラはコンストラクタで有効な依存を渡して生成した値だけを使い、Service の nil・ゼロ値は扱わない
 - 予期しない返却エラーは通常 httpapi でログに出す。再ハッシュ失敗と保存済み PHC 異常は auth で記録し、httpapi は成功・通常の認証失敗として重複記録しない
 
 ### UserStore
@@ -108,6 +109,36 @@ type Credential struct {
 | `ErrUserNotFound` | `UserStore` の検索・ハッシュ更新で対象がない場合に返す。`Login` の検索では `ErrInvalidCredentials` に変換し、再ハッシュ保存では警告して成功を返す | — |
 | `password.ErrInvalidHash` | 保存済みハッシュが壊れているときに `ParseEncodedHash` が返す。`Login` の中でダミーハッシュの Verify を実行して応答時間を揃え、エラーログを出して `ErrInvalidCredentials` に変換する | — |
 | `password.ErrInvalidParams`・`password.ErrInvalidPassword` | 組み立てやゼロ値の誤用というプログラムの誤り。`auth` は利用者向けのエラーに変換せず、文脈を付けて包んで返す。`httpapi` は予期しないエラーとして 500 にし、ログに出す | 500 |
+
+## httpapi パッケージ
+
+```go
+func NewHandler(service *auth.Service, logger *slog.Logger) http.Handler
+```
+
+- 標準 ServeMux で 3 つのエンドポイントと 404・405 を処理する。有効な Service と logger を渡して生成する
+- 入力・応答・エラー形式は design.md 6.1 に従う。入力検証は HTTP の形式に限り、メール・パスワードの意味的な検証は auth に任せる
+- httpapi は password や SQLite を直接参照しない
+
+## config パッケージ
+
+```go
+type Config struct {
+    DatabasePath string
+    Port         int
+}
+
+func Load() (Config, error)
+```
+
+- 環境変数を読み、design.md 6.5 に従って検証する。DatabasePath は絶対パスで返す。リンク解決は /mnt/c の検査に使い、保存層に渡すパス自体のリンクは隠さない
+- config はファイル・ディレクトリを作成せず、保存層の権限検査を繰り返さない
+
+## cmd/authd
+
+- JSON ロガー、config、SQLite、既定の Hasher、Service、Handler を組み立てる
+- 設定・DB・認証の初期化に失敗したらサーバーを起動しない。DB の所有者として起動失敗時と終了時に Close する
+- サーバーのタイムアウトと終了処理は design.md 6.5・6.6 に従う
 
 ## store/sqlite パッケージ
 
