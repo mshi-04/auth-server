@@ -5,6 +5,8 @@ on:
     branches: [develop, main]
   pull_request:
     branches: [develop, main]
+    paths-ignore:
+      - '**.md'
   schedule:
     - cron: '17 3 * * 1'
   workflow_dispatch:
@@ -50,3 +52,4 @@ jobs:
         uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           category: /language:go
+          upload: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'always' || 'never' }}

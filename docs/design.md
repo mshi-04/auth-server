@@ -12,7 +12,7 @@
 2. 登録・ログイン API（`POST /v1/users`、`POST /v1/sessions`、`GET /healthz`）
 3. SQLite のテーブル 2 つ（`users`、`password_credentials`）
 4. GitHub Actions による CI（全パッケージのテスト、レース検出、Lint、カバレッジレポート、CodeQL による Go のセキュリティ解析）
-5. Dependabot による Go モジュールと GitHub Actions の依存更新（更新 PR のマージ先は常に `develop`）
+5. Dependabot による Go モジュールと GitHub Actions の依存更新
 
 ### 実装しないもの
 
@@ -380,7 +380,7 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 - `go vet ./...` と `go test ./...` が通る
 - GitHub Actions の CI（`.github/workflows/ci.yml`）で Lint・全テスト・レース検出・カバレッジレポートが通る。同じリポジトリの PR ではカバレッジ用のコメントを 1 件作り、Coverage ジョブの再実行時に更新する。実行条件と出力は development.md の「CI」を正本とする
 - CodeQL（`.github/workflows/codeql.yml`）で Go の解析と結果のアップロードが成功する。実行条件と出力は development.md の「CI」を正本とする
-- Dependabot（`.github/dependabot.yml`）が Go モジュールと GitHub Actions を定期確認し、更新 PR を `develop` 向けに作成する。`main` 向けの自動セキュリティ更新 PR は無効にし、脆弱性の通知は有効のままにする。設定と運用は development.md の「依存関係の更新」を正本とする
+- Dependabot（`.github/dependabot.yml`）の設定が `main` に入った後、development.md の「依存関係の更新」にある設定の確認を行い、最初の更新 PR が作られることを確認する。設定と運用は development.md の「依存関係の更新」を正本とする
 - `go test -bench=. ./internal/password` でハッシュ 1 回の所要時間が出る
 - README に起動手順、curl による登録・ログイン例、Android エミュレータからの接続先と cleartext 通信の注意がある
 
@@ -392,7 +392,7 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 4. auth と API（httpapi）を実装し、テストを通す
 5. README を書き、完了条件を確認する
 
-CI は 2 の完了後に、ほかの段階と並行して導入する。導入後は、各段階で CI も通ってから次へ進む。
+CI は 2 の完了後に、ほかの段階と並行して導入する。導入後は、各段階で CI と CodeQL も通ってから次へ進む。Dependabot は設定が `main` に入った後に、9 章の完了条件で動作を確認する。
 
 各段階でテストが通ってから次へ進む。不明点や本書と矛盾する点があれば、推測で進めず質問する。
 
@@ -418,8 +418,8 @@ CI は 2 の完了後に、ほかの段階と並行して導入する。導入�
 
 ## 変更履歴
 
-- v0.18：Dependabot による Go モジュールと GitHub Actions の週次更新を追加し、すべての更新 PR を `develop` 向けに固定。GitHub の自動セキュリティ更新 PR は既定ブランチの `main` 向けにしか作成できないため無効にし、脆弱性の通知は維持する
-- v0.17：Go の CodeQL 解析を CI のスコープと完了条件に追加。既存の 4 ジョブから独立したワークフローで PR・push・週次・手動の解析を行い、結果を GitHub code scanning にアップロードする
+- v0.18：Dependabot による依存更新をスコープ、完了条件、作業手順に追加。設定と運用は development.md の「依存関係の更新」を正本とする
+- v0.17：Go の CodeQL 解析をスコープ、完了条件、作業手順に追加。実行条件と出力は development.md の「CI」を正本とする
 - v0.16：同じリポジトリの PR にカバレッジコメントを表示し、Coverage ジョブの実行ごとに同じコメントを更新する。計測に失敗した場合は失敗表示に更新し、古い実行結果で新しい結果を上書きしない。実行サマリーと artifact の保存も継続する
 - v0.15：GitHub Actions による CI（Lint、全テスト、レース検出、カバレッジレポート）をスコープ、完了条件、作業手順に追加。実行条件と出力は development.md の「CI」を正本とする。v0.13 は `feature/ci` で仮に使っていた番号で、`develop` へのマージ順に合わせて振り直したため欠番
 - v0.14：PR #6 のレビューを反映。SQLite 接続前に親ディレクトリと既存 DB・関連ファイルの所有者と権限を検査し、シンボリックリンクを拒否する。新規 DB は `0600` で排他的に作成し、既存の権限やプロセス全体の umask は自動変更しない。初回接続の `SQLITE_BUSY` では接続プールを破棄し、10ms 間隔・開始期限 5 秒・`ctx` の取り消しに従って再試行する。ドライバのロック待機中は取り消せない制限も明記

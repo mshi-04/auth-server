@@ -66,17 +66,21 @@ Test と Coverage はそれぞれ別にテストを実行し、キャッシュ�
 
 ### CodeQL
 
-- `develop`・`main` 向けの PR と両ブランチへの push 時に Go を解析する。手動実行にも対応する。毎週月曜 03:17 UTC（日本時間 12:17）には既定ブランチの `main` を解析する。定期・手動実行はワークフローが `main` に入ってから利用できる
+- `develop`・`main` 向けの PR と両ブランチへの push 時に Go を解析する。手動実行にも対応する。毎週月曜 03:17 UTC（日本時間 12:17）には既定ブランチの `main` を解析する。定期・手動実行はワークフローが `main` に入ってから利用できる。public リポジトリでは 60 日間活動がないと定期実行が自動で無効になるため、止まっていたら Actions 画面で有効にし直す
+- Markdown ファイルだけを変える PR では実行しない（`paths-ignore`）。CodeQL を必須チェックにする場合は、この除外で PR がチェック待ちのまま止まらないか見直す
 - Ubuntu 24.04、`CGO_ENABLED=0` で、共通の Go セットアップを使う。CodeQL 初期化後に `build-mode: manual` で `go build ./...` を実行する。クエリは `security-extended` を使い、Go の本番コードを対象にする（テストコードは既定で解析対象外）
-- 解析結果は GitHub code scanning にアップロードし、PR のチェックとリポジトリのセキュリティ画面で確認する。結果のアップロード用に `security-events: write` を CodeQL ジョブだけに付与し、リポジトリの内容は `contents: read` で読み取る
+- 解析結果は GitHub code scanning にアップロードし、PR のチェックとリポジトリのセキュリティ画面で確認する。結果のアップロード用に `security-events: write` を CodeQL ジョブだけに付与し、リポジトリの内容は `contents: read` で読み取る。fork からの PR はトークンが読み取り専用になるため、解析だけ行い結果はアップロードしない
 - 制限時間は 20 分。同じ PR の古い実行は取り消し、push・定期・手動の実行中ジョブは取り消さない。Lint・Test・Coverage・Race との依存は設けない
 
 ## 依存関係の更新
 
 - `.github/dependabot.yml` で Go モジュール（`gomod`）と GitHub Actions（`github-actions`）を毎週月曜 09:00（`Asia/Tokyo`）に確認する。すべての設定に `target-branch: develop` を指定し、`develop` 上の依存情報を調べ、更新 PR のマージ先も `develop` に固定する
+- 更新はエコシステムごとに 1 件の PR にまとめる（`groups`）
 - Go モジュールはルートの `go.mod`・`go.sum`、GitHub Actions は `.github/workflows/` と `.github/actions/setup-go/action.yml` を対象にする。共通アクション内の依存も更新できるよう、GitHub Actions の確認先に `/` と `/.github/actions/setup-go` を指定する
 - Dependabot は既定ブランチの設定ファイルを読むため、定期更新はこの設定が `main` に入ってから有効になる。設定ファイルの配置先と、更新 PR のマージ先の `develop` は異なる
-- GitHub の自動セキュリティ更新 PR は `target-branch` に従わず既定ブランチの `main` 向けになるため、リポジトリ設定で無効にする。Dependabot alerts（脆弱性の通知）は有効のまま残し、通知された脆弱性の対応も `develop` 向けの PR で行う。[GitHub の target-branch 仕様](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch)を参照
+- GitHub の自動セキュリティ更新 PR は `target-branch` に従わず既定ブランチの `main` 向けになるため、リポジトリ設定で無効にする。Dependabot alerts（脆弱性の通知）は有効のまま残す。[GitHub の target-branch 仕様](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch)を参照
+- 通知された脆弱性は、修正 PR を手で `develop` 向けに作るか、週次の更新 PR で直す。通知は `main` の依存関係から計算されるため、修正が `main` に入るまで通知は残り、`main` には脆弱な版が残る。急ぐ場合は、修正後すぐに `develop` を `main` へマージする
+- 設定の確認：自動セキュリティ更新が無効で通知が有効であることを、`gh api repos/mshi-04/auth-server/automated-security-fixes`（`"enabled":false`）と `gh api -i repos/mshi-04/auth-server/vulnerability-alerts`（`204`）で確かめる。この設定と `dependabot.yml` が `main` に入った後、最初の週次更新で `develop` 向けの PR が作られることを確認する
 
 ## 環境変数
 
