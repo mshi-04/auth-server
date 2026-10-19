@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint-and-test:
-    name: Lint and test
+  lint:
+    name: Lint
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -47,15 +47,45 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Test
+        run: go test -count=1 ./...
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
       - name: Test with coverage
         run: |
           mkdir -p coverage
           go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage/coverage.out ./...
-
-      - name: Test password package with race detector
-        env:
-          CGO_ENABLED: '1'
-        run: go test -count=1 -race ./internal/password
 
       - name: Create coverage reports
         shell: bash
@@ -76,3 +106,24 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           overwrite: true
+
+  race:
+    name: Race
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CGO_ENABLED: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Test password package with race detector
+        run: go test -count=1 -race ./internal/password

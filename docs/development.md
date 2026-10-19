@@ -40,26 +40,24 @@ WSL 上のリポジトリのルートで実行する。
 
 ## CI
 
-CI の実行条件と出力はこの節を正本とする。GitHub Actions の `.github/workflows/ci.yml` で、`develop`・`main` 向けの PR と両ブランチへの push 時に、1 つのジョブ（Lint and test）で次を順に実行する。
+CI の実行条件と出力はこの節を正本とする。GitHub Actions の `.github/workflows/ci.yml` で、`develop`・`main` 向けの PR と両ブランチへの push 時に、次の 4 ジョブを独立して並行実行する。ジョブ間の依存は設けず、それぞれの結果を PR のチェックとして表示する。
 
-| 段階 | 内容 |
+| ジョブ | 内容 |
 |---|---|
-| 整形確認 | `gofmt -l .`（ファイルは書き換えない） |
-| go.mod の整理確認 | `go mod tidy -diff` |
-| 静的検査 | `go vet ./...` |
-| テストとカバレッジ | `go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage/coverage.out ./...` |
-| レース検出 | `CGO_ENABLED=1 go test -count=1 -race ./internal/password` |
-| レポート | カバレッジレポートの生成・保存 |
+| Lint | `gofmt -l .` による整形確認（ファイルは書き換えない）、`go mod tidy -diff`、`go vet ./...` |
+| Test | `go test -count=1 ./...` |
+| Coverage | `go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage/coverage.out ./...` とカバレッジレポートの生成・保存 |
+| Race | `CGO_ENABLED=1 go test -count=1 -race ./internal/password` |
 
-テストはキャッシュ済みの結果を使わず実行する。全パッケージをカバレッジの計測対象にし、テストのないパッケージのコードも集計に含める。
+Test と Coverage はそれぞれ別にテストを実行し、キャッシュ済みの結果を使わない。Coverage は全パッケージを計測対象にし、テストのないパッケージのコードも集計に含める。
 
 - 合計カバレッジは GitHub Actions の実行サマリーに表示する
-- テスト成功時に `coverage-report` artifact を 14 日間保存する。`coverage.html` はブラウザでソース行ごとの実行状況を確認でき、`coverage.txt` は関数別一覧、`coverage.out` は Go 標準の計測データ。再実行時は同名の artifact を上書きする
+- Coverage ジョブのテスト成功時に `coverage-report` artifact を 14 日間保存する。`coverage.html` はブラウザでソース行ごとの実行状況を確認でき、`coverage.txt` は関数別一覧、`coverage.out` は Go 標準の計測データ。再実行時は同名の artifact を上書きする
 - ローカルで同じコマンドを実行するときも、先に `mkdir -p coverage` を行う。`go tool cover -func=coverage/coverage.out` で関数別一覧を、`go tool cover -html=coverage/coverage.out -o coverage/coverage.html` で HTML を生成できる。生成先の `coverage/` は Git の管理対象から外す
 - 実行環境は Ubuntu 24.04、`CGO_ENABLED=0`。Go のバージョンは `go.mod` から読み込む
-- レース検出は cgo が必要なため、この段階だけ `CGO_ENABLED=1` にする。対象は並行処理のテストがある `internal/password` に限る。WSL には gcc が無いため、ローカルでは実行しない
+- レース検出は cgo が必要なため、Race ジョブだけ `CGO_ENABLED=1` にする。対象は並行処理のテストがある `internal/password` に限る。WSL には gcc が無いため、ローカルでは実行しない
 - Go のキャッシュは `go.sum` を基準に再利用する
-- ジョブの制限時間は 15 分。同じ PR で新しい実行が始まったら、古い実行を取り消す。`develop`・`main` への push では実行中の CI を取り消さないが、同じブランチの待機中の実行は新しい push によって置き換わることがある
+- 各ジョブの制限時間は 15 分。同じ PR で新しい実行が始まったら、古い実行を取り消す。`develop`・`main` への push では実行中の CI を取り消さないが、同じブランチの待機中の実行は新しい push によって置き換わることがある
 - 性能測定は WSL で行い、ベンチマークは CI では実行しない
 
 ## 環境変数
