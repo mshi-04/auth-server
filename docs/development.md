@@ -36,6 +36,26 @@ WSL 上のリポジトリのルートで実行する。
 | ベンチマーク（ハッシュ 1 回の所要時間） | `go test -bench=. ./internal/password` |
 | 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db go run ./cmd/authd` |
 
+## CI
+
+GitHub Actions の `.github/workflows/ci.yml` で、`develop`・`main` 向けの PR と両ブランチへの push 時に、次の 2 ジョブを並行して実行する。
+
+| ジョブ | 内容 |
+|---|---|
+| Lint | `gofmt` による Go ファイルの整形確認（ファイルは書き換えない）と `go vet ./...` |
+| Test and coverage | `go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage/coverage.out ./...` とカバレッジレポートの生成・保存 |
+
+テストはキャッシュ済みの結果を使わず実行する。全パッケージをカバレッジの計測対象にし、テストのないパッケージのコードも集計に含める。
+
+- 合計カバレッジは GitHub Actions の実行サマリーに表示する
+- テスト成功時に `coverage-report` artifact を 14 日間保存する。`coverage.html` はブラウザでソース行ごとの実行状況を確認でき、`coverage.txt` は関数別一覧、`coverage.out` は Go 標準の計測データ
+- ローカルで同じコマンドを実行するときも、先に `mkdir -p coverage` を行う。`go tool cover -func=coverage/coverage.out` で関数別一覧を、`go tool cover -html=coverage/coverage.out -o coverage/coverage.html` で HTML を生成できる。生成先の `coverage/` は Git の管理対象から外す
+
+- 実行環境は Ubuntu 24.04、`CGO_ENABLED=0`。Go のバージョンは `go.mod` から読み込む
+- Go のキャッシュは `go.sum` を基準に再利用する
+- 各ジョブの制限時間は 10 分。同じ PR またはブランチの新しい実行が始まったら、古い実行を取り消す
+- 性能測定は WSL で行い、ベンチマークは CI では実行しない
+
 ## 環境変数
 
 | 名前 | 必須 | 既定値 | 内容 |
