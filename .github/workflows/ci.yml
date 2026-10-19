@@ -154,7 +154,7 @@ jobs:
             }
             const lines = [marker, `<!-- auth-server-coverage-run:${runNumber}:${attempt} -->`,
               '## Coverage', '', result, '',
-              `計測コミット: \`${pr.head.sha.slice(0, 7)}\``,
+              `計測コミット: \`${context.sha.slice(0, 7)}\``,
               `[実行ログ #${runNumber}（試行 ${attempt}）](${runURL})`];
             if (process.env.COVERAGE_ARTIFACT_URL) {
               lines.push(`[詳細レポート（artifact）](${process.env.COVERAGE_ARTIFACT_URL})`);
