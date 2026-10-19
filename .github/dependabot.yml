@@ -1,0 +1,28 @@
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    target-branch: develop
+    groups:
+      go-modules:
+        patterns: ['*']
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Tokyo
+
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/setup-go
+    target-branch: develop
+    groups:
+      github-actions:
+        patterns: ['*']
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Tokyo
