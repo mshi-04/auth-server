@@ -88,8 +88,8 @@ jobs:
         run: |
           go tool cover -func=coverage/coverage.out | tee coverage/coverage.txt
           go tool cover -html=coverage/coverage.out -o coverage/coverage.html
-          printf '## Coverage\n\n```text\n%s\n```\n' \
-            "$(tail -n1 coverage/coverage.txt)" >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' '## Coverage' '' '```text' \
+            "$(tail -n1 coverage/coverage.txt)" '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload coverage reports
         id: coverage_artifact
