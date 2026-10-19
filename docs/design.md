@@ -1,4 +1,4 @@
-# 認証基盤バックエンド 設計書（学習用 v0.14）
+# 認証基盤バックエンド 設計書（学習用 v0.18）
 
 ## 1. 目的
 
@@ -11,6 +11,8 @@
 1. `internal/password` パッケージ（ハッシュ化・検証・再ハッシュ判定・パスワードポリシー・同時実行制限）
 2. 登録・ログイン API（`POST /v1/users`、`POST /v1/sessions`、`GET /healthz`）
 3. SQLite のテーブル 2 つ（`users`、`password_credentials`）
+4. GitHub Actions による CI（全パッケージのテスト、レース検出、Lint、カバレッジレポート、CodeQL による Go のセキュリティ解析）
+5. Dependabot による Go モジュールと GitHub Actions の依存更新
 
 ### 実装しないもの
 
@@ -376,6 +378,9 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 ## 9. 完了条件
 
 - `go vet ./...` と `go test ./...` が通る
+- GitHub Actions の CI（`.github/workflows/ci.yml`）で Lint・全テスト・レース検出・カバレッジレポートが通る。同じリポジトリの PR ではカバレッジ用のコメントを 1 件作り、Coverage ジョブの再実行時に更新する。実行条件と出力は development.md の「CI」を正本とする
+- CodeQL（`.github/workflows/codeql.yml`）で Go の解析と結果のアップロードが成功する。実行条件と出力は development.md の「CI」を正本とする
+- Dependabot（`.github/dependabot.yml`）の設定が `main` に入った後、development.md の「依存関係の更新」にある設定の確認を行い、最初の更新 PR が作られることを確認する。設定と運用は development.md の「依存関係の更新」を正本とする
 - `go test -bench=. ./internal/password` でハッシュ 1 回の所要時間が出る
 - README に起動手順、curl による登録・ログイン例、Android エミュレータからの接続先と cleartext 通信の注意がある
 
@@ -386,6 +391,8 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 3. DB（init.sql、store/sqlite）を実装し、テストを通す
 4. auth と API（httpapi）を実装し、テストを通す
 5. README を書き、完了条件を確認する
+
+CI は 2 の完了後に、ほかの段階と並行して導入する。導入後は、各段階で CI と CodeQL も通ってから次へ進む。Dependabot は設定が `main` に入った後に、9 章の完了条件で動作を確認する。
 
 各段階でテストが通ってから次へ進む。不明点や本書と矛盾する点があれば、推測で進めず質問する。
 
@@ -411,6 +418,10 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 
 ## 変更履歴
 
+- v0.18：Dependabot による依存更新をスコープ、完了条件、作業手順に追加。設定と運用は development.md の「依存関係の更新」を正本とする
+- v0.17：Go の CodeQL 解析をスコープ、完了条件、作業手順に追加。実行条件と出力は development.md の「CI」を正本とする
+- v0.16：同じリポジトリの PR にカバレッジコメントを表示し、Coverage ジョブの実行ごとに同じコメントを更新する。計測に失敗した場合は失敗表示に更新し、古い実行結果で新しい結果を上書きしない。実行サマリーと artifact の保存も継続する
+- v0.15：GitHub Actions による CI（Lint、全テスト、レース検出、カバレッジレポート）をスコープ、完了条件、作業手順に追加。実行条件と出力は development.md の「CI」を正本とする。v0.13 は `feature/ci` で仮に使っていた番号で、`develop` へのマージ順に合わせて振り直したため欠番
 - v0.14：PR #6 のレビューを反映。SQLite 接続前に親ディレクトリと既存 DB・関連ファイルの所有者と権限を検査し、シンボリックリンクを拒否する。新規 DB は `0600` で排他的に作成し、既存の権限やプロセス全体の umask は自動変更しない。初回接続の `SQLITE_BUSY` では接続プールを破棄し、10ms 間隔・開始期限 5 秒・`ctx` の取り消しに従って再試行する。ドライバのロック待機中は取り消せない制限も明記
 - v0.12：SQLite 永続化の契約を確定。初期化 SQL を `internal/store/sqlite/init.sql` に配置し、同じパッケージから埋め込む。接続プールの所有と解放、空パスの拒否、親ディレクトリを作成しないこと、パスの URI エスケープを明記。メール重複と ID 重複を区別し、ハッシュ更新時の `changed_at` 更新と対象なしの `ErrUserNotFound` を確定。コードレビューの指摘を反映し、`SQLITE_BUSY` の `auth.ErrBusy`（503）への変換、失敗時に `ctx` のエラーを包むこと、`Open` での WAL の確認、絶対パス化とその理由、Linux 形式のパスの前提、`Store` のゼロ値を扱わないことを追記。接続プールに上限を設けないことと、ロック待ちに関する既知の制限を追記
 - v0.11：コードレビューの指摘を反映。両型に `fmt.Formatter` を実装し、秘密を関数値の奥に置いて、全書式と非公開フィールドでの伏字を保証。`Password` を `==` で比較できないようにした。ゼロ値の `Password` は `ErrInvalidPassword` に分離。最小長を検査しない `Rehash` を追加し、短い既存パスワードも再ハッシュできるようにした。`NeedsRehash` は非正規の表記で `true`、ゼロ値と無効な `Hasher` で `false` に変更。nil の `Hasher` をゼロ値と同じく扱う。6.2 の 401 に不正な UTF-8 を追記し、6.4 に保存済み PHC 異常時のダミー検証が `ErrBusy` になった場合の扱いを追記

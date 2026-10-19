@@ -8,7 +8,10 @@
 |---|---|---|
 | 言語 | Go 1.27.2 | 標準ライブラリだけで HTTP サーバー、暗号、ログがそろう |
 | 開発環境 | WSL2（Ubuntu 24.04） | Go は WSL にだけ入れる。ソースは Windows 側のフォルダに置く |
-| cgo | 使わない | WSL に gcc を入れずにビルドできるようにするため |
+| cgo | 使わない（CI のレース検出だけで使う） | WSL に gcc を入れずにビルドできるようにするため |
+| CI | GitHub Actions（実行条件は development.md の「CI」） | PR と統合後の変更に対し、テスト・レース検出・Lint・カバレッジレポートを同じ Go バージョンで実行するため |
+| セキュリティ解析 | GitHub CodeQL（実行条件は development.md の「CodeQL」） | Go の脆弱性を検査し、GitHub code scanning に結果を集約するため |
+| 依存更新 | Dependabot（設定は development.md の「依存関係の更新」） | 依存の更新を PR で検証してから取り込むため |
 
 ## ライブラリ
 
