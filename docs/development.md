@@ -22,6 +22,8 @@ wsl -d Ubuntu-24.04 --exec bash -lc 'go test ./...'
 ### SQLite の DB ファイル
 
 - DB ファイルは `/mnt/c` 配下に置かない。WSL 側（例：`~/.local/share/auth-server/auth.db`）に置く
+- 親ディレクトリは自動で作られないため、初回は `mkdir -p -m 700 ~/.local/share/auth-server` で所有者専用に作っておく
+- 既存の親ディレクトリは `chmod 700 ~/.local/share/auth-server` で権限を制限する。DB と既存の `-wal`・`-shm`・`-journal` ファイルにも所有者以外の権限があれば、該当ファイルを `chmod 600` にしてから起動する。親とファイルの所有者は実行ユーザーと一致させる。シンボリックリンクは使わない
 - `/mnt/c` ではファイルロックや WAL の共有メモリが正しく動かないことがある
 - 置き場所は環境変数 `DATABASE_PATH` で指定する（未設定なら起動エラー）
 

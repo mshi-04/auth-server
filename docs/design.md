@@ -1,4 +1,4 @@
-# 認証基盤バックエンド 設計書（学習用 v0.11）
+# 認証基盤バックエンド 設計書（学習用 v0.14）
 
 ## 1. 目的
 
@@ -30,8 +30,7 @@ auth-server/
 │   ├── httpapi/            # ハンドラ、ミドルウェア、Problem Details
 │   ├── auth/               # 登録とログインの処理
 │   ├── password/           # Argon2id とパスワードポリシー
-│   └── store/sqlite/       # SQLite による永続化（init.sql を埋め込んで起動時に実行）
-├── db/init.sql             # テーブル作成（マイグレーションツールは使わない）
+│   └── store/sqlite/       # SQLite による永続化（init.sql を埋め込んで Open で実行）
 ├── docs/                   # design.md、architecture.md など
 └── README.md
 ```
@@ -217,7 +216,7 @@ func (h *Hasher) NeedsRehash(encoded EncodedHash) bool
 
 `database/sql` + `modernc.org/sqlite`（純 Go 実装）。cgo が不要なため、WSL に gcc を入れずにビルドできる。
 
-### 5.2 スキーマ（`db/init.sql`）
+### 5.2 スキーマ（`internal/store/sqlite/init.sql`）
 
 SQLite には `uuid` 型や `timestamptz` 型が無いため、どちらも `TEXT` で持つ。
 
@@ -243,11 +242,22 @@ CREATE TABLE IF NOT EXISTS password_credentials (
 
 ### 5.3 初期化と接続設定
 
-- `db/init.sql` を `go:embed` でバイナリに埋め込み、起動時に実行する（`IF NOT EXISTS` なので何度実行しても安全）
+- `internal/store/sqlite/init.sql` を同じパッケージから `go:embed` でバイナリに埋め込み、`Open` のたびに実行する（`IF NOT EXISTS` なので何度実行しても安全）。マイグレーションツールは使わない
+- `sqlite.Open(ctx, path)` が接続プールを所有する `*Store` を返す。接続確認、WAL の確認、スキーマ初期化のどれかに失敗した場合は接続プールを閉じる。利用後は `Store.Close()` で閉じる
+- `Store` は `Open` が返した値だけを使う。nil やゼロ値の `Store` は扱わない（ゼロ値を使わない前提を守る側を選び、ガードは置かない）
+- 空のパスは拒否し、親ディレクトリは自動作成しない
+- 接続前に、直上の親ディレクトリと既存の DB・`-wal`・`-shm`・`-journal` ファイルが実効 UID の所有であり、グループと他ユーザーへの権限がないことを検査する。親は実ディレクトリ、既存ファイルは通常ファイルに限り、これらのパス自体がシンボリックリンクの場合も拒否する。所有者以外に権限がある場合は、権限を自動変更せず起動エラーにする。パスの祖先は信頼でき、実行中に外部から置き換えられないことを前提とする
+- 新規 DB は SQLite の接続前に排他的なファイル作成で `0600` として用意する。WAL・SHM・ジャーナルも DB の権限を引き継ぐ。プロセス全体の umask は変更しない。キャンセル済みの `ctx` ではファイル作成を開始しない
+- パスは Linux（WSL）の形式を前提とし、Windows のドライブ文字付きのパスは扱わない
+- パスは `filepath.Abs` で絶対パスにしてから file URI としてエスケープし、ファイル名の `?`・`#`・`%` などを DSN の設定として解釈させない。絶対パスにするのは、プールが後から接続を開き直すときに、作業ディレクトリが変わっていても同じファイルを指すため
 - PRAGMA は **DSN の `_pragma` パラメータで指定**する。`database/sql` はコネクションプールのため、起動時に `db.Exec("PRAGMA ...")` しても 1 接続にしか効かない
+- SQLite は `journal_mode` を変更できない保存先（共有メモリを使えない VFS など）でエラーにせず元のモードのまま続けるため、`Open` は接続確認の後に `PRAGMA journal_mode` を読み、`wal` でなければエラーにする
+- 初回接続の WAL 切り替えが `SQLITE_BUSY` になった場合は、失敗した接続プールを閉じ、10ms 間隔で新しい接続プールによる初回接続を再試行する。再試行の開始は最初の試行から 5 秒以内に限り、`ctx` の取り消しでも終了する。5 秒経過時は直近の DB エラーを返し、呼び出し元の `ctx` が終了した場合はそのエラーも包む。再試行は `Open` の初回接続だけに限定し、WAL 確認・スキーマ初期化・通常の後続プール接続・`SQLITE_BUSY` 以外のエラーには適用しない
+
+DSN の形は次のとおり。実際の文字列は `url.URL` で組み立てるため、`file:///<絶対パス>?...` になり、パスとパラメータの値（括弧など）は URL エンコードされる。ドライバは `busy_timeout` をほかの PRAGMA より先に適用する。
 
 ```
-file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate
+file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate
 ```
 
 | 設定 | 値 | 理由 |
@@ -260,8 +270,13 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 ### 5.4 書き込み
 
 - 登録時は `users` と `password_credentials` を 1 トランザクションで挿入する
-- 重複は UNIQUE 制約違反（`SQLITE_CONSTRAINT_UNIQUE`）で検出し、409 に変換する
+- メールアドレスの重複は `users` 挿入時の UNIQUE 制約違反（`SQLITE_CONSTRAINT_UNIQUE`）で検出し、`auth.ErrEmailTaken` に変換する。API 層がこれを 409 に変換する。ID の PRIMARY KEY 制約違反など、ほかの制約違反はメール重複として扱わない
+- ハッシュ更新では `hash` と `changed_at` を同時に更新する。時刻はスキーマと同じ UTC の ISO 8601 文字列とする。更新対象の資格情報が存在しなければ `auth.ErrUserNotFound` を返す
+- 保存層は受け取った正規化済みメールアドレスと PHC 文字列をそのまま扱い、正規化やハッシュの解析を繰り返さない
 - SQLite は同時に書き込めるのが 1 接続だけのため、書き込みの競合は `busy_timeout` の待機で吸収する
+- 接続プールの上限は設けない。書き込みを 1 接続に絞ると WAL の並行読み込みも失い、読み込み用のプールを分ける構成が要るため。登録の流量は Argon2id のセマフォ（4.6）で絞られる
+- `busy_timeout` を超えてもロックを取れない場合（`SQLITE_BUSY`）は `auth.ErrBusy` を包んで返し、API 層がこれを 503 に変換する
+- 失敗したときに `ctx` が終了していれば、ドライバが `SQLITE_BUSY` などを返していても `ctx.Err()` を包んで返す。modernc.org/sqlite はトランザクション開始の失敗を `ctx` のエラーに変換しないため。ロック待ちの間は `ctx` の取り消しが効かない（7 章の既知の制限）
 
 ### 5.5 テスト
 
@@ -289,7 +304,7 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 | メールアドレス重複 | 409 |
 | ボディ上限（16 KiB）超過 | 413 |
 | パスワードポリシー違反、登録時のメールアドレス形式不正 | 422 |
-| セマフォ待機タイムアウト（`ErrBusy`） | 503 |
+| セマフォ待機タイムアウト、DB の書き込みロック待機の打ち切り（`ErrBusy`） | 503 |
 
 ### 6.3 メールアドレスの検証
 
@@ -344,6 +359,9 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 - 登録 API は重複時に 409 を返すため、**メールアドレスが登録済みかどうかを第三者が確認できる**（ユーザー列挙）
 - ペッパー、レート制限、トークン発行がないため、本番利用には適さない
 - パラメータを引き上げた後、まだ再ハッシュされていない既存ユーザーは旧パラメータで検証されるため、存在しないユーザー（ダミーハッシュ）より速く応答する。該当ユーザーが次に正しくログインして再ハッシュされるまで、応答時間から登録済みかどうかを推測できる
+- SQLite の書き込みロックを待っている間（`busy_timeout` の最大 5 秒）は、リクエストの `ctx` を取り消しても待機が終わらない。待機の後に `ctx` のエラーを包んで返す
+- `Open` の接続初期化でも、ドライバ内の PRAGMA がロックを待っている間は `ctx` の取り消しで中断できない。再試行の開始期限は 5 秒だが、期限直前に始めた 1 回の接続処理がロックを待つと、`Open` 全体はその待機時間だけ長くなる
+- 書き込みが集中して、ロック待ちが 5 秒を超えた登録やハッシュ更新は 503 になる
 - NFKC の安定性が保証されるのは割り当て済みの文字だけである。`golang.org/x/text` の Unicode 表で未割り当ての文字を含むパスワードは、x/text の更新でその文字に分解が定義されると正規化の結果が変わり、正しいパスワードでもログインできなくなる
 
 ## 8. 開発環境
@@ -351,7 +369,8 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 - Go は WSL（Ubuntu 24.04）にインストール済み。プロジェクトは Windows 側のフォルダに置き、WSL から `/mnt/c` 経由でビルドする
 - DB は SQLite のファイル 1 つで、別途サーバーを起動する必要はない
 - SQLite のファイルは `/mnt/c` 配下ではなく、WSL 側のファイルシステム（例：`~/.local/share/auth-server/auth.db`）に置く。`/mnt/c` はファイルロックや WAL の共有メモリが正しく動かないことがあるため
-- `*.db`、`*.db-wal`、`*.db-shm` は `.gitignore` に入れる
+- `*.db`、`*.db-wal`、`*.db-shm`、`*.db-journal` は `.gitignore` に入れる
+- `Open` は親ディレクトリを作らないため、DB を置くディレクトリは事前に所有者専用で作っておく（例：`mkdir -p -m 700 ~/.local/share/auth-server`）。既存のディレクトリは `chmod 700`、既存の DB と関連ファイルは `chmod 600` で所有者専用にしてから起動する
 - Android エミュレータから叩く場合、接続先はホストを指す `10.0.2.2`。HTTP（cleartext）通信は Android 9 以降でデフォルト禁止のため、デバッグビルドの Network Security Config で `10.0.2.2` のみ許可する。README にこの注意を記載する
 
 ## 9. 完了条件
@@ -388,9 +407,12 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 | 12 | ログイン時のメールアドレス形式不正 | ユーザー不在と同じ扱い（ダミー Verify → 401） | 6.2、6.4 |
 | 13 | ログイン時の再ハッシュ失敗 | 警告ログを出して 200 | 6.4 |
 | 14 | サーバータイムアウト値 | ReadHeader 5 秒、Read 10 秒、Write 30 秒、Idle 60 秒 | 6.6 |
+| 15 | DB の書き込みロック待機の打ち切り | `auth.ErrBusy`（503）。接続プールの上限は設けない | 5.4、6.2 |
 
 ## 変更履歴
 
+- v0.14：PR #6 のレビューを反映。SQLite 接続前に親ディレクトリと既存 DB・関連ファイルの所有者と権限を検査し、シンボリックリンクを拒否する。新規 DB は `0600` で排他的に作成し、既存の権限やプロセス全体の umask は自動変更しない。初回接続の `SQLITE_BUSY` では接続プールを破棄し、10ms 間隔・開始期限 5 秒・`ctx` の取り消しに従って再試行する。ドライバのロック待機中は取り消せない制限も明記
+- v0.12：SQLite 永続化の契約を確定。初期化 SQL を `internal/store/sqlite/init.sql` に配置し、同じパッケージから埋め込む。接続プールの所有と解放、空パスの拒否、親ディレクトリを作成しないこと、パスの URI エスケープを明記。メール重複と ID 重複を区別し、ハッシュ更新時の `changed_at` 更新と対象なしの `ErrUserNotFound` を確定。コードレビューの指摘を反映し、`SQLITE_BUSY` の `auth.ErrBusy`（503）への変換、失敗時に `ctx` のエラーを包むこと、`Open` での WAL の確認、絶対パス化とその理由、Linux 形式のパスの前提、`Store` のゼロ値を扱わないことを追記。接続プールに上限を設けないことと、ロック待ちに関する既知の制限を追記
 - v0.11：コードレビューの指摘を反映。両型に `fmt.Formatter` を実装し、秘密を関数値の奥に置いて、全書式と非公開フィールドでの伏字を保証。`Password` を `==` で比較できないようにした。ゼロ値の `Password` は `ErrInvalidPassword` に分離。最小長を検査しない `Rehash` を追加し、短い既存パスワードも再ハッシュできるようにした。`NeedsRehash` は非正規の表記で `true`、ゼロ値と無効な `Hasher` で `false` に変更。nil の `Hasher` をゼロ値と同じく扱う。6.2 の 401 に不正な UTF-8 を追記し、6.4 に保存済み PHC 異常時のダミー検証が `ErrBusy` になった場合の扱いを追記
 - v0.10：Go のコーディング方針を文書化。`Password`・`EncodedHash` と公開コンストラクタを導入し、Hash・Verify・NeedsRehash を型付き API に変更。正規化と入力検証を境界へ移し、ゼロ値・伏字・明示的な PHC 取得の契約を確定。auth のエラー変換と保存処理を追随させ、ログ記録の例外とベンチマークの測定範囲を明記
 - v0.9：コードレビューの指摘を反映。生成設定のソルト長の下限を 16 バイトに変更。PHC の先頭が 0 の値と、不正な UTF-8 のパスワードを拒否。ゼロ値の `Hasher` は `ErrInvalidParams`、`ctx` による打ち切りの `ErrBusy` は `ctx.Err()` も包むよう変更。4.6 の制限を枠数として書き直し、メモリの最悪値を明記。保存済みハッシュ不正時のログインの扱いを追記。6.6 の見積もりを再ハッシュ込みに直し、`WriteTimeout` を 30 秒に変更。ベンチマークに飽和時と候補の計測を追加し、飽和時の測定結果を記録。既知の制限（パラメータ引き上げ後の応答時間差、未割り当て文字の正規化）を追記
