@@ -22,6 +22,8 @@ wsl -d Ubuntu-24.04 --exec bash -lc 'go test ./...'
 ### SQLite の DB ファイル
 
 - DB ファイルは `/mnt/c` 配下に置かない。WSL 側（例：`~/.local/share/auth-server/auth.db`）に置く
+- 親ディレクトリは自動で作られないため、初回は `mkdir -p -m 700 ~/.local/share/auth-server` で所有者専用に作っておく
+- 既存の親ディレクトリは `chmod 700 ~/.local/share/auth-server` で権限を制限する。DB と既存の `-wal`・`-shm`・`-journal` ファイルにも所有者以外の権限があれば、該当ファイルを `chmod 600` にしてから起動する。親とファイルの所有者は実行ユーザーと一致させる。シンボリックリンクは使わない
 - `/mnt/c` ではファイルロックや WAL の共有メモリが正しく動かないことがある
 - 置き場所は環境変数 `DATABASE_PATH` で指定する（未設定なら起動エラー）
 
@@ -47,7 +49,7 @@ CI の実行条件と出力はこの節を正本とする。GitHub Actions の `
 | Lint | `gofmt -l .` による整形確認（ファイルは書き換えない）、`go mod tidy -diff`、`go vet ./...` |
 | Test | `go test -count=1 ./...` |
 | Coverage | `go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage/coverage.out ./...` とカバレッジレポートの生成・保存 |
-| Race | `CGO_ENABLED=1 go test -count=1 -race ./internal/password` |
+| Race | `CGO_ENABLED=1 go test -count=1 -race ./...` |
 
 Test と Coverage はそれぞれ別にテストを実行し、キャッシュ済みの結果を使わない。Coverage は全パッケージを計測対象にし、テストのないパッケージのコードも集計に含める。
 
@@ -55,8 +57,8 @@ Test と Coverage はそれぞれ別にテストを実行し、キャッシュ�
 - Coverage ジョブのテスト成功時に `coverage-report` artifact を 14 日間保存する。`coverage.html` はブラウザでソース行ごとの実行状況を確認でき、`coverage.txt` は関数別一覧、`coverage.out` は Go 標準の計測データ。再実行時は同名の artifact を上書きする
 - ローカルで同じコマンドを実行するときも、先に `mkdir -p coverage` を行う。`go tool cover -func=coverage/coverage.out` で関数別一覧を、`go tool cover -html=coverage/coverage.out -o coverage/coverage.html` で HTML を生成できる。生成先の `coverage/` は Git の管理対象から外す
 - 実行環境は Ubuntu 24.04、`CGO_ENABLED=0`。Go のバージョンは `go.mod` から読み込む
-- レース検出は cgo が必要なため、Race ジョブだけ `CGO_ENABLED=1` にする。対象は並行処理のテストがある `internal/password` に限る。WSL には gcc が無いため、ローカルでは実行しない
-- Go のキャッシュは `go.sum` を基準に再利用する
+- レース検出は cgo が必要なため、Race ジョブだけ `CGO_ENABLED=1` にする。対象は全パッケージ。WSL には gcc が無いため、ローカルでは実行しない
+- Go のインストールとキャッシュの復元は `.github/actions/setup-go` にまとめ、各ジョブから呼ぶ。キャッシュ（モジュールとビルド結果）はジョブごとに分け、`go.mod` と `go.sum` が変わるまで再利用する
 - 各ジョブの制限時間は 15 分。同じ PR で新しい実行が始まったら、古い実行を取り消す。`develop`・`main` への push では実行中の CI を取り消さないが、同じブランチの待機中の実行は新しい push によって置き換わることがある
 - 性能測定は WSL で行い、ベンチマークは CI では実行しない
 

@@ -28,10 +28,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
+        uses: ./.github/actions/setup-go
 
       - name: Check formatting
         run: |
@@ -58,10 +55,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
+        uses: ./.github/actions/setup-go
 
       - name: Test
         run: go test -count=1 ./...
@@ -77,10 +71,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
+        uses: ./.github/actions/setup-go
 
       - name: Test with coverage
         run: |
@@ -120,10 +111,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
+        uses: ./.github/actions/setup-go
 
-      - name: Test password package with race detector
-        run: go test -count=1 -race ./internal/password
+      - name: Test with race detector
+        run: go test -count=1 -race ./...
