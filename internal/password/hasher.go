@@ -6,10 +6,8 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
-	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
-	"golang.org/x/text/unicode/norm"
 )
 
 const (
@@ -31,69 +29,92 @@ type Hasher struct {
 
 func New(params Params) (*Hasher, error) {
 	if err := params.validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create password hasher: %w", err)
 	}
 	return &Hasher{params: params, slots: make(chan struct{}, params.MaxConcurrent)}, nil
 }
 
-func (h *Hasher) Hash(ctx context.Context, password string) (string, error) {
-	normalized := normalize(password)
-	length := utf8.RuneCountInString(normalized)
-	if !utf8.ValidString(normalized) || length < minPasswordLength || length > maxPasswordLength {
-		return "", ErrPolicyViolation
+func (h *Hasher) Hash(ctx context.Context, password Password) (EncodedHash, error) {
+	if password.isZero() {
+		return EncodedHash{}, fmt.Errorf("hash password: %w", ErrInvalidPassword)
 	}
+	if password.secret().runeCount < minPasswordLength {
+		return EncodedHash{}, fmt.Errorf("hash password: %w", ErrPolicyViolation)
+	}
+	encoded, err := h.hash(ctx, password)
+	if err != nil {
+		return EncodedHash{}, fmt.Errorf("hash password: %w", err)
+	}
+	return encoded, nil
+}
+
+func (h *Hasher) Rehash(ctx context.Context, password Password) (EncodedHash, error) {
+	if password.isZero() {
+		return EncodedHash{}, fmt.Errorf("rehash password: %w", ErrInvalidPassword)
+	}
+	encoded, err := h.hash(ctx, password)
+	if err != nil {
+		return EncodedHash{}, fmt.Errorf("rehash password: %w", err)
+	}
+	return encoded, nil
+}
+
+func (h *Hasher) hash(ctx context.Context, password Password) (EncodedHash, error) {
 	if err := h.acquire(ctx); err != nil {
-		return "", err
+		return EncodedHash{}, err
 	}
 	defer h.release()
 
 	salt := make([]byte, h.params.SaltLength)
 	if _, err := rand.Read(salt); err != nil {
-		return "", err
+		return EncodedHash{}, fmt.Errorf("generate password salt: %w", err)
 	}
-	key := deriveKey([]byte(normalized), salt,
+	key := deriveKey([]byte(password.secret().value), salt,
 		h.params.Iterations, h.params.MemoryKiB, h.params.Parallelism, h.params.KeyLength)
-	return encodeHash(h.params, salt, key), nil
+	return EncodedHash{hash: seal(encodedHash{
+		phc:     encodeHash(h.params, salt, key),
+		decoded: decodedHash{params: h.params, salt: salt, key: key},
+	})}, nil
 }
 
-func (h *Hasher) Verify(ctx context.Context, password, encoded string) (bool, error) {
-	normalized := normalize(password)
-	if !utf8.ValidString(normalized) || utf8.RuneCountInString(normalized) > maxPasswordLength {
-		return false, nil
+func (h *Hasher) Verify(ctx context.Context, password Password, encoded EncodedHash) (bool, error) {
+	if password.isZero() {
+		return false, fmt.Errorf("verify password: %w", ErrInvalidPassword)
 	}
-	decoded, err := parseHash(encoded)
-	if err != nil {
-		return false, err
+	if encoded.isZero() {
+		return false, fmt.Errorf("verify password: %w", ErrInvalidHash)
 	}
 	if err := h.acquire(ctx); err != nil {
-		return false, err
+		return false, fmt.Errorf("verify password: %w", err)
 	}
 	defer h.release()
 
-	key := deriveKey([]byte(normalized), decoded.salt,
+	decoded := encoded.hash().decoded
+	key := deriveKey([]byte(password.secret().value), decoded.salt,
 		decoded.params.Iterations, decoded.params.MemoryKiB,
 		decoded.params.Parallelism, decoded.params.KeyLength)
 	return subtle.ConstantTimeCompare(key, decoded.key) == 1, nil
 }
 
-func (h *Hasher) NeedsRehash(encoded string) bool {
-	decoded, err := parseHash(encoded)
-	if err != nil {
-		return true
+func (h *Hasher) NeedsRehash(encoded EncodedHash) bool {
+	if !h.usable() || encoded.isZero() {
+		return false
 	}
+	decoded := encoded.hash().decoded
 	return decoded.params.MemoryKiB != h.params.MemoryKiB ||
 		decoded.params.Iterations != h.params.Iterations ||
 		decoded.params.Parallelism != h.params.Parallelism ||
 		decoded.params.SaltLength != h.params.SaltLength ||
-		decoded.params.KeyLength != h.params.KeyLength
+		decoded.params.KeyLength != h.params.KeyLength ||
+		!encoded.hash().canonical()
 }
 
-func normalize(password string) string {
-	return norm.NFKC.String(password)
+func (h *Hasher) usable() bool {
+	return h != nil && h.slots != nil
 }
 
 func (h *Hasher) acquire(ctx context.Context) error {
-	if h.slots == nil {
+	if !h.usable() {
 		return ErrInvalidParams
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, h.params.WaitTimeout)

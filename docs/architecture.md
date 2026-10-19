@@ -2,9 +2,9 @@
 
 パッケージの分け方、責務、依存の向きをまとめる。機能の仕様は [design.md](design.md)、採用技術は [tech-stack.md](tech-stack.md) を参照。
 
-## 構成（3 層）
+## 構成（軽量な Clean Architecture）
 
-HTTP の処理、認証の処理、永続化を分けた 3 層構成にする。
+HTTP の処理、認証の処理、永続化を分け、依存を内側の auth と password へ向ける。パッケージは層名ではなく責務ごとに分ける。
 
 ```
 cmd/authd ── 組み立て（設定の読み込み、DB 接続、依存の注入、サーバー起動）
@@ -30,7 +30,7 @@ auth-server/
 │   ├── config/             # 環境変数の読み込みと検証
 │   ├── httpapi/            # ルーティング、JSON の入出力、Problem Details
 │   ├── auth/               # 登録とログインの処理、UserStore インターフェース
-│   ├── password/           # Argon2id、PHC 形式、パスワードポリシー、セマフォ
+│   ├── password/           # Password・EncodedHash の解析と契約、Argon2id、PHC 形式、パスワードポリシー、セマフォ
 │   └── store/sqlite/       # UserStore の SQLite 実装
 ├── db/init.sql
 └── docs/
@@ -44,7 +44,7 @@ auth-server/
 | `config` | 環境変数の読み込みと検証 | 標準ライブラリのみ |
 | `httpapi` | ルーティング、JSON の入出力、ボディ上限、`auth` のエラーからステータスコードへの変換、Problem Details | `auth` |
 | `auth` | メールアドレスの検証と正規化、ユーザー ID の生成、登録、ログイン（ダミーハッシュ、エラーの統一、再ハッシュ） | `password`、`github.com/google/uuid` |
-| `password` | Argon2id、PHC 形式、パスワードポリシー、セマフォ | `golang.org/x/crypto`、`golang.org/x/text` |
+| `password` | Password・EncodedHash の解析と契約、Argon2id、PHC 形式、パスワードポリシー、セマフォ | `golang.org/x/crypto`、`golang.org/x/text` |
 | `store/sqlite` | `auth.UserStore` の実装、`init.sql` の実行、SQLite のエラーから `auth` のエラーへの変換 | `auth`、`modernc.org/sqlite` |
 
 - 依存は表の向きだけにする。`auth` は `httpapi` と `store/sqlite` を import しない
@@ -62,8 +62,12 @@ func (s *Service) Register(ctx context.Context, email, password string) (userID 
 func (s *Service) Login(ctx context.Context, email, password string) (userID string, err error)
 ```
 
-- ダミーハッシュは `NewService` の中で、現行パラメータを使って生成する。生成に失敗したら起動エラーにする
+- ダミーハッシュは `NewService` の中で、ポリシーを満たすランダムな文字列を `password.ParsePassword` で解析し、現行パラメータで Hash して `password.EncodedHash` として保持する。生成に失敗したら起動エラーにする。nil の `Hasher` も起動エラーにする
+- Register と Login の入口で `password.ParsePassword` を 1 回呼び、内側では `password.Password` を使う。解析失敗は Register で `ErrWeakPassword`、Login で `ErrInvalidCredentials` にする。Login の解析失敗ではユーザー検索や暗号計算を行わない。Hash の最小長違反も Register では `ErrWeakPassword` に変換する
+- ストアから取得した PHC は `password.ParseEncodedHash` で 1 回解析し、Verify と NeedsRehash に同じ `password.EncodedHash` を渡す。再ハッシュでは解析済みの Password を `Rehash` に渡す（最小長を検査しないため、短い既存パスワードも移行できる）
+- 登録・再ハッシュの保存時は `EncodedHash.PHC()` を明示的に呼ぶ。UserStore と入出力用構造体の文字列は維持し、httpapi は password を直接使わない
 - `Login` で再ハッシュの保存に失敗しても、警告ログを出して成功として返す
+- 予期しない返却エラーは通常 httpapi でログに出す。再ハッシュ失敗と保存済み PHC 異常は auth で記録し、httpapi は成功・通常の認証失敗として重複記録しない
 
 ### UserStore
 
@@ -100,15 +104,16 @@ type Credential struct {
 | `ErrWeakPassword` | 登録時のパスワードポリシー違反 | 422 |
 | `ErrEmailTaken` | 登録時のメールアドレス重複 | 409 |
 | `ErrInvalidCredentials` | ログイン失敗（原因を区別しない） | 401 |
-| `ErrBusy` | ハッシュのセマフォ待機タイムアウト | 503 |
+| `ErrBusy` | ハッシュのセマフォ待機の打ち切り。`password.ErrBusy` を `auth` の `ErrBusy` へ変換し、`ctx.Err()` は包んだまま残す | 503 |
 | `ErrUserNotFound` | `UserStore` が返す。`Login` の中で `ErrInvalidCredentials` に変換し、外へは出さない | — |
-| `password.ErrInvalidHash` | 保存済みハッシュが壊れているときに `Verify` が返す。`Login` の中でダミーハッシュの Verify を実行して応答時間を揃え、エラーログを出して `ErrInvalidCredentials` に変換する | — |
+| `password.ErrInvalidHash` | 保存済みハッシュが壊れているときに `ParseEncodedHash` が返す。`Login` の中でダミーハッシュの Verify を実行して応答時間を揃え、エラーログを出して `ErrInvalidCredentials` に変換する | — |
+| `password.ErrInvalidParams`・`password.ErrInvalidPassword` | 組み立てやゼロ値の誤用というプログラムの誤り。`auth` は利用者向けのエラーに変換せず、文脈を付けて包んで返す。`httpapi` は予期しないエラーとして 500 にし、ログに出す | 500 |
 
 ## テスト
 
 | 対象 | 方法 |
 |---|---|
-| `password` | 単体テスト。ベンチマークは既定のパラメータ（`BenchmarkHash`、`BenchmarkHashSaturated`）と性能調整の候補（`BenchmarkHashCandidates`）で計測し、それ以外は小さいパラメータで実行する。初期値と性能調整後の測定結果は design.md に記録する |
+| `password` | 単体テスト。値の解析・ゼロ値・伏字と、型付き Hash・Verify・NeedsRehash を検証する。ベンチマークは Password の解析を計測外に置き、既定のパラメータ（`BenchmarkHash`、`BenchmarkHashSaturated`）と性能調整の候補（`BenchmarkHashCandidates`）で計測する。それ以外は小さいパラメータで実行する。測定結果と API ごとの測定範囲は design.md に記録する |
 | `auth` | メモリ上の偽 `UserStore` と、小さいパラメータの本物の `password.Hasher` で実行する。ダミーハッシュの経路、再ハッシュ、再ハッシュの保存失敗、エラーの統一をここで検証する |
 | `store/sqlite` | `t.TempDir()` に SQLite ファイルを作り、毎回まっさらな DB で実行する |
 | `httpapi` | `httptest` と、本物の `auth.Service`（偽 `UserStore`）で実行する。ステータスコードと Problem Details の形を検証する |
