@@ -31,8 +31,7 @@ auth-server/
 │   ├── httpapi/            # ルーティング、JSON の入出力、Problem Details
 │   ├── auth/               # 登録とログインの処理、UserStore インターフェース
 │   ├── password/           # Password・EncodedHash の解析と契約、Argon2id、PHC 形式、パスワードポリシー、セマフォ
-│   └── store/sqlite/       # UserStore の SQLite 実装
-├── db/init.sql
+│   └── store/sqlite/       # UserStore の SQLite 実装と埋め込み用 init.sql
 └── docs/
 ```
 
@@ -45,7 +44,7 @@ auth-server/
 | `httpapi` | ルーティング、JSON の入出力、ボディ上限、`auth` のエラーからステータスコードへの変換、Problem Details | `auth` |
 | `auth` | メールアドレスの検証と正規化、ユーザー ID の生成、登録、ログイン（ダミーハッシュ、エラーの統一、再ハッシュ） | `password`、`github.com/google/uuid` |
 | `password` | Password・EncodedHash の解析と契約、Argon2id、PHC 形式、パスワードポリシー、セマフォ | `golang.org/x/crypto`、`golang.org/x/text` |
-| `store/sqlite` | `auth.UserStore` の実装、`init.sql` の実行、SQLite のエラーから `auth` のエラーへの変換 | `auth`、`modernc.org/sqlite` |
+| `store/sqlite` | 接続プールの所有（`Open`・`Close`）、`auth.UserStore` の実装、`init.sql` の実行、SQLite のエラーから `auth` のエラーへの変換 | `auth`、`modernc.org/sqlite` |
 
 - 依存は表の向きだけにする。`auth` は `httpapi` と `store/sqlite` を import しない
 - `httpapi` は `password` と `store/sqlite` を直接使わない。パスワードポリシー違反やセマフォのタイムアウトも、`auth` のエラーとして受け取る
@@ -91,8 +90,9 @@ type Credential struct {
 }
 ```
 
-- `CreateUser` は `users` と `password_credentials` を 1 トランザクションで挿入する。重複時は `ErrEmailTaken` を返す
+- `CreateUser` は `users` と `password_credentials` を 1 トランザクションで挿入する。正規化済みメールアドレスの重複時だけ `ErrEmailTaken` を返す
 - `FindCredentialByEmail` はユーザーが存在しなければ `ErrUserNotFound` を返す
+- `UpdatePasswordHash` はハッシュと UTC の変更時刻を同時に更新し、対象の資格情報が存在しなければ `ErrUserNotFound` を返す
 
 ### エラー
 
@@ -104,10 +104,21 @@ type Credential struct {
 | `ErrWeakPassword` | 登録時のパスワードポリシー違反 | 422 |
 | `ErrEmailTaken` | 登録時のメールアドレス重複 | 409 |
 | `ErrInvalidCredentials` | ログイン失敗（原因を区別しない） | 401 |
-| `ErrBusy` | ハッシュのセマフォ待機の打ち切り。`password.ErrBusy` を `auth` の `ErrBusy` へ変換し、`ctx.Err()` は包んだまま残す | 503 |
-| `ErrUserNotFound` | `UserStore` が返す。`Login` の中で `ErrInvalidCredentials` に変換し、外へは出さない | — |
+| `ErrBusy` | ハッシュのセマフォ待機の打ち切り、または DB の書き込みロック待機の打ち切り。`password.ErrBusy` は `auth` が、`SQLITE_BUSY` は `store/sqlite` が `auth` の `ErrBusy` へ変換し、`ctx.Err()` は包んだまま残す | 503 |
+| `ErrUserNotFound` | `UserStore` の検索・ハッシュ更新で対象がない場合に返す。`Login` の検索では `ErrInvalidCredentials` に変換し、再ハッシュ保存では警告して成功を返す | — |
 | `password.ErrInvalidHash` | 保存済みハッシュが壊れているときに `ParseEncodedHash` が返す。`Login` の中でダミーハッシュの Verify を実行して応答時間を揃え、エラーログを出して `ErrInvalidCredentials` に変換する | — |
 | `password.ErrInvalidParams`・`password.ErrInvalidPassword` | 組み立てやゼロ値の誤用というプログラムの誤り。`auth` は利用者向けのエラーに変換せず、文脈を付けて包んで返す。`httpapi` は予期しないエラーとして 500 にし、ログに出す | 500 |
+
+## store/sqlite パッケージ
+
+```go
+func Open(ctx context.Context, path string) (*Store, error)
+func (s *Store) Close() error
+```
+
+- `Store` は `auth.UserStore` を実装し、接続プールを所有する。`Open` で接続確認、WAL の確認、同じパッケージの `init.sql` を埋め込んだスキーマの初期化を行う。失敗時は接続プールを閉じ、成功時は呼び出し元が `Close` する。nil やゼロ値の `Store` は扱わない
+- パスの扱いと接続設定は design.md 5.3 に従う
+- 保存層は受け取った文字列をそのまま保存・検索し、メールアドレスの正規化や PHC の解析を行わない。`SQLITE_BUSY` は `auth.ErrBusy` へ変換し、失敗時に `ctx` が終了していれば `ctx.Err()` も包む（design.md 5.4）。予期しないエラーは文脈を付けて返し、ログは出さない
 
 ## テスト
 

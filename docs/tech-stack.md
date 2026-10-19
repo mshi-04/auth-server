@@ -30,7 +30,7 @@
 | 項目 | 採用 | 理由 |
 |---|---|---|
 | DB | SQLite（ファイル 1 つ） | 別途サーバーや Docker を起動せずに済む |
-| スキーマ管理 | `db/init.sql` を `go:embed` で埋め込み、起動時に実行 | テーブルが 2 つだけなのでマイグレーションツールは不要 |
+| スキーマ管理 | `internal/store/sqlite/init.sql` を同じパッケージから `go:embed` で埋め込み、`Open` で実行 | テーブルが 2 つだけなのでマイグレーションツールは不要 |
 | 接続設定 | DSN の `_pragma` で `foreign_keys`、`journal_mode=WAL`、`busy_timeout` を指定し、`_txlock=immediate` を付ける | `database/sql` のコネクションプールの全接続に設定を効かせるため |
 
 ## テスト
