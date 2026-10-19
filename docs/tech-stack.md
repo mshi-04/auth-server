@@ -10,6 +10,8 @@
 | 開発環境 | WSL2（Ubuntu 24.04） | Go は WSL にだけ入れる。ソースは Windows 側のフォルダに置く |
 | cgo | 使わない（CI のレース検出だけで使う） | WSL に gcc を入れずにビルドできるようにするため |
 | CI | GitHub Actions（実行条件は development.md の「CI」） | PR と統合後の変更に対し、テスト・レース検出・Lint・カバレッジレポートを同じ Go バージョンで実行するため |
+| セキュリティ解析 | GitHub CodeQL（Go、`security-extended`） | PR・push・週次実行で Go の脆弱性を検査し、GitHub code scanning に結果を集約するため |
+| 依存更新 | Dependabot（Go モジュール、GitHub Actions） | 依存の更新を週次で確認し、`develop` 向けの PR で検証してから取り込むため |
 
 ## ライブラリ
 

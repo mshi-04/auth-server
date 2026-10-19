@@ -42,7 +42,7 @@ WSL 上のリポジトリのルートで実行する。
 
 ## CI
 
-CI の実行条件と出力はこの節を正本とする。GitHub Actions の `.github/workflows/ci.yml` で、`develop`・`main` 向けの PR と両ブランチへの push 時に、次の 4 ジョブを独立して並行実行する。ジョブ間の依存は設けず、それぞれの結果を PR のチェックとして表示する。
+CI の実行条件と出力はこの節を正本とする。GitHub Actions の `.github/workflows/ci.yml` で、`develop`・`main` 向けの PR と両ブランチへの push 時に、次の 4 ジョブを独立して並行実行する。ジョブ間の依存は設けず、それぞれの結果を PR のチェックとして表示する。CodeQL の解析は別の `.github/workflows/codeql.yml` で独立して実行する。
 
 | ジョブ | 内容 |
 |---|---|
@@ -63,6 +63,20 @@ Test と Coverage はそれぞれ別にテストを実行し、キャッシュ�
 - Go のインストールとキャッシュの復元は `.github/actions/setup-go` にまとめ、各ジョブから呼ぶ。キャッシュ（モジュールとビルド結果）はジョブごとに分け、`go.mod` と `go.sum` が変わるまで再利用する
 - 各ジョブの制限時間は 15 分。同じ PR で新しい実行が始まったら、古い実行を取り消す。`develop`・`main` への push では実行中の CI を取り消さないが、同じブランチの待機中の実行は新しい push によって置き換わることがある
 - 性能測定は WSL で行い、ベンチマークは CI では実行しない
+
+### CodeQL
+
+- `develop`・`main` 向けの PR と両ブランチへの push 時に Go を解析する。手動実行にも対応する。毎週月曜 03:17 UTC（日本時間 12:17）には既定ブランチの `main` を解析する。定期・手動実行はワークフローが `main` に入ってから利用できる
+- Ubuntu 24.04、`CGO_ENABLED=0` で、共通の Go セットアップを使う。CodeQL 初期化後に `build-mode: manual` で `go build ./...` を実行する。クエリは `security-extended` を使い、Go の本番コードを対象にする（テストコードは既定で解析対象外）
+- 解析結果は GitHub code scanning にアップロードし、PR のチェックとリポジトリのセキュリティ画面で確認する。結果のアップロード用に `security-events: write` を CodeQL ジョブだけに付与し、リポジトリの内容は `contents: read` で読み取る
+- 制限時間は 20 分。同じ PR の古い実行は取り消し、push・定期・手動の実行中ジョブは取り消さない。Lint・Test・Coverage・Race との依存は設けない
+
+## 依存関係の更新
+
+- `.github/dependabot.yml` で Go モジュール（`gomod`）と GitHub Actions（`github-actions`）を毎週月曜 09:00（`Asia/Tokyo`）に確認する。すべての設定に `target-branch: develop` を指定し、`develop` 上の依存情報を調べ、更新 PR のマージ先も `develop` に固定する
+- Go モジュールはルートの `go.mod`・`go.sum`、GitHub Actions は `.github/workflows/` と `.github/actions/setup-go/action.yml` を対象にする。共通アクション内の依存も更新できるよう、GitHub Actions の確認先に `/` と `/.github/actions/setup-go` を指定する
+- Dependabot は既定ブランチの設定ファイルを読むため、定期更新はこの設定が `main` に入ってから有効になる。設定ファイルの配置先と、更新 PR のマージ先の `develop` は異なる
+- GitHub の自動セキュリティ更新 PR は `target-branch` に従わず既定ブランチの `main` 向けになるため、リポジトリ設定で無効にする。Dependabot alerts（脆弱性の通知）は有効のまま残し、通知された脆弱性の対応も `develop` 向けの PR で行う。[GitHub の target-branch 仕様](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch)を参照
 
 ## 環境変数
 
