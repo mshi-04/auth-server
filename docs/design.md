@@ -358,7 +358,7 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 ## 9. 完了条件
 
 - `go vet ./...` と `go test ./...` が通る
-- GitHub Actions の CI で、`develop`・`main` 向けの PR と両ブランチへの push 時に、全テストと Lint（`gofmt` の整形確認・`go vet ./...`）を実行する。テスト時に全パッケージのカバレッジを計測し、合計を実行サマリーへ、計測データ・関数別一覧・HTML を 14 日間保存する artifact へ出力する。Go の版は `go.mod` に合わせ、Ubuntu 24.04・`CGO_ENABLED=0` で検証する。性能測定は環境に依存するため、ベンチマークは CI の対象に含めない
+- GitHub Actions の CI（`.github/workflows/ci.yml`）で Lint・全テスト・カバレッジレポートが通る。実行条件と出力は development.md の「CI」を正本とする
 - `go test -bench=. ./internal/password` でハッシュ 1 回の所要時間が出る
 - README に起動手順、curl による登録・ログイン例、Android エミュレータからの接続先と cleartext 通信の注意がある
 
@@ -369,6 +369,8 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 3. DB（init.sql、store/sqlite）を実装し、テストを通す
 4. auth と API（httpapi）を実装し、テストを通す
 5. README を書き、完了条件を確認する
+
+CI は 2 の完了後に、ほかの段階と並行して導入する。導入後は、各段階で CI も通ってから次へ進む。
 
 各段階でテストが通ってから次へ進む。不明点や本書と矛盾する点があれば、推測で進めず質問する。
 
@@ -393,7 +395,7 @@ file:<DATABASE_PATH>?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=b
 
 ## 変更履歴
 
-- v0.13：GitHub Actions による CI をスコープと完了条件に追加。`develop`・`main` 向けの PR と両ブランチへの push を対象に、Ubuntu 24.04・`CGO_ENABLED=0`・`go.mod` の Go バージョンで全テストと Lint（整形確認・静的検査）を実行する。テスト時に全パッケージのカバレッジを計測し、合計を実行サマリーへ、計測データ・関数別一覧・HTML を 14 日間保存する artifact へ出力する
+- v0.13：GitHub Actions による CI をスコープ、完了条件、作業手順に追加。実行条件と出力は development.md の「CI」を正本とする。v0.12 は `feature/sqlite` で使うため、そちらを先に `develop` へマージする
 - v0.11：コードレビューの指摘を反映。両型に `fmt.Formatter` を実装し、秘密を関数値の奥に置いて、全書式と非公開フィールドでの伏字を保証。`Password` を `==` で比較できないようにした。ゼロ値の `Password` は `ErrInvalidPassword` に分離。最小長を検査しない `Rehash` を追加し、短い既存パスワードも再ハッシュできるようにした。`NeedsRehash` は非正規の表記で `true`、ゼロ値と無効な `Hasher` で `false` に変更。nil の `Hasher` をゼロ値と同じく扱う。6.2 の 401 に不正な UTF-8 を追記し、6.4 に保存済み PHC 異常時のダミー検証が `ErrBusy` になった場合の扱いを追記
 - v0.10：Go のコーディング方針を文書化。`Password`・`EncodedHash` と公開コンストラクタを導入し、Hash・Verify・NeedsRehash を型付き API に変更。正規化と入力検証を境界へ移し、ゼロ値・伏字・明示的な PHC 取得の契約を確定。auth のエラー変換と保存処理を追随させ、ログ記録の例外とベンチマークの測定範囲を明記
 - v0.9：コードレビューの指摘を反映。生成設定のソルト長の下限を 16 バイトに変更。PHC の先頭が 0 の値と、不正な UTF-8 のパスワードを拒否。ゼロ値の `Hasher` は `ErrInvalidParams`、`ctx` による打ち切りの `ErrBusy` は `ctx.Err()` も包むよう変更。4.6 の制限を枠数として書き直し、メモリの最悪値を明記。保存済みハッシュ不正時のログインの扱いを追記。6.6 の見積もりを再ハッシュ込みに直し、`WriteTimeout` を 30 秒に変更。ベンチマークに飽和時と候補の計測を追加し、飽和時の測定結果を記録。既知の制限（パラメータ引き上げ後の応答時間差、未割り当て文字の正規化）を追記

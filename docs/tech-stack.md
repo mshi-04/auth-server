@@ -8,8 +8,8 @@
 |---|---|---|
 | 言語 | Go 1.27.2 | 標準ライブラリだけで HTTP サーバー、暗号、ログがそろう |
 | 開発環境 | WSL2（Ubuntu 24.04） | Go は WSL にだけ入れる。ソースは Windows 側のフォルダに置く |
-| cgo | 使わない | WSL に gcc を入れずにビルドできるようにするため |
-| CI | GitHub Actions（Ubuntu 24.04、`CGO_ENABLED=0`） | PR と統合後の変更に対し、テスト・Lint・カバレッジレポートを同じ Go バージョンで実行するため |
+| cgo | 使わない（CI のレース検出だけで使う） | WSL に gcc を入れずにビルドできるようにするため |
+| CI | GitHub Actions（実行条件は development.md の「CI」） | PR と統合後の変更に対し、テスト・Lint・カバレッジレポートを同じ Go バージョンで実行するため |
 
 ## ライブラリ
 

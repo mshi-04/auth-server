@@ -14,13 +14,13 @@ env:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
-    name: Lint
+  lint-and-test:
+    name: Lint and test
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,29 +41,21 @@ jobs:
             exit 1
           fi
 
+      - name: Check go.mod tidiness
+        run: go mod tidy -diff
+
       - name: Vet
         run: go vet ./...
-
-  test:
-    name: Test and coverage
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
 
       - name: Test with coverage
         run: |
           mkdir -p coverage
           go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage/coverage.out ./...
+
+      - name: Test password package with race detector
+        env:
+          CGO_ENABLED: '1'
+        run: go test -count=1 -race ./internal/password
 
       - name: Create coverage reports
         shell: bash
@@ -83,3 +75,4 @@ jobs:
             coverage/coverage.html
           if-no-files-found: error
           retention-days: 14
+          overwrite: true
