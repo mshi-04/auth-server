@@ -20,9 +20,18 @@ import (
 
 var timestampPattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`)
 
+func privateTestDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatalf("make test directory private: %v", err)
+	}
+	return dir
+}
+
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	return openTestStore(t, filepath.Join(t.TempDir(), "auth.db"))
+	return openTestStore(t, filepath.Join(privateTestDir(t), "auth.db"))
 }
 
 func openTestStore(t *testing.T, path string) *Store {
@@ -120,7 +129,7 @@ func holdWriteLock(t *testing.T, s *Store, busyTimeoutMillis int) {
 }
 
 func TestOpenInitializesAndReopensDatabase(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "auth.db")
+	path := filepath.Join(privateTestDir(t), "auth.db")
 	s := openTestStore(t, path)
 	requireRowCount(t, s, "SELECT count(*) FROM users", 0)
 	requireRowCount(t, s, "SELECT count(*) FROM password_credentials", 0)
@@ -371,7 +380,7 @@ func TestRequireWAL(t *testing.T) {
 	if err := requireWAL(t.Context(), s.db); err != nil {
 		t.Fatalf("requireWAL() rejected the store database: %v", err)
 	}
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "rollback.db"))
+	db, err := sql.Open("sqlite", filepath.Join(privateTestDir(t), "rollback.db"))
 	if err != nil {
 		t.Fatalf("open rollback journal database: %v", err)
 	}
@@ -383,7 +392,7 @@ func TestRequireWAL(t *testing.T) {
 
 func TestOpenPaths(t *testing.T) {
 	t.Run("escaped_filename", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "auth ?_pragma=foreign_keys(0)# 100%.db")
+		path := filepath.Join(privateTestDir(t), "auth ?_pragma=foreign_keys(0)# 100%.db")
 		s := openTestStore(t, path)
 		createTestUser(t, s, testUser())
 		if _, err := os.Stat(path); err != nil {
@@ -395,7 +404,7 @@ func TestOpenPaths(t *testing.T) {
 		}
 	})
 	t.Run("relative_path", func(t *testing.T) {
-		dir := t.TempDir()
+		dir := privateTestDir(t)
 		t.Chdir(dir)
 		s := openTestStore(t, "relative.db")
 		createTestUser(t, s, testUser())
@@ -422,6 +431,9 @@ func TestOpenRejectsInvalidPathOrSchema(t *testing.T) {
 		}},
 		{"conflicting_schema", func(t *testing.T, dir string) string {
 			path := filepath.Join(dir, "auth.db")
+			if err := os.WriteFile(path, nil, 0600); err != nil {
+				t.Fatalf("create private schema fixture: %v", err)
+			}
 			db, err := sql.Open("sqlite", path)
 			if err != nil {
 				t.Fatalf("open schema fixture: %v", err)
@@ -436,7 +448,7 @@ func TestOpenRejectsInvalidPathOrSchema(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
+			dir := privateTestDir(t)
 			s, err := Open(t.Context(), tt.setup(t, dir))
 			if s != nil {
 				s.Close()
@@ -464,7 +476,7 @@ func TestOpenRejectsInvalidPathOrSchema(t *testing.T) {
 func TestCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	s, err := Open(ctx, filepath.Join(t.TempDir(), "canceled.db"))
+	s, err := Open(ctx, filepath.Join(privateTestDir(t), "canceled.db"))
 	if s != nil {
 		s.Close()
 		t.Fatal("Open() returned a store for a canceled context")

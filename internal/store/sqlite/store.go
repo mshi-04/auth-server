@@ -32,6 +32,9 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve database path: %w", err)
 	}
+	if err := prepareDatabaseFile(ctx, absPath); err != nil {
+		return nil, err
+	}
 	u := url.URL{Scheme: "file", Path: absPath}
 	q := url.Values{}
 	q.Add("_pragma", "foreign_keys(1)")
@@ -40,12 +43,8 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	q.Set("_txlock", "immediate")
 	u.RawQuery = q.Encode()
 
-	db, err := sql.Open("sqlite", u.String())
+	db, err := openDatabase(ctx, u.String())
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite: %w", err)
-	}
-	if err := db.PingContext(ctx); err != nil {
-		db.Close()
 		return nil, fmt.Errorf("connect sqlite: %w", err)
 	}
 	if err := requireWAL(ctx, db); err != nil {
