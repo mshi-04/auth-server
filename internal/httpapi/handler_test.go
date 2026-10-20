@@ -517,7 +517,9 @@ func TestAuthLogsAreNotDuplicated(t *testing.T) {
 			f.store.credentials["user@example.com"] = auth.Credential{UserID: "existing-user", PasswordHash: phc}
 			response := request(f.handler, http.MethodPost, "/v1/sessions", credentialsJSON(t, "user@example.com", testPassword))
 			if tt.status == http.StatusOK {
-				assertUserID(t, response, tt.status)
+				if userID := assertUserID(t, response, tt.status); userID != "existing-user" {
+					t.Errorf("user_id = %q, want existing-user", userID)
+				}
 			} else {
 				assertProblem(t, response, tt.status, detailUnauthorized)
 			}
