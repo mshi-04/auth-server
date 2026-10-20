@@ -117,6 +117,18 @@ func mustPHC(t testing.TB, hasher *password.Hasher, raw string) string {
 	return phc
 }
 
+func legacyPHC(t testing.TB, raw string) string {
+	t.Helper()
+	params := smallParams()
+	params.MemoryKiB = 32
+	return mustPHC(t, mustHasher(t, params), raw)
+}
+
+func noncanonicalPHC(t testing.TB, raw string) string {
+	t.Helper()
+	return strings.Replace(mustPHC(t, mustHasher(t, smallParams()), raw), "m=64,t=1,p=1", "p=1,m=64,t=1", 1)
+}
+
 func mustService(t testing.TB, store UserStore, hasher *password.Hasher) (*Service, *bytes.Buffer) {
 	t.Helper()
 	var logs bytes.Buffer
@@ -255,6 +267,11 @@ func TestRegisterRejectsInvalidInput(t *testing.T) {
 		{name: "invalid email", email: "invalid", password: testPassword, want: ErrInvalidEmail},
 		{name: "display name", email: "Person <person@example.com>", password: testPassword, want: ErrInvalidEmail},
 		{name: "address list", email: "a@example.com,b@example.com", password: testPassword, want: ErrInvalidEmail},
+		{name: "non-ASCII", email: "üser@example.com", password: testPassword, want: ErrInvalidEmail},
+		{name: "group syntax", email: "Group: a@example.com;", password: testPassword, want: ErrInvalidEmail},
+		{name: "comment", email: "a@example.com ()", password: testPassword, want: ErrInvalidEmail},
+		{name: "quoted local part", email: `"a b"@example.com`, password: testPassword, want: ErrInvalidEmail},
+		{name: "trailing text", email: "a@example.com extra", password: testPassword, want: ErrInvalidEmail},
 		{name: "empty password", email: "a@example.com", want: ErrWeakPassword},
 		{name: "short password", email: "a@example.com", password: strings.Repeat("a", 11), want: ErrWeakPassword},
 		{name: "long password", email: "a@example.com", password: strings.Repeat("a", 129), want: ErrWeakPassword},
@@ -276,6 +293,35 @@ func TestRegisterRejectsInvalidInput(t *testing.T) {
 			assertLogs(t, logs, "", 0)
 		})
 	}
+}
+
+func TestRegisterStoresParsedAddress(t *testing.T) {
+	for _, input := range []string{"<Person@EXAMPLE.COM>", "  Person@EXAMPLE.COM  ", " <Person@EXAMPLE.COM> "} {
+		t.Run(input, func(t *testing.T) {
+			store := &fakeUserStore{}
+			service, _ := mustService(t, store, mustHasher(t, smallParams()))
+			if _, err := service.Register(context.Background(), input, testPassword); err != nil {
+				t.Fatal(err)
+			}
+			if created := store.created[0]; created.Email != "Person@EXAMPLE.COM" || created.EmailNormalized != "person@example.com" {
+				t.Errorf("stored email = %q / %q, want parsed address", created.Email, created.EmailNormalized)
+			}
+		})
+	}
+}
+
+func TestRegisterSurfacesHasherProgrammingErrors(t *testing.T) {
+	store := &fakeUserStore{}
+	service, logs := mustService(t, store, mustHasher(t, smallParams()))
+	service.hasher = &password.Hasher{}
+	id, err := service.Register(context.Background(), "a@example.com", testPassword)
+	if id != "" || !errors.Is(err, password.ErrInvalidParams) || errors.Is(err, ErrWeakPassword) || errors.Is(err, ErrBusy) {
+		t.Fatalf("Register() ID present = %t, error = %v, want ErrInvalidParams only", id != "", err)
+	}
+	if len(store.contexts) != 0 {
+		t.Error("failed registration hash accessed the store")
+	}
+	assertLogs(t, logs, "", 0)
 }
 
 func TestRegisterStoreErrors(t *testing.T) {
@@ -347,6 +393,7 @@ func TestLoginUnifiesInvalidCredentials(t *testing.T) {
 	}{
 		{name: "invalid email", email: "invalid", password: testPassword},
 		{name: "display name", email: "Person <a@example.com>", password: testPassword},
+		{name: "non-ASCII email", email: "üser@example.com", password: testPassword},
 		{name: "missing user", email: "a@example.com", password: testPassword, findErr: fmt.Errorf("lookup: %w", ErrUserNotFound), lookups: 1},
 		{name: "wrong password", email: "a@example.com", password: "incorrect password", credential: Credential{UserID: "user-1", PasswordHash: phc}, lookups: 1},
 		{name: "malformed PHC", email: "a@example.com", password: testPassword, credential: Credential{UserID: "user-1", PasswordHash: "malformed-secret-phc"}, lookups: 1, errors: 1},
@@ -417,25 +464,17 @@ func TestLoginRejectsUnparseablePasswordsBeforeLookup(t *testing.T) {
 
 func TestLoginRehashesLegacyCredentials(t *testing.T) {
 	for _, tt := range []struct {
-		name         string
-		password     string
-		oldParams    bool
-		noncanonical bool
+		name     string
+		password string
+		phc      func(testing.TB, string) string
 	}{
-		{name: "old parameters", password: testPassword, oldParams: true},
-		{name: "noncanonical parameters", password: testPassword, noncanonical: true},
-		{name: "short legacy password", password: "short", oldParams: true},
-		{name: "empty legacy password", oldParams: true},
+		{name: "old parameters", password: testPassword, phc: legacyPHC},
+		{name: "noncanonical parameters", password: testPassword, phc: noncanonicalPHC},
+		{name: "short legacy password", password: "short", phc: legacyPHC},
+		{name: "empty legacy password", phc: legacyPHC},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			params := smallParams()
-			if tt.oldParams {
-				params.MemoryKiB = 32
-			}
-			oldPHC := mustPHC(t, mustHasher(t, params), tt.password)
-			if tt.noncanonical {
-				oldPHC = strings.Replace(oldPHC, "m=64,t=1,p=1", "p=1,m=64,t=1", 1)
-			}
+			oldPHC := tt.phc(t, tt.password)
 			store := &fakeUserStore{credentials: map[string]Credential{
 				"a@example.com": {UserID: "user-1", PasswordHash: oldPHC},
 			}}
@@ -468,9 +507,7 @@ func TestLoginRehashesLegacyCredentials(t *testing.T) {
 }
 
 func TestLoginDoesNotRehashLegacyCredentialOnWrongPassword(t *testing.T) {
-	params := smallParams()
-	params.MemoryKiB = 32
-	oldPHC := mustPHC(t, mustHasher(t, params), testPassword)
+	oldPHC := legacyPHC(t, testPassword)
 	store := &fakeUserStore{credentials: map[string]Credential{
 		"a@example.com": {UserID: "user-1", PasswordHash: oldPHC},
 	}}
@@ -490,9 +527,7 @@ func TestLoginSucceedsAfterRehashSaveFailure(t *testing.T) {
 		errors.New("save failure"), ErrUserNotFound, fmt.Errorf("%w: %w", ErrBusy, context.Canceled),
 	} {
 		t.Run(failure.Error(), func(t *testing.T) {
-			params := smallParams()
-			params.MemoryKiB = 32
-			oldPHC := mustPHC(t, mustHasher(t, params), testPassword)
+			oldPHC := legacyPHC(t, testPassword)
 			store := &fakeUserStore{
 				credentials: map[string]Credential{"a@example.com": {UserID: "user-1", PasswordHash: oldPHC}},
 				updateErr:   failure,
@@ -552,27 +587,24 @@ func TestLoginVerifyBusyAndProgrammingErrors(t *testing.T) {
 	phc := mustPHC(t, hasher, testPassword)
 	for _, tt := range []struct {
 		name    string
-		invalid bool
+		prepare func(*Service, context.CancelFunc)
 		want    error
+		cause   error
 	}{
-		{name: "canceled verification", want: ErrBusy},
-		{name: "invalid hasher", invalid: true, want: password.ErrInvalidParams},
+		{name: "canceled verification", prepare: func(_ *Service, cancel context.CancelFunc) { cancel() }, want: ErrBusy, cause: context.Canceled},
+		{name: "invalid hasher", prepare: func(s *Service, _ context.CancelFunc) { s.hasher = &password.Hasher{} }, want: password.ErrInvalidParams},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &fakeUserStore{credentials: map[string]Credential{"a@example.com": {UserID: "user-1", PasswordHash: phc}}}
 			service, logs := mustService(t, store, hasher)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			if tt.invalid {
-				service.hasher = &password.Hasher{}
-			} else {
-				cancel()
-			}
+			tt.prepare(service, cancel)
 			id, err := service.Login(ctx, "a@example.com", testPassword)
 			if id != "" || !errors.Is(err, tt.want) || errors.Is(err, ErrInvalidCredentials) {
 				t.Fatalf("Login() ID present = %t, error = %v, want %v", id != "", err, tt.want)
 			}
-			if !tt.invalid && !errors.Is(err, context.Canceled) {
+			if tt.cause != nil && !errors.Is(err, tt.cause) {
 				t.Error("verification lost the context cause")
 			}
 			if len(store.updated) != 0 {

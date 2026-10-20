@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -9,7 +11,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -29,14 +34,30 @@ func testListener(t *testing.T) net.Listener {
 }
 
 func TestServerConfiguration(t *testing.T) {
-	srv := newServer(9000, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), testLogger())
+	var logs bytes.Buffer
+	srv := newServer(9000, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), slog.New(slog.NewJSONHandler(&logs, nil)))
 	if srv.Addr != ":9000" || srv.ReadHeaderTimeout != 5*time.Second ||
 		srv.ReadTimeout != 10*time.Second || srv.WriteTimeout != 30*time.Second || srv.IdleTimeout != 60*time.Second {
 		t.Fatalf("unexpected server configuration: %+v", srv)
 	}
-	if srv.ErrorLog == nil {
-		t.Fatal("server logs must use the JSON logger")
+	srv.ErrorLog.Print("server failure")
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != "ERROR" || record["msg"] != "server failure" {
+		t.Fatalf("server logs must use the JSON logger at ERROR level: %q", logs.String())
 	}
+}
+
+func TestSignalContextCancelsOnSIGTERM(t *testing.T) {
+	ctx, stop := signalContext()
+	defer stop()
+	process, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	awaitSignal(t, ctx.Done())
 }
 
 func TestServeDrainsActiveRequests(t *testing.T) {
@@ -159,15 +180,90 @@ func TestRunRejectsConfigurationBeforeCreatingDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auth.db")
 	t.Setenv("DATABASE_PATH", path)
 	t.Setenv("PORT", "0")
-	if err := run(context.Background(), testLogger()); err == nil {
-		t.Fatal("invalid configuration accepted")
+	if err := run(context.Background(), testLogger()); err == nil || !strings.Contains(err.Error(), "load configuration") {
+		t.Fatalf("run error = %v, want configuration rejection", err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("database created before configuration was validated")
 	}
 	t.Setenv("DATABASE_PATH", "/mnt/c/auth-server-test.db")
 	t.Setenv("PORT", "8080")
-	if err := run(context.Background(), testLogger()); err == nil {
-		t.Fatal("Windows database path accepted")
+	if err := run(context.Background(), testLogger()); err == nil || !strings.Contains(err.Error(), "load configuration") {
+		t.Fatalf("run error = %v, want configuration rejection of the Windows database path", err)
 	}
+}
+
+func testDatabasePath(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, "auth.db")
+}
+
+func assertDatabaseClosed(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("database was not created: %v", err)
+	}
+	if _, err := os.Stat(path + "-wal"); !os.IsNotExist(err) {
+		t.Error("database was not closed: WAL file remains")
+	}
+}
+
+func TestRunServesUntilCanceledAndClosesDatabase(t *testing.T) {
+	listener := testListener(t)
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	path := testDatabasePath(t)
+	t.Setenv("DATABASE_PATH", path)
+	t.Setenv("PORT", strconv.Itoa(port))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() { result <- run(ctx, testLogger()) }()
+	client := &http.Client{Timeout: 5 * time.Second}
+	base := "http://127.0.0.1:" + strconv.Itoa(port)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		response, err := client.Get(base + "/healthz")
+		if err == nil {
+			response.Body.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("server did not start: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	response, err := client.Post(base+"/v1/users", "application/json",
+		strings.NewReader(`{"email":"user@example.com","password":"correct horse battery staple"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("registration status = %d, want 201", response.StatusCode)
+	}
+	cancel()
+	if err := <-result; err != nil {
+		t.Fatalf("run error = %v", err)
+	}
+	assertDatabaseClosed(t, path)
+}
+
+func TestRunClosesDatabaseWhenListenFails(t *testing.T) {
+	occupied, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer occupied.Close()
+	path := testDatabasePath(t)
+	t.Setenv("DATABASE_PATH", path)
+	t.Setenv("PORT", strconv.Itoa(occupied.Addr().(*net.TCPAddr).Port))
+	if err := run(context.Background(), testLogger()); err == nil || !strings.Contains(err.Error(), "listen HTTP") {
+		t.Fatalf("run error = %v, want listen failure", err)
+	}
+	assertDatabaseClosed(t, path)
 }

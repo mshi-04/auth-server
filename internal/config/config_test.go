@@ -64,19 +64,19 @@ func TestDatabasePath(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "new.db")
 	t.Chdir(dir)
-	got, err := databasePath("new.db")
+	got, err := databasePath("new.db", windowsDriveRoot)
 	if err != nil || got != path {
 		t.Fatalf("relative path: %q, %v", got, err)
 	}
 	if err := os.WriteFile(path, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	got, err = databasePath(path)
+	got, err = databasePath(path, windowsDriveRoot)
 	if err != nil || got != path {
 		t.Fatalf("existing file: %q, %v", got, err)
 	}
 	for _, invalid := range []string{"", "/mnt/c", "/mnt/c/new.db", "/mnt/c/../c/new.db", filepath.Join(dir, "missing", "auth.db")} {
-		if _, err := databasePath(invalid); err == nil {
+		if _, err := databasePath(invalid, windowsDriveRoot); err == nil {
 			t.Fatalf("invalid path accepted: %q", invalid)
 		}
 	}
@@ -84,20 +84,25 @@ func TestDatabasePath(t *testing.T) {
 
 func TestDatabasePathResolvesLinksWithoutChangingReturnedPath(t *testing.T) {
 	dir := t.TempDir()
+	windowsRoot := filepath.Join(dir, "windows-drive")
+	if err := os.Mkdir(windowsRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
 	link := filepath.Join(dir, "windows")
-	if err := os.Symlink("/mnt/c", link); err != nil {
+	if err := os.Symlink(windowsRoot, link); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{filepath.Join(link, "new.db"), link} {
-		if _, err := databasePath(path); err == nil {
-			t.Fatalf("Windows link accepted: %q", path)
+		_, err := databasePath(path, windowsRoot)
+		if err == nil || !strings.Contains(err.Error(), "must not resolve under") {
+			t.Fatalf("Windows link %q: error = %v, want rejection after link resolution", path, err)
 		}
 	}
 	fileLink := filepath.Join(dir, "file-link")
-	if err := os.Symlink("/mnt/c/nonexistent-auth-server-test-target/auth.db", fileLink); err != nil {
+	if err := os.Symlink(filepath.Join(windowsRoot, "nonexistent", "auth.db"), fileLink); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := databasePath(fileLink); err == nil {
+	if _, err := databasePath(fileLink, windowsRoot); err == nil {
 		t.Fatal("dangling Windows file link accepted")
 	}
 	safe := filepath.Join(dir, "safe")
@@ -109,7 +114,7 @@ func TestDatabasePathResolvesLinksWithoutChangingReturnedPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(safeLink, "auth.db")
-	got, err := databasePath(path)
+	got, err := databasePath(path, windowsRoot)
 	if err != nil || got != path {
 		t.Fatalf("safe link must remain visible to store: %q, %v", got, err)
 	}
@@ -123,7 +128,7 @@ func TestWindowsDriveBoundary(t *testing.T) {
 		{"/mnt/c", true}, {"/mnt/c/auth.db", true},
 		{"/mnt/copy/auth.db", false}, {"/mnt/c-other/auth.db", false}, {"/tmp/auth.db", false},
 	} {
-		if got := onWindowsDrive(tt.path); got != tt.want {
+		if got := under(tt.path, windowsDriveRoot); got != tt.want {
 			t.Fatalf("path %q: got %t, want %t", tt.path, got, tt.want)
 		}
 	}

@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"auth-server/internal/auth"
 	"auth-server/internal/httpapi"
@@ -21,6 +22,20 @@ import (
 )
 
 const testPassword = "correct horse battery staple"
+
+const (
+	detailInvalidJSON  = "リクエストのJSONが正しくありません"
+	detailReadFailure  = "リクエストボディを読み取れませんでした"
+	detailTooLarge     = "リクエストボディが上限を超えています"
+	detailInvalidEmail = "メールアドレスの形式が正しくありません"
+	detailWeakPassword = "パスワードがポリシーを満たしていません"
+	detailEmailTaken   = "メールアドレスは既に登録されています"
+	detailUnauthorized = "メールアドレスまたはパスワードが正しくありません"
+	detailBusy         = "一時的に処理を受け付けられません"
+	detailInternal     = "サーバー内部でエラーが発生しました"
+	detailNotFound     = "指定されたリソースが見つかりません"
+	detailNotAllowed   = "指定されたHTTPメソッドは使用できません"
+)
 
 type fakeUserStore struct {
 	credentials map[string]auth.Credential
@@ -135,7 +150,7 @@ func assertUserID(t testing.TB, response *httptest.ResponseRecorder, status int)
 	return output["user_id"]
 }
 
-func assertProblem(t testing.TB, response *httptest.ResponseRecorder, status int) map[string]any {
+func assertProblem(t testing.TB, response *httptest.ResponseRecorder, status int, detail string) {
 	t.Helper()
 	if response.Code != status {
 		t.Fatalf("status = %d, want %d; response = %s", response.Code, status, response.Body)
@@ -150,10 +165,9 @@ func assertProblem(t testing.TB, response *httptest.ResponseRecorder, status int
 	if len(problem) != 4 || problem["type"] != "about:blank" || problem["title"] != http.StatusText(status) || problem["status"] != float64(status) {
 		t.Errorf("invalid Problem Details: %v", problem)
 	}
-	if detail, ok := problem["detail"].(string); !ok || detail == "" {
-		t.Errorf("detail = %v, want nonempty string", problem["detail"])
+	if problem["detail"] != detail {
+		t.Errorf("detail = %v, want %q", problem["detail"], detail)
 	}
-	return problem
 }
 
 func assertLogs(t testing.TB, logs *bytes.Buffer, level string, count int, secrets ...string) {
@@ -228,7 +242,7 @@ func TestRegistrationAndLogin(t *testing.T) {
 	if got := assertUserID(t, response, http.StatusOK); got != userID {
 		t.Errorf("login user_id = %q, want registered user_id", got)
 	}
-	assertProblem(t, request(f.handler, http.MethodPost, "/v1/users", body), http.StatusConflict)
+	assertProblem(t, request(f.handler, http.MethodPost, "/v1/users", body), http.StatusConflict, detailEmailTaken)
 	assertLogs(t, f.logs, "", 0, testPassword, f.store.created[0].PasswordHash, body)
 }
 
@@ -264,7 +278,7 @@ func TestInputValidation(t *testing.T) {
 				t.Run(tt.name, func(t *testing.T) {
 					f := newFixture(t)
 					response := request(f.handler, http.MethodPost, path, tt.body)
-					assertProblem(t, response, http.StatusBadRequest)
+					assertProblem(t, response, http.StatusBadRequest, detailInvalidJSON)
 					if len(f.store.created) != 0 || f.store.findCalls != 0 {
 						t.Error("invalid HTTP input reached the store")
 					}
@@ -285,16 +299,17 @@ func TestEmptyStringsReachAuth(t *testing.T) {
 		email    string
 		password string
 		status   int
+		detail   string
 	}{
-		{"registration email", "/v1/users", "", testPassword, http.StatusUnprocessableEntity},
-		{"registration password", "/v1/users", "user@example.com", "", http.StatusUnprocessableEntity},
-		{"login email", "/v1/sessions", "", testPassword, http.StatusUnauthorized},
-		{"login password", "/v1/sessions", "user@example.com", "", http.StatusUnauthorized},
+		{"registration email", "/v1/users", "", testPassword, http.StatusUnprocessableEntity, detailInvalidEmail},
+		{"registration password", "/v1/users", "user@example.com", "", http.StatusUnprocessableEntity, detailWeakPassword},
+		{"login email", "/v1/sessions", "", testPassword, http.StatusUnauthorized, detailUnauthorized},
+		{"login password", "/v1/sessions", "user@example.com", "", http.StatusUnauthorized, detailUnauthorized},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
 			response := request(f.handler, http.MethodPost, tt.path, credentialsJSON(t, tt.email, tt.password))
-			assertProblem(t, response, tt.status)
+			assertProblem(t, response, tt.status, tt.detail)
 			assertLogs(t, f.logs, "", 0)
 		})
 	}
@@ -316,11 +331,11 @@ func TestBodyLimit(t *testing.T) {
 				f := newFixture(t)
 				response := request(f.handler, http.MethodPost, path, tt.body)
 				if tt.status == http.StatusCreated && path == "/v1/sessions" {
-					assertProblem(t, response, http.StatusUnauthorized)
+					assertProblem(t, response, http.StatusUnauthorized, detailUnauthorized)
 				} else if tt.status == http.StatusCreated {
 					assertUserID(t, response, http.StatusCreated)
 				} else {
-					assertProblem(t, response, tt.status)
+					assertProblem(t, response, tt.status, detailTooLarge)
 					if len(f.store.created) != 0 || f.store.findCalls != 0 {
 						t.Error("oversized input reached the store")
 					}
@@ -401,6 +416,7 @@ func TestRouting(t *testing.T) {
 		{http.MethodHead, "/missing", http.StatusNotFound, ""},
 		{http.MethodGet, "/healthz/", http.StatusNotFound, ""},
 		{http.MethodGet, "/", http.StatusNotFound, ""},
+		{http.MethodConnect, "example.com:443", http.StatusNotFound, ""},
 	} {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
 			f := newFixture(t)
@@ -413,8 +429,10 @@ func TestRouting(t *testing.T) {
 				if tt.status != http.StatusOK && response.Header().Get("Content-Type") != "application/problem+json" {
 					t.Error("HEAD error did not advertise Problem Details")
 				}
+			} else if tt.status == http.StatusMethodNotAllowed {
+				assertProblem(t, response, tt.status, detailNotAllowed)
 			} else {
-				assertProblem(t, response, tt.status)
+				assertProblem(t, response, tt.status, detailNotFound)
 			}
 			if allow := response.Header().Get("Allow"); allow != tt.allow {
 				t.Errorf("Allow = %q, want %q", allow, tt.allow)
@@ -435,20 +453,23 @@ func TestAuthErrorResponses(t *testing.T) {
 		password   string
 		storeError error
 		status     int
+		detail     string
 		logCount   int
 	}{
-		{"invalid registration email", "/v1/users", "invalid", testPassword, nil, http.StatusUnprocessableEntity, 0},
-		{"weak password", "/v1/users", "user@example.com", "short", nil, http.StatusUnprocessableEntity, 0},
-		{"registration maximum length", "/v1/users", "user@example.com", strings.Repeat("x", 129), nil, http.StatusUnprocessableEntity, 0},
-		{"wrapped email taken", "/v1/users", "user@example.com", testPassword, fmt.Errorf("wrapped: %w", auth.ErrEmailTaken), http.StatusConflict, 0},
-		{"wrapped registration busy", "/v1/users", "user@example.com", testPassword, fmt.Errorf("wrapped: %w", auth.ErrBusy), http.StatusServiceUnavailable, 0},
-		{"invalid login email", "/v1/sessions", "invalid", testPassword, nil, http.StatusUnauthorized, 0},
-		{"missing user", "/v1/sessions", "missing@example.com", testPassword, nil, http.StatusUnauthorized, 0},
-		{"wrong password", "/v1/sessions", "user@example.com", "incorrect-password", nil, http.StatusUnauthorized, 0},
-		{"login maximum length", "/v1/sessions", "user@example.com", strings.Repeat("x", 129), nil, http.StatusUnauthorized, 0},
-		{"wrapped login busy", "/v1/sessions", "user@example.com", testPassword, fmt.Errorf("wrapped: %w", auth.ErrBusy), http.StatusServiceUnavailable, 0},
-		{"registration unexpected", "/v1/users", "user@example.com", testPassword, errors.New("database failure detail"), http.StatusInternalServerError, 1},
-		{"login unexpected", "/v1/sessions", "user@example.com", testPassword, errors.New("database failure detail"), http.StatusInternalServerError, 1},
+		{"invalid registration email", "/v1/users", "invalid", testPassword, nil, http.StatusUnprocessableEntity, detailInvalidEmail, 0},
+		{"weak password", "/v1/users", "user@example.com", "short", nil, http.StatusUnprocessableEntity, detailWeakPassword, 0},
+		{"registration maximum length", "/v1/users", "user@example.com", strings.Repeat("x", 129), nil, http.StatusUnprocessableEntity, detailWeakPassword, 0},
+		{"wrapped email taken", "/v1/users", "user@example.com", testPassword, fmt.Errorf("wrapped: %w", auth.ErrEmailTaken), http.StatusConflict, detailEmailTaken, 0},
+		{"wrapped registration busy", "/v1/users", "user@example.com", testPassword, fmt.Errorf("wrapped: %w", auth.ErrBusy), http.StatusServiceUnavailable, detailBusy, 0},
+		{"registration canceled", "/v1/users", "user@example.com", testPassword, fmt.Errorf("insert user: %w", context.Canceled), http.StatusServiceUnavailable, detailBusy, 0},
+		{"invalid login email", "/v1/sessions", "invalid", testPassword, nil, http.StatusUnauthorized, detailUnauthorized, 0},
+		{"missing user", "/v1/sessions", "missing@example.com", testPassword, nil, http.StatusUnauthorized, detailUnauthorized, 0},
+		{"wrong password", "/v1/sessions", "user@example.com", "incorrect-password", nil, http.StatusUnauthorized, detailUnauthorized, 0},
+		{"login maximum length", "/v1/sessions", "user@example.com", strings.Repeat("x", 129), nil, http.StatusUnauthorized, detailUnauthorized, 0},
+		{"wrapped login busy", "/v1/sessions", "user@example.com", testPassword, fmt.Errorf("wrapped: %w", auth.ErrBusy), http.StatusServiceUnavailable, detailBusy, 0},
+		{"login deadline", "/v1/sessions", "user@example.com", testPassword, fmt.Errorf("find password credential: %w", context.DeadlineExceeded), http.StatusServiceUnavailable, detailBusy, 0},
+		{"registration unexpected", "/v1/users", "user@example.com", testPassword, errors.New("database failure detail"), http.StatusInternalServerError, detailInternal, 1},
+		{"login unexpected", "/v1/sessions", "user@example.com", testPassword, errors.New("database failure detail"), http.StatusInternalServerError, detailInternal, 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
@@ -461,9 +482,9 @@ func TestAuthErrorResponses(t *testing.T) {
 			}
 			body := credentialsJSON(t, tt.email, tt.password)
 			response := request(f.handler, http.MethodPost, tt.path, body)
-			problem := assertProblem(t, response, tt.status)
-			if tt.status == http.StatusUnauthorized && problem["detail"] != "メールアドレスまたはパスワードが正しくありません" {
-				t.Error("authentication failures do not share the specified detail")
+			assertProblem(t, response, tt.status, tt.detail)
+			if challenge := response.Header().Get("WWW-Authenticate"); challenge != "" {
+				t.Errorf("WWW-Authenticate = %q, want none", challenge)
 			}
 			for _, secret := range []string{tt.password, phc, body, "database failure detail"} {
 				if strings.Contains(response.Body.String(), secret) {
@@ -498,7 +519,7 @@ func TestAuthLogsAreNotDuplicated(t *testing.T) {
 			if tt.status == http.StatusOK {
 				assertUserID(t, response, tt.status)
 			} else {
-				assertProblem(t, response, tt.status)
+				assertProblem(t, response, tt.status, detailUnauthorized)
 			}
 			assertLogs(t, f.logs, tt.level, 1, testPassword, phc)
 		})
@@ -506,14 +527,53 @@ func TestAuthLogsAreNotDuplicated(t *testing.T) {
 }
 
 func TestRequestContextPropagation(t *testing.T) {
-	f := newFixture(t)
 	type contextKey struct{}
-	ctx := context.WithValue(context.Background(), contextKey{}, "request marker")
-	req := httptest.NewRequest(http.MethodPost, "/v1/users", strings.NewReader(credentialsJSON(t, "user@example.com", testPassword))).WithContext(ctx)
-	response := httptest.NewRecorder()
-	f.handler.ServeHTTP(response, req)
-	assertUserID(t, response, http.StatusCreated)
-	if f.store.lastContext != ctx {
-		t.Error("request context was not passed through auth to the store")
+	for _, path := range []string{"/v1/users", "/v1/sessions"} {
+		t.Run(path, func(t *testing.T) {
+			f := newFixture(t)
+			ctx := context.WithValue(context.Background(), contextKey{}, "request marker")
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(credentialsJSON(t, "user@example.com", testPassword))).WithContext(ctx)
+			f.handler.ServeHTTP(httptest.NewRecorder(), req)
+			if f.store.lastContext != ctx {
+				t.Error("request context was not passed through auth to the store")
+			}
+		})
+	}
+}
+
+func TestBodyReadFailure(t *testing.T) {
+	for _, path := range []string{"/v1/users", "/v1/sessions"} {
+		t.Run(path, func(t *testing.T) {
+			f := newFixture(t)
+			response := httptest.NewRecorder()
+			f.handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, iotest.ErrReader(errors.New("connection reset"))))
+			assertProblem(t, response, http.StatusBadRequest, detailReadFailure)
+			if len(f.store.created) != 0 || f.store.findCalls != 0 {
+				t.Error("unreadable body reached the store")
+			}
+			assertLogs(t, f.logs, "", 0)
+		})
+	}
+}
+
+func TestUncleanPathsRedirect(t *testing.T) {
+	for _, tt := range []struct {
+		method   string
+		path     string
+		location string
+	}{
+		{http.MethodGet, "//healthz", "/healthz"},
+		{http.MethodPost, "/v1//users", "/v1/users"},
+	} {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			f := newFixture(t)
+			response := request(f.handler, tt.method, tt.path, credentialsJSON(t, "user@example.com", testPassword))
+			if response.Code != http.StatusTemporaryRedirect || response.Header().Get("Location") != tt.location {
+				t.Errorf("response = (%d, Location %q), want (307, %q)", response.Code, response.Header().Get("Location"), tt.location)
+			}
+			if len(f.store.created) != 0 || f.store.findCalls != 0 {
+				t.Error("redirected request reached the store")
+			}
+		})
 	}
 }
