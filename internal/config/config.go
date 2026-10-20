@@ -9,13 +9,15 @@ import (
 	"strings"
 )
 
+const windowsDriveRoot = "/mnt/c"
+
 type Config struct {
 	DatabasePath string
 	Port         int
 }
 
 func Load() (Config, error) {
-	path, err := databasePath(os.Getenv("DATABASE_PATH"))
+	path, err := databasePath(os.Getenv("DATABASE_PATH"), windowsDriveRoot)
 	if err != nil {
 		return Config{}, fmt.Errorf("load configuration: %w", err)
 	}
@@ -26,7 +28,7 @@ func Load() (Config, error) {
 	return Config{DatabasePath: path, Port: port}, nil
 }
 
-func databasePath(raw string) (string, error) {
+func databasePath(raw, windowsRoot string) (string, error) {
 	if raw == "" {
 		return "", errors.New("DATABASE_PATH is required")
 	}
@@ -34,8 +36,8 @@ func databasePath(raw string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve DATABASE_PATH: %w", err)
 	}
-	if onWindowsDrive(path) {
-		return "", errors.New("DATABASE_PATH must not be under /mnt/c")
+	if under(path, windowsRoot) {
+		return "", fmt.Errorf("DATABASE_PATH must not be under %s", windowsRoot)
 	}
 	resolved, err := filepath.EvalSymlinks(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -52,14 +54,14 @@ func databasePath(raw string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve DATABASE_PATH links: %w", err)
 	}
-	if onWindowsDrive(resolved) {
-		return "", errors.New("DATABASE_PATH must not resolve under /mnt/c")
+	if under(resolved, windowsRoot) {
+		return "", fmt.Errorf("DATABASE_PATH must not resolve under %s", windowsRoot)
 	}
 	return path, nil
 }
 
-func onWindowsDrive(path string) bool {
-	return path == "/mnt/c" || strings.HasPrefix(path, "/mnt/c/")
+func under(path, root string) bool {
+	return path == root || strings.HasPrefix(path, root+"/")
 }
 
 func parsePort(raw string) (int, error) {

@@ -22,13 +22,18 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signalContext()
 	defer stop()
-	context.AfterFunc(ctx, stop)
 	if err := run(ctx, logger); err != nil {
 		logger.Error("auth server failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+func signalContext() (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	context.AfterFunc(ctx, stop)
+	return ctx, stop
 }
 
 func run(ctx context.Context, logger *slog.Logger) (err error) {
