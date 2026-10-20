@@ -105,7 +105,7 @@ type Credential struct {
 | `ErrWeakPassword` | 登録時のパスワードポリシー違反 | 422 |
 | `ErrEmailTaken` | 登録時のメールアドレス重複 | 409 |
 | `ErrInvalidCredentials` | ログイン失敗（原因を区別しない） | 401 |
-| `ErrBusy` | ハッシュのセマフォ待機の打ち切り、または DB の書き込みロック待機の打ち切り。`password.ErrBusy` は `auth` が、`SQLITE_BUSY` は `store/sqlite` が `auth` の `ErrBusy` へ変換し、`ctx.Err()` は包んだまま残す | 503 |
+| `ErrBusy` | ハッシュのセマフォ待機の打ち切り、または DB の書き込みロック待機の打ち切り。`password.ErrBusy` は `auth` が、`SQLITE_BUSY` は `store/sqlite` が `auth` の `ErrBusy` へ変換し、`ctx.Err()` は包んだまま残す。`httpapi` は `ErrBusy` を包んでいない `context.Canceled`・`context.DeadlineExceeded` も 503 にし、ログに出さない | 503 |
 | `ErrUserNotFound` | `UserStore` の検索・ハッシュ更新で対象がない場合に返す。`Login` の検索では `ErrInvalidCredentials` に変換し、再ハッシュ保存では警告して成功を返す | — |
 | `password.ErrInvalidHash` | 保存済みハッシュが壊れているときに `ParseEncodedHash` が返す。`Login` の中でダミーハッシュの Verify を実行して応答時間を揃え、エラーログを出して `ErrInvalidCredentials` に変換する | — |
 | `password.ErrInvalidParams`・`password.ErrInvalidPassword` | 組み立てやゼロ値の誤用というプログラムの誤り。`auth` は利用者向けのエラーに変換せず、文脈を付けて包んで返す。`httpapi` は予期しないエラーとして 500 にし、ログに出す | 500 |

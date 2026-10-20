@@ -66,14 +66,9 @@ func parsePort(raw string) (int, error) {
 	if raw == "" {
 		return 8080, nil
 	}
-	for _, c := range raw {
-		if c < '0' || c > '9' {
-			return 0, errors.New("PORT must contain only decimal digits")
-		}
+	port, err := strconv.ParseUint(raw, 10, 16)
+	if err != nil || port == 0 {
+		return 0, errors.New("PORT must be decimal digits between 1 and 65535")
 	}
-	port, err := strconv.Atoi(raw)
-	if err != nil || port < 1 || port > 65535 {
-		return 0, errors.New("PORT must be between 1 and 65535")
-	}
-	return port, nil
+	return int(port), nil
 }

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/mail"
 	"strings"
+	"unicode"
 
 	"auth-server/internal/password"
 
@@ -41,7 +42,7 @@ func (s *Service) Register(ctx context.Context, email, rawPassword string) (stri
 	if err != nil {
 		return "", fmt.Errorf("register user: %w", ErrWeakPassword)
 	}
-	emailNormalized, err := normalizeEmail(email)
+	emailAddress, err := parseEmail(email)
 	if err != nil {
 		return "", fmt.Errorf("register user: %w", err)
 	}
@@ -62,7 +63,7 @@ func (s *Service) Register(ctx context.Context, email, rawPassword string) (stri
 	}
 	userID := id.String()
 	if err := s.store.CreateUser(ctx, NewUser{
-		ID: userID, Email: email, EmailNormalized: emailNormalized, PasswordHash: phc,
+		ID: userID, Email: emailAddress, EmailNormalized: strings.ToLower(emailAddress), PasswordHash: phc,
 	}); err != nil {
 		return "", fmt.Errorf("register user: %w", err)
 	}
@@ -126,12 +127,27 @@ func (s *Service) rehashCredential(ctx context.Context, userID string, parsedPas
 	}
 }
 
-func normalizeEmail(email string) (string, error) {
-	address, err := mail.ParseAddress(email)
-	if err != nil || address.Name != "" {
+func parseEmail(email string) (string, error) {
+	parsed, err := mail.ParseAddress(email)
+	if err != nil {
 		return "", ErrInvalidEmail
 	}
-	return strings.ToLower(address.Address), nil
+	trimmed := strings.TrimSpace(email)
+	if trimmed != parsed.Address && trimmed != "<"+parsed.Address+">" {
+		return "", ErrInvalidEmail
+	}
+	if strings.ContainsFunc(parsed.Address, func(r rune) bool { return r > unicode.MaxASCII }) {
+		return "", ErrInvalidEmail
+	}
+	return parsed.Address, nil
+}
+
+func normalizeEmail(email string) (string, error) {
+	address, err := parseEmail(email)
+	if err != nil {
+		return "", err
+	}
+	return strings.ToLower(address), nil
 }
 
 func passwordError(err error) error {

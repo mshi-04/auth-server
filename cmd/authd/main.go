@@ -24,6 +24,7 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	context.AfterFunc(ctx, stop)
 	if err := run(ctx, logger); err != nil {
 		logger.Error("auth server failed", "error", err)
 		os.Exit(1)
