@@ -34,11 +34,13 @@ type route struct {
 func NewHandler(service *auth.Service, logger *slog.Logger) http.Handler {
 	h := &handler{service: service, logger: logger}
 	mux := http.NewServeMux()
-	for _, rt := range []route{
+	routes := []route{
 		{path: "/v1/users", handlers: map[string]http.HandlerFunc{http.MethodPost: h.register}},
 		{path: "/v1/sessions", handlers: map[string]http.HandlerFunc{http.MethodPost: h.login}},
 		{path: "/healthz", handlers: map[string]http.HandlerFunc{http.MethodGet: healthz}},
-	} {
+	}
+	routes = append(routes, webRoutes()...)
+	for _, rt := range routes {
 		var allowed []string
 		for method, handle := range rt.handlers {
 			mux.HandleFunc(method+" "+rt.path, handle)

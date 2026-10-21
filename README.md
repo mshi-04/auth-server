@@ -1,6 +1,6 @@
 # auth-server
 
-パスワード保存の仕組みを学ぶための、Go 製の小さな認証 API です。Argon2id、ランダムなソルト、PHC 形式での保存、定数時間比較、ログイン成功時の再ハッシュを扱います。
+パスワード保存の仕組みを学ぶための、Go 製の小さな認証 API と Web 画面です。Argon2id、ランダムなソルト、PHC 形式での保存、定数時間比較、ログイン成功時の再ハッシュを扱います。
 
 **学習用であり、本番利用には適しません。** ログインは資格情報を照合して `user_id` を返すだけで、トークンや認証済みセッションは発行しません。
 
@@ -9,8 +9,9 @@
 - Windows と WSL2（Ubuntu 24.04）
 - WSL 側の Go（バージョンは [go.mod](go.mod) を参照。現在は 1.27.2）
 - Git、WSL 側の curl
+- Windows 側のブラウザー（JavaScript を有効にする）
 
-API の実装は `develop` に統合されています。このブランチを Windows 側のフォルダに取得し、リポジトリのルートで WSL Bash を開いてください。以下のシェルコマンドは、特記がなければ **WSL Bash** で実行します。Windows から WSL のコマンドを呼ぶ方法は [開発ガイド](docs/development.md) を参照してください。
+ソースを Windows 側のフォルダに取得し、リポジトリのルートで WSL Bash を開いてください。以下のシェルコマンドは、特記がなければ **WSL Bash** で実行します。Windows から WSL のコマンドを呼ぶ方法は [開発ガイド](docs/development.md) を参照してください。
 
 ソースは `/mnt/c` 配下でも構いませんが、SQLite の DB は WSL 側のファイルシステムに置きます。Docker や別の DB サーバーは不要です。
 
@@ -43,7 +44,7 @@ CGO_ENABLED=0 go build -o "$auth_build_dir/authd" ./cmd/authd
 "$auth_build_dir/authd"
 ```
 
-JSON ログに `auth server listening` が出たら準備完了です。既定のポートは `8080` です。サーバーは全インターフェースで待ち受けるので、接続できる範囲はホストのネットワーク・ファイアウォール設定にも依存します。
+JSON ログに `auth server listening` が出たら準備完了です。既定のポートは `8080` です。サーバーは IPv4 の全インターフェースで待ち受けるので、接続できる範囲はホストのネットワーク・ファイアウォール設定にも依存します。
 
 | 環境変数 | 必須 | 既定値 | 内容 |
 |---|---|---|---|
@@ -132,46 +133,34 @@ curl -i -X POST http://127.0.0.1:8080/v1/sessions \
 - 登録パスワードは NFKC 正規化後の Unicode コードポイント数で **12〜128文字**。文字種の組み合わせは強制しません。登録の入力違反は `422`、ログイン失敗は `401` です。既存の短い・空のパスワードは照合と再ハッシュが可能です。
 - Content-Type は必須ではありません。項目名の大文字小文字を区別しない照合、重複項目の後勝ち、不正 Unicode 表現の置換は Go 標準の JSON デコードに従います。
 
-## Android エミュレーターから接続する
+## Web 画面を使う
 
-Windows 上で動かす Android エミュレーターの接続先は **`http://10.0.2.2:8080`** です。`10.0.2.2` は Windows ホストのループバックを指すため、まず Windows から WSL のサーバーへ接続できることが必要です。
+サーバーを起動したまま、Windows のブラウザーで **[http://127.0.0.1:8080/](http://127.0.0.1:8080/)** を開きます。Web 画面も Go の実行ファイルに含まれるため、別の開発サーバーや Node.js は不要です。
 
-Android アプリには `android.permission.INTERNET` が必要です。Android 9（API 28）以降を対象にするアプリでは HTTP が既定で禁止されるため、アプリ側の **debug ソースセットだけ** に次の設定を追加します。以下は新しく設定する場合の最小例です。既存の Network Security Config がある場合は、その設定と統合してください。
+1. 右上に「サーバーに接続済み」と表示されることを確認します。これは HTTP の疎通確認で、DB の健全性は検査しません。
+2. 「ユーザー登録」に切り替え、メールアドレスと12〜128文字のパスワードを入力して登録します。成功するとユーザー ID が表示されます。
+3. 「ログイン」に切り替え、同じ情報を入力します。登録時と同じユーザー ID が表示されれば成功です。
+4. 同じメールアドレスでの再登録や誤ったパスワードで、エラーの表示も試せます。
 
-`app/src/debug/AndroidManifest.xml`:
+送信の終了後、パスワード欄は空になります。画面はパスワードを URL や Web Storage に保存しません。ブラウザー自身のパスワード保存機能は別途設定してください。ログインは照合だけを行い、ログイン状態を保持しません。実際に利用中のパスワードは使わないでください。
 
-```xml
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET" />
-    <application android:networkSecurityConfig="@xml/network_security_config" />
-</manifest>
-```
+### 接続できない場合
 
-`app/src/debug/res/xml/network_security_config.xml`:
+このサーバーは IPv4 で待ち受けます。`localhost` の名前解決に依存せず、`127.0.0.1` を使って順に確認します。`PORT` を変更した場合は、以下も同じ値にします。
 
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">10.0.2.2</domain>
-    </domain-config>
-</network-security-config>
-```
+1. WSL 内で `curl -i http://127.0.0.1:8080/healthz` が `200` になるか確認します。失敗する場合は、起動ログとポートを確認します。
+2. 通常の **Windows PowerShell** で次を実行します。起動直後の WSL の転送待ちに備え、接続失敗を最大5回再試行します。
 
-`debug-overrides` は証明書の信頼設定用なので、HTTP の許可には使いません。上の例は release ビルドに HTTP の許可を追加しません。
+   ```powershell
+   curl.exe -i --noproxy "*" --connect-timeout 2 --max-time 5 --retry 5 --retry-connrefused --retry-delay 1 http://127.0.0.1:8080/healthz
+   ```
 
-つながらない場合は、次の順で切り分けます。
+3. WSL 内だけ成功する場合は、PowerShell の `wsl -d Ubuntu-24.04 --exec hostname -I` で現在の WSL の IPv4 アドレスを取得し、`http://<WSL の IPv4>:8080/healthz` でも確認します。IP 直指定だけが成功するなら、WSL の localhost 転送を調べます。NAT モードでは `%UserProfile%\.wslconfig` の `localhostForwarding` の既定値は `true` です。
+4. Windows の curl が成功するのに画面が開かない場合は、ブラウザーの URL、HTTP/HTTPS の違い、プロキシ設定を確認します。エージェントのサンドボックス内だけで接続に失敗しても、Windows 自体の接続不良とは限りません。
 
-1. WSL 内で上のヘルスチェックが成功するか確認する。
-2. Windows の PowerShell で `curl.exe -i http://127.0.0.1:8080/healthz` を実行する。失敗する場合は、WSL の localhost 転送や Windows のネットワーク設定を確認する。
-3. Windows から成功したら、エミュレーターの接続先、debug 設定、アプリの通信権限を確認する。
+この開発環境（WSL 2.4.11.0）では、IPv6 の待ち受けは Windows の `::1` にだけ転送され、`127.0.0.1` が失敗する現象を確認しました。そのためサーバーは IPv4 の `tcp4` で待ち受けます。ファイアウォールの無効化やポート転送ルールの追加は不要でした。
 
-環境によって接続経路が異なるため、詳しくは公式資料を参照してください。
-
-- [Android Emulator のアドレス](https://developer.android.com/studio/run/emulator-networking-address)
-- [Android Network Security Configuration](https://developer.android.com/privacy-and-security/security-config)
-- [WSL のネットワーク](https://learn.microsoft.com/en-us/windows/wsl/networking)
+WSL のネットワークモードや設定の説明は、[Microsoft のネットワーク資料](https://learn.microsoft.com/en-us/windows/wsl/networking)と[設定資料](https://learn.microsoft.com/en-us/windows/wsl/wsl-config#main-wsl-settings)を参照してください。
 
 ## テストと関連文書
 

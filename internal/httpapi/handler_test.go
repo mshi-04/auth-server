@@ -415,7 +415,6 @@ func TestRouting(t *testing.T) {
 		{http.MethodPost, "/missing", http.StatusNotFound, ""},
 		{http.MethodHead, "/missing", http.StatusNotFound, ""},
 		{http.MethodGet, "/healthz/", http.StatusNotFound, ""},
-		{http.MethodGet, "/", http.StatusNotFound, ""},
 		{http.MethodConnect, "example.com:443", http.StatusNotFound, ""},
 	} {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {

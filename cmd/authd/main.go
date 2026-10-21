@@ -55,7 +55,8 @@ func run(ctx context.Context, logger *slog.Logger) (err error) {
 		return err
 	}
 	srv := newServer(cfg.Port, httpapi.NewHandler(service, logger), logger)
-	listener, err := net.Listen("tcp", srv.Addr)
+	// WSL の IPv6 待ち受けは Windows の IPv4 へ転送されない環境がある。
+	listener, err := net.Listen("tcp4", srv.Addr)
 	if err != nil {
 		return fmt.Errorf("listen HTTP: %w", err)
 	}
