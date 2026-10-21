@@ -47,6 +47,17 @@ func TestServerConfiguration(t *testing.T) {
 	}
 }
 
+func TestListenUsesIPv4Only(t *testing.T) {
+	listener, err := listen(":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	if addr := listener.Addr().(*net.TCPAddr); addr.IP.To4() == nil {
+		t.Fatalf("listener address = %s, want an IPv4 address", addr)
+	}
+}
+
 func TestSignalContextCancelsOnSIGTERM(t *testing.T) {
 	ctx, stop := signalContext()
 	defer stop()

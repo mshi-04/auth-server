@@ -4,10 +4,66 @@ import (
 	"bytes"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"unicode/utf8"
 )
+
+func TestIndexHTMLWorksUnderPolicy(t *testing.T) {
+	html, err := os.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := regexp.MustCompile(`<form\b[^>]*\bid="auth-form"[^>]*>`).Find(html)
+	if form == nil || !regexp.MustCompile(`\shidden[\s>]`).Match(form) {
+		t.Errorf("auth form must be hidden until JavaScript runs: %s", form)
+	}
+	for _, script := range regexp.MustCompile(`<script\b([^>]*)>([^<]*)</script>`).FindAllSubmatch(html, -1) {
+		if !bytes.Contains(script[1], []byte(" src=")) || len(bytes.TrimSpace(script[2])) != 0 {
+			t.Errorf("index.html contains an inline script: %s", script[0])
+		}
+	}
+	for _, inline := range []*regexp.Regexp{
+		regexp.MustCompile(`<style\b`),
+		regexp.MustCompile(`\sstyle\s*=`),
+		regexp.MustCompile(`\son[a-z]+\s*=`),
+	} {
+		if match := inline.Find(html); match != nil {
+			t.Errorf("index.html contains content blocked by the policy: %s", match)
+		}
+	}
+	f := newFixture(t)
+	policy := request(f.handler, http.MethodGet, "/", "").Header().Get("Content-Security-Policy")
+	if policy == "" || strings.Contains(policy, "unsafe-") || strings.Contains(policy, "*") {
+		t.Errorf("Content-Security-Policy = %q, want a policy without unsafe sources or wildcards", policy)
+	}
+}
+
+func TestSecurityHeadersOnEveryResponse(t *testing.T) {
+	for _, tt := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodGet, "/healthz", ""},
+		{http.MethodPost, "/v1/users", credentialsJSON(t, "user@example.com", testPassword)},
+		{http.MethodPost, "/v1/sessions", "{}"},
+		{http.MethodGet, "/missing", ""},
+		{http.MethodDelete, "/v1/users", ""},
+	} {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			f := newFixture(t)
+			response := request(f.handler, tt.method, tt.path, tt.body)
+			for name, value := range map[string]string{"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"} {
+				if got := response.Header().Get(name); got != value {
+					t.Errorf("%s = %q, want %q", name, got, value)
+				}
+			}
+		})
+	}
+}
 
 func TestStaticWebFiles(t *testing.T) {
 	const policy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"

@@ -30,8 +30,6 @@ func serveStatic(contentType, content string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("Content-Length", strconv.Itoa(len(content)))
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
 		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodHead {

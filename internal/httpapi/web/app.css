@@ -13,7 +13,7 @@ button, input { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: wait; }
 button, a, input { -webkit-tap-highlight-color: transparent; }
-:focus-visible { outline: 3px solid #6ba891; outline-offset: 4px; }
+:focus-visible { outline: 3px solid #3e7a63; outline-offset: 4px; }
 .page { max-width: 1200px; margin: 0 auto; padding: 0 48px; }
 .header { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 112px; border-bottom: 1px solid #dce3dc; }
 .brand { display: inline-flex; align-items: center; gap: 12px; color: #243c35; text-decoration: none; font-size: 22px; font-weight: 700; letter-spacing: -.5px; }
@@ -29,10 +29,10 @@ button, a, input { -webkit-tap-highlight-color: transparent; }
 .main { display: grid; grid-template-columns: 1fr 440px; gap: 70px; align-items: center; min-height: 660px; padding: 60px 0 72px; }
 .eyebrow { color: #617366; font-size: 10px; font-weight: 700; letter-spacing: .16em; margin: 0 0 18px; }
 h1 { font-size: clamp(30px, 3.2vw, 40px); line-height: 1.55; letter-spacing: -.045em; font-weight: 650; margin: 0 0 22px; }
-.intro-copy { font-size: 14px; line-height: 2; color: #6b7b72; margin: 0; }
+.intro-copy { font-size: 14px; line-height: 2; color: #5b6b62; margin: 0; }
 .journey { display: grid; gap: 24px; margin-top: 36px; }
 .journey > div { display: flex; align-items: flex-start; gap: 16px; }
-.step { width: 33px; height: 33px; display: grid; place-items: center; border: 1px solid #d8e1d8; border-radius: 50%; font-size: 10px; color: #617366; background: #eef2eb; }
+.step { width: 33px; height: 33px; display: grid; place-items: center; border: 1px solid #d8e1d8; border-radius: 50%; font-size: 10px; color: #55675b; background: #eef2eb; }
 .journey h2 { font-size: 13px; font-weight: 650; margin: 0 0 3px; }
 .journey p { font-size: 12px; margin: 0; color: #617366; }
 .storage-note { margin: 36px 0 0; font-size: 11px; color: #617366; }
@@ -48,13 +48,13 @@ h1 { font-size: clamp(30px, 3.2vw, 40px); line-height: 1.55; letter-spacing: -.0
 .card-heading > p:last-child { font-size: 12px; color: #617366; margin: 0; line-height: 1.9; }
 .field { margin-bottom: 20px; }
 .field label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 600; }
-.field input { width: 100%; height: 46px; padding: 10px 13px; background: #fcfdfa; color: #243c35; border: 1px solid #dce3d9; border-radius: 7px; font-size: 14px; }
+.field input { width: 100%; height: 46px; padding: 10px 13px; background: #fcfdfa; color: #243c35; border: 1px solid #859488; border-radius: 7px; font-size: 14px; }
 .field input::placeholder { color: #617366; }
 .field input:focus { outline-offset: 1px; }
 .field input:disabled { opacity: .6; }
 .password-field { position: relative; }
 .password-field input { padding-right: 60px; }
-.visibility-button { position: absolute; right: 9px; top: 9px; padding: 4px 6px; border: 0; background: transparent; color: #6d8073; font-size: 11px; border-radius: 3px; }
+.visibility-button { position: absolute; right: 9px; top: 9px; padding: 4px 6px; border: 0; background: transparent; color: #566b5e; font-size: 11px; border-radius: 3px; }
 .field-help { margin: 8px 0 0; color: #617366; font-size: 10px; line-height: 1.8; min-height: 18px; }
 .primary-button { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 26px; padding: 13px 17px; border: 1px solid #285e4c; border-radius: 7px; background: #285e4c; color: #fff; font-size: 12px; font-weight: 600; transition: background .15s; }
 .primary-button:hover { background: #1e4c3c; }
@@ -62,6 +62,7 @@ h1 { font-size: clamp(30px, 3.2vw, 40px); line-height: 1.55; letter-spacing: -.0
 .primary-button > span:last-child { font-size: 17px; font-weight: 400; }
 .result { margin-top: 22px; padding: 15px; background: #edf5ef; border: 1px solid #d8e9dc; border-radius: 7px; color: #305e45; overflow-wrap: anywhere; }
 .result[data-kind="error"] { background: #fcf3ef; border-color: #efddd3; color: #91573e; }
+.result:not([data-kind]) { margin: 0; padding: 0; border: 0; background: none; }
 .result p { margin: 0; font-size: 12px; }
 .result .result-title { font-weight: 650; margin-bottom: 5px; }
 .user-id { display: grid; gap: 4px; margin-top: 12px; padding-top: 10px; border-top: 1px solid #d8e9dc; }

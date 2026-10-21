@@ -54,6 +54,8 @@ func NewHandler(service *auth.Service, logger *slog.Logger) http.Handler {
 	}
 	mux.HandleFunc("/", notFound)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		// ServeMux は経路を決められない要求（authority 形式の CONNECT など）に、"/" を通さず text/plain の 404 を返す。
 		if _, pattern := mux.Handler(r); pattern == "" {
 			notFound(w, r)

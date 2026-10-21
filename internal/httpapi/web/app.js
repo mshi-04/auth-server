@@ -19,7 +19,7 @@ let mode = "login";
 let pending = false;
 
 function clearResult() {
-  result.hidden = true;
+  delete result.dataset.kind;
   resultTitle.textContent = "";
   resultMessage.textContent = "";
   userID.textContent = "";
@@ -49,7 +49,6 @@ function setMode(nextMode) {
     : "登録時に使ったパスワードを入力してください。";
   submitLabel.textContent = registering ? "ユーザーを登録する" : "ログインする";
   password.autocomplete = registering ? "new-password" : "current-password";
-  form.action = registering ? "/v1/users" : "/v1/sessions";
   password.value = "";
   hidePassword();
   clearResult();
@@ -63,7 +62,6 @@ function showResult(kind, title, message, id) {
     userID.textContent = id;
     userIDRow.hidden = false;
   }
-  result.hidden = false;
 }
 
 async function checkHealth() {
@@ -93,6 +91,7 @@ form.addEventListener("submit", async (event) => {
   clearResult();
   const registering = mode === "register";
   const body = JSON.stringify({ email: email.value, password: password.value });
+  const focused = document.activeElement;
   for (const control of [email, password, loginMode, registerMode, togglePassword, submitButton]) control.disabled = true;
   form.setAttribute("aria-busy", "true");
   submitLabel.textContent = registering ? "登録しています…" : "照合しています…";
@@ -107,17 +106,20 @@ form.addEventListener("submit", async (event) => {
       cache: "no-store",
       signal: controller.signal,
     });
-    const data = await response.json();
     if (!response.ok) {
+      const problem = await response.json().catch(() => null);
       showResult("error", registering ? "登録できませんでした" : "ログインできませんでした",
-        typeof data.detail === "string" ? data.detail : "処理に失敗しました。時間をおいて、もう一度お試しください。");
+        typeof problem?.detail === "string" ? problem.detail : "処理に失敗しました。時間をおいて、もう一度お試しください。");
       return;
     }
+    const data = await response.json();
     if (typeof data.user_id !== "string" || !data.user_id) throw new Error("Invalid response");
     showResult("success", registering ? "ユーザーを登録しました" : "ログインを確認しました",
       registering ? "「ログイン」に切り替えて、同じ情報で試してください。" : "登録したユーザーと一致しました。", data.user_id);
   } catch {
-    showResult("error", "応答を確認できませんでした", "サーバーの起動と接続を確認してください。登録された可能性もあるため、ログインで確認できます。");
+    showResult("error", "応答を確認できませんでした", registering
+      ? "サーバーの起動と接続を確認してください。登録された可能性もあるため、ログインで確認できます。"
+      : "サーバーの起動と接続を確認してから、もう一度お試しください。");
   } finally {
     clearTimeout(timer);
     password.value = "";
@@ -126,6 +128,7 @@ form.addEventListener("submit", async (event) => {
     for (const control of [email, password, loginMode, registerMode, togglePassword, submitButton]) control.disabled = false;
     form.setAttribute("aria-busy", "false");
     submitLabel.textContent = registering ? "ユーザーを登録する" : "ログインする";
+    if (focused instanceof HTMLElement) focused.focus();
   }
 });
 

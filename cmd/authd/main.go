@@ -55,13 +55,17 @@ func run(ctx context.Context, logger *slog.Logger) (err error) {
 		return err
 	}
 	srv := newServer(cfg.Port, httpapi.NewHandler(service, logger), logger)
-	// WSL の IPv6 待ち受けは Windows の IPv4 へ転送されない環境がある。
-	listener, err := net.Listen("tcp4", srv.Addr)
+	listener, err := listen(srv.Addr)
 	if err != nil {
 		return fmt.Errorf("listen HTTP: %w", err)
 	}
-	logger.Info("auth server listening", "address", srv.Addr)
+	logger.Info("auth server listening", "address", listener.Addr().String())
 	return serve(ctx, srv, listener)
+}
+
+func listen(addr string) (net.Listener, error) {
+	// WSL の IPv6 待ち受けは Windows の IPv4 へ転送されない環境がある。
+	return net.Listen("tcp4", addr)
 }
 
 func newServer(port int, handler http.Handler, logger *slog.Logger) *http.Server {
