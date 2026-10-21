@@ -29,6 +29,7 @@ auth-server/
 ├── internal/
 │   ├── config/             # 環境変数の読み込みと検証
 │   ├── httpapi/            # ルーティング、JSON の入出力、Problem Details
+│   │   └── web/           # 埋め込み用の HTML・CSS・JavaScript
 │   ├── auth/               # 登録とログインの処理、UserStore インターフェース
 │   ├── password/           # Password・EncodedHash の解析と契約、Argon2id、PHC 形式、パスワードポリシー、セマフォ
 │   └── store/sqlite/       # UserStore の SQLite 実装と埋め込み用 init.sql
@@ -41,7 +42,7 @@ auth-server/
 |---|---|---|
 | `cmd/authd` | 設定の読み込み、DB 接続、`password.Hasher`・`auth.Service`・`httpapi` の生成、サーバー起動 | すべて |
 | `config` | 環境変数の読み込みと検証 | 標準ライブラリのみ |
-| `httpapi` | ルーティング、JSON の入出力、ボディ上限、`auth` のエラーからステータスコードへの変換、Problem Details | `auth` |
+| `httpapi` | ルーティング、JSON の入出力、ボディ上限、`auth` のエラーからステータスコードへの変換、Problem Details、埋め込み Web 画面の配信 | `auth` |
 | `auth` | メールアドレスの検証と正規化、ユーザー ID の生成、登録、ログイン（ダミーハッシュ、エラーの統一、再ハッシュ） | `password`、`github.com/google/uuid` |
 | `password` | Password・EncodedHash の解析と契約、Argon2id、PHC 形式、パスワードポリシー、セマフォ | `golang.org/x/crypto`、`golang.org/x/text` |
 | `store/sqlite` | 接続プールの所有（`Open`・`Close`）、`auth.UserStore` の実装、`init.sql` の実行、SQLite のエラーから `auth` のエラーへの変換 | `auth`、`modernc.org/sqlite` |
@@ -116,9 +117,10 @@ type Credential struct {
 func NewHandler(service *auth.Service, logger *slog.Logger) http.Handler
 ```
 
-- 標準 ServeMux で 3 つのエンドポイントと 404・405 を処理する。有効な Service と logger を渡して生成する
+- 標準 ServeMux で API と Web 画面のルート、404・405 を処理する。有効な Service と logger を渡して生成する
 - 入力・応答・エラー形式は design.md 6.1 に従う。入力検証は HTTP の形式に限り、メール・パスワードの意味的な検証は auth に任せる
 - httpapi は password や SQLite を直接参照しない
+- `web/index.html`・`web/app.css`・`web/app.js` を `go:embed` で埋め込み、design.md 6.8 に従って明示したパスだけに配信する。Web 画面も既存 API を呼び、認証処理を重複実装しない
 
 ## config パッケージ
 
@@ -160,4 +162,4 @@ func (s *Store) Close() error
 | `password` | 単体テスト。値の解析・ゼロ値・伏字と、型付き Hash・Verify・NeedsRehash を検証する。ベンチマークは Password の解析を計測外に置き、既定のパラメータ（`BenchmarkHash`、`BenchmarkHashSaturated`）と性能調整の候補（`BenchmarkHashCandidates`）で計測する。それ以外は小さいパラメータで実行する。測定結果と API ごとの測定範囲は design.md に記録する |
 | `auth` | メモリ上の偽 `UserStore` と、小さいパラメータの本物の `password.Hasher` で実行する。ダミーハッシュの経路、再ハッシュ、再ハッシュの保存失敗、エラーの統一をここで検証する |
 | `store/sqlite` | `t.TempDir()` に SQLite ファイルを作り、毎回まっさらな DB で実行する |
-| `httpapi` | `httptest` と、本物の `auth.Service`（偽 `UserStore`）で実行する。ステータスコードと Problem Details の形を検証する |
+| `httpapi` | `httptest` と、本物の `auth.Service`（偽 `UserStore`）で実行する。API と静的ファイルのステータスコード・ヘッダー・本文、Problem Details の形を検証する。Web の操作は Windows のブラウザーから実接続で確認する |

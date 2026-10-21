@@ -18,6 +18,7 @@
 | 用途 | 採用 | 理由 |
 |---|---|---|
 | HTTP | 標準 `net/http`（Go 1.22 以降の `ServeMux` パターン） | メソッドとパスのルーティングが標準で足りる。フレームワークの挙動を覚える必要がない |
+| Web 画面 | HTML・CSS・JavaScript と標準 `embed` | Go の実行ファイルだけで画面と API を同じオリジンから配信し、別のビルドツールやフロントエンドの依存を増やさない |
 | パスワードハッシュ | `golang.org/x/crypto/argon2`（Argon2id） | RFC 9106 と OWASP が推奨。暗号処理は自前で実装しない |
 | ソルト生成 | 標準 `crypto/rand` | 暗号論的に安全な乱数 |
 | ハッシュ比較 | 標準 `crypto/subtle.ConstantTimeCompare` | 比較時間から一致箇所を推測されないようにする |

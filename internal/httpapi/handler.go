@@ -34,11 +34,13 @@ type route struct {
 func NewHandler(service *auth.Service, logger *slog.Logger) http.Handler {
 	h := &handler{service: service, logger: logger}
 	mux := http.NewServeMux()
-	for _, rt := range []route{
+	routes := []route{
 		{path: "/v1/users", handlers: map[string]http.HandlerFunc{http.MethodPost: h.register}},
 		{path: "/v1/sessions", handlers: map[string]http.HandlerFunc{http.MethodPost: h.login}},
 		{path: "/healthz", handlers: map[string]http.HandlerFunc{http.MethodGet: healthz}},
-	} {
+	}
+	routes = append(routes, webRoutes()...)
+	for _, rt := range routes {
 		var allowed []string
 		for method, handle := range rt.handlers {
 			mux.HandleFunc(method+" "+rt.path, handle)
@@ -52,6 +54,8 @@ func NewHandler(service *auth.Service, logger *slog.Logger) http.Handler {
 	}
 	mux.HandleFunc("/", notFound)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		// ServeMux は経路を決められない要求（authority 形式の CONNECT など）に、"/" を通さず text/plain の 404 を返す。
 		if _, pattern := mux.Handler(r); pattern == "" {
 			notFound(w, r)
