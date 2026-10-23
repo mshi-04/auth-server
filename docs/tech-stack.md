@@ -1,6 +1,6 @@
 # テックスタック
 
-採用技術と、その理由をまとめる。仕様の詳細は [design.md](design.md) を参照。依存パッケージと Node のバージョンは、実装後は `package.json` と `package-lock.json` を正本とする。
+採用技術と、その理由をまとめる。仕様の詳細は [design.md](design.md) を参照。依存パッケージのバージョンは、実装後は `package.json` と `package-lock.json` を正本とする。Node のメジャーバージョンは `.nvmrc` を正本とし、`package.json` の `engines.node`（`>=26.11.0 <27`）は対象外の版で動かしていないかの検査に使う。
 
 移行の完了（design.md 10 章の手順 7）までは、Go 実装と Go 用の CI が並存する。Go 実装で使っていた技術は、この文書の末尾の「Go 実装で使っていたもの」にまとめる。
 
@@ -9,7 +9,7 @@
 | 項目 | 採用 | 理由 |
 |---|---|---|
 | 言語 | TypeScript | 型で値オブジェクトとエラーの契約を表せる。Web 画面の JavaScript と言語をそろえられる |
-| 実行環境 | Node.js 26（LTS。2026-10-28 に LTS 入り） | 標準モジュールだけで HTTP サーバー、Argon2id、SQLite、乱数、正規化がそろう。サポート期限は 2029-04-30 |
+| 実行環境 | Node.js 26 系の 26.11.0 以上（2026-10-23 時点では Current。2026-10-28 から LTS の予定。LTS への移行後にこの表記を更新する） | 標準モジュールだけで HTTP サーバー、Argon2id、SQLite、乱数、正規化がそろう。26.11.0 は `node:sqlite` の `Database` クラスが入った版。26 系のサポート期限は 2029-04-30 |
 | TS の実行 | Node の型除去（type stripping）で `.ts` を直接実行する | ビルドの工程と出力ファイルを持たない。型除去は Node 25.2 で安定版になった |
 | 型検査 | `tsc --noEmit` | 型の検査だけを行い、JavaScript は出力しない |
 | 静的検査 | ESLint と typescript-eslint（`strictTypeChecked`） | `tsc` の型情報を使って、`Promise` の誤用、`any`・型アサーション、依存の向きの違反、`Math.random` などを検出する |

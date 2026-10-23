@@ -53,9 +53,10 @@ auth-server/
 | `config` | 環境変数の読み込みと検証 | Node 標準のみ |
 | `httpapi` | ルーティング、JSON の入出力、ボディ上限、要求ごとの `signal`、`auth` のエラーからステータスコードへの変換、Problem Details、Web 画面の配信 | `auth`、`log`、`errors.ts` |
 | `auth` | メールアドレスの検証と正規化、ユーザー ID の生成、登録、ログイン（ダミーハッシュ、エラーの統一、再ハッシュ） | `password`、`log`、`errors.ts` |
-| `password` | Password・EncodedHash の解析と契約、Argon2id、PHC 形式、パスワードポリシー、セマフォ | Node 標準のみ、`errors.ts` |
+| `password` | Password・EncodedHash の解析と契約、Argon2id、PHC 形式、パスワードポリシー、セマフォ | `errors.ts` |
 | `store/sqlite` | 接続の所有（`open`・`close`）、`UserStore` の実装、`init.sql` の実行、SQLite のエラーから `auth` のエラーへの変換 | `auth`、`errors.ts` |
 
+- 「依存してよい先」の表はプロジェクト内のモジュールへの依存を示す。Node の標準モジュール（`node:*`）は、どのモジュールから使ってもよい。ただし `node:http` は `httpapi` と `main.ts` だけ、`node:sqlite` は `store/sqlite` だけが使う。「Node 標準のみ」は、プロジェクト内のどのモジュールにも依存しないことを表す
 - 依存は表の向きだけにする。`auth` は `httpapi` と `store/sqlite` を import しない
 - `httpapi` は `password` と `store/sqlite` を直接使わない。パスワードポリシー違反やセマフォのタイムアウトも、`auth` のエラーとして受け取る
 - `UserStore` は使う側の `auth` で定義する

@@ -7,7 +7,8 @@ TypeScript 実装の手順を正本とする。移行の完了（design.md 10 �
 ## 開発環境
 
 - Node.js 26 は WSL（ディストリビューション名 `Ubuntu-24.04`）にだけ入れる。Windows 側には入れない
-- Node のメジャーバージョンはリポジトリのルートの `.nvmrc` を正本とする。WSL では nvm で入れ、リポジトリのルートで `nvm install` と `nvm use` を実行する
+- Node のメジャーバージョンはリポジトリのルートの `.nvmrc`（`26`）を正本とする。WSL では nvm で入れ、リポジトリのルートで `nvm install` と `nvm use` を実行する。26 系の最新版が入る
+- 対象の下限は 26.11.0 で、`package.json` の `engines.node`（`>=26.11.0 <27`）に書く。古い 26 系を使っていると `npm ci` が警告を出すので、`nvm install` で更新する
 - ソースは Windows 側のフォルダ（例：`C:\Users\<ユーザー名>\repos\auth-server`）に置く。WSL からは `/mnt/c/Users/<ユーザー名>/repos/auth-server` で見える
 - `npm ci` で作る `node_modules/` も Windows 側のフォルダに置かれる。`/mnt/c` 経由のファイルアクセスは遅いため、インストールとテストに時間がかかる
 - npm は WSL からだけ実行する。Windows 側の Node や npm で `node_modules/` を作り直さない
@@ -155,7 +156,7 @@ design.md 10 章の手順 7 で、この節ごと削除する。それまでは 
 
 ### CI・CodeQL・Dependabot
 
-- `.github/workflows/ci.yml` の Go 用のジョブは、TS 用のジョブと並べて次の 4 つを独立して実行する。design.md 10 章の手順 1 で TS 用のジョブを追加するとき、既存のジョブ名と artifact 名に `Go`・`go-` を付けて区別する
+- `.github/workflows/ci.yml` の Go 用のジョブは、TS 用のジョブと並べて次の 4 つを独立して実行する。design.md 10 章の手順 1 で TS 用のジョブを追加するとき、既存の Go 用のジョブは、`jobs` のキー（job ID）を `go-lint`・`go-test`・`go-coverage`・`go-race` に、表示名を `Go Lint` などに、artifact 名を `go-coverage-report` に変えて、TS 用の `lint`・`test`・`coverage` と区別する。job ID は 1 つのワークフロー内で一意でなければならないため、表示名だけでは区別できない
 
 | ジョブ | 内容 |
 |---|---|

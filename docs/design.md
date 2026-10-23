@@ -22,7 +22,7 @@ JWT・リフレッシュトークン、ペッパー、メール確認、パス�
 
 ## 3. ディレクトリ構成
 
-言語は TypeScript、実行環境は Node.js 26（LTS）。プロジェクトのフォルダ名は `auth-server`（旧フォルダ名 `auth-sever` から改名済み）。
+言語は TypeScript、実行環境は Node.js 26 系の 26.11.0 以上（2026-10-23 時点では Current。2026-10-28 に LTS へ移行する予定）。26.11.0 を下限とするのは、5.1 の `node:sqlite` の `Database` クラスがこの版で導入されたため。プロジェクトのフォルダ名は `auth-server`（旧フォルダ名 `auth-sever` から改名済み）。
 
 モジュールの責務と依存の向きは [architecture.md](architecture.md) を正本とする。
 
@@ -66,6 +66,7 @@ auth-server/
 | 正規化 | `String.prototype.normalize('NFKC')` |
 
 - `argon2` の非同期版は、Node の他の非同期暗号処理と同じく libuv のスレッドプール（既定 4 スレッド）で計算される。ドキュメントに明記が無いため、実装時に 4.7 の飽和ベンチマークで確認する
+- 非同期版がメインのイベントループで鍵導出を行っていた不具合（nodejs/node#62861）は、2026-04 に nodejs/node#62863 で修正され、v24 系にもバックポートされている。対象の 26.11.0 以上は修正を含む想定だが、4.7 でイベントループの遅延を測って確かめる
 - 同期版の `argon2Sync` は計算中にイベントループを止めるため使わない
 
 ### 4.2 パラメータ
@@ -202,6 +203,7 @@ class Hasher {
 | 値オブジェクト | 解析済みの空文字、全出力経路（`toString`・`toJSON`・`util.inspect`・別のオブジェクトのプロパティ）での伏字、エラーに秘密を含めないこと |
 | セマフォ | 同時数を超えた呼び出しがタイムアウトで `BusyError` になる。中断済みの `signal` で計算を開始しない。Argon2id の計算中は枠を保持し、終了後に解放する |
 | ベンチマーク | `hash`（既定のパラメータ）、`hash saturated`（既定のパラメータで同時ハッシュ数いっぱいに並列実行したときの 1 回あたりの所要時間）、`hash candidates`（下記の候補）。`vitest bench` で計測 |
+| イベントループ遅延 | 既定のパラメータで同時ハッシュ数いっぱいに並列実行している間、`node:perf_hooks` の `monitorEventLoopDelay` でイベントループの遅延を測る。遅延の最大値が 1 回のハッシュの所要時間より十分に小さく（目安は 50ms 未満）、計算中も他の処理が止まらないことを確かめる |
 
 - 単体テストは小さい計算パラメータを使う。セマフォのテストはテスト側で枠を占有し、Vitest の偽タイマーで待機時間を進めて、重い計算の実行時間に依存させない
 - ベンチマークは WSL の Node 26 で `npm run bench`（`vitest bench --run src/password`）を 3 回実行し、各回の平均の中央値を使う
@@ -248,7 +250,7 @@ Go 実装（`golang.org/x/crypto/argon2`）で採用値を決めたときの記�
 
 ### 5.1 ドライバ
 
-Node 標準の `node:sqlite` の `Database` クラス（v26.11.0 で `DatabaseSync` から改名。`DatabaseSync` は非推奨の別名として残る）。外部パッケージやネイティブのビルドは不要。
+Node 標準の `node:sqlite` の `Database` クラス（v26.11.0 で `DatabaseSync` から改名。`DatabaseSync` は非推奨の別名として残る）。外部パッケージやネイティブのビルドは不要。26.11.0 未満の Node は対象外とし（3 章）、`DatabaseSync` との互換処理は持たない。
 
 - `node:sqlite` の安定度は 1.2（Release candidate）である
 - `Database` の API はすべて同期で実行され、SQL の実行中とロックの待機中はイベントループが止まる
@@ -302,7 +304,8 @@ CREATE TABLE IF NOT EXISTS password_credentials (
 ### 5.4 書き込み
 
 - 登録時は `users` と `password_credentials` を 1 トランザクション（`BEGIN IMMEDIATE` … `COMMIT`。失敗時は `ROLLBACK`）で挿入する
-- `node:sqlite` が SQLite のエラーを投げると、`code` が `'ERR_SQLITE_ERROR'` になり、拡張結果コードが `errcode`、説明が `errstr` に入る。`errcode`・`errstr` は Node のドキュメントに記載が無いため、これに依存する判定はテストで固定する
+- `node:sqlite` が SQLite のエラーを投げると、`code` が `'ERR_SQLITE_ERROR'` になり、拡張結果コードが数値の `errcode` に入る。`errcode` は Node のドキュメントに記載が無いため、対象の Node 26 系（26.11.0 以上）での形を 5.5 のテストで固定する。Node の更新で形が変わった場合は、このテストが失敗して気づける
+- 下の UNIQUE 違反と `SQLITE_BUSY` の判定は、`code` が `'ERR_SQLITE_ERROR'` で、かつ `errcode` が数値の場合に限って行う。どちらかを満たさないエラーは、メール重複にも `BusyError` にも変換せず、予期しないエラーとして文脈を付けて投げる（httpapi で 500）。メッセージの文字列での判定はしない。説明の `errstr` やメッセージは判定にもログにも使わない
 - メールアドレスの重複は `users` 挿入時の UNIQUE 制約違反（`errcode` が `SQLITE_CONSTRAINT_UNIQUE`＝2067）で検出し、`EmailTakenError` に変換する。API 層がこれを 409 に変換する。ID の PRIMARY KEY 制約違反（`SQLITE_CONSTRAINT_PRIMARYKEY`＝1555）など、ほかの制約違反はメール重複として扱わない
 - ハッシュ更新では `hash` と `changed_at` を同時に更新する。時刻はスキーマと同じ UTC の ISO 8601 文字列とする。更新対象の資格情報が存在しなければ `UserNotFoundError` を投げる
 - 保存層は受け取った正規化済みメールアドレスと PHC 文字列をそのまま扱い、正規化やハッシュの解析を繰り返さない
@@ -414,7 +417,7 @@ Node には Go の `net/mail.ParseAddress` に相当する標準 API が無い�
 | `connectionsCheckingInterval` | 1 秒 | `headersTimeout`・`requestTimeout` を検査する間隔。既定の 30 秒では、上の値が 30 秒単位でしか効かない |
 
 - 応答の期限は、要求ごとに `AbortSignal.timeout(30_000)` とクライアントの切断を `AbortSignal.any` でまとめた `signal` として auth に渡す。期限で中断された要求は応答を書かず、接続を破棄する
-- 応答の期限は、1 リクエストで起こりうる最長の待ち時間より長くする。最長になるのは再ハッシュを伴うログインで、セマフォ待機（最大 5 秒）とハッシュをそれぞれ 2 回（`verify` と再ハッシュ）、ストアへのアクセスを 2 回（読み込みと更新。busy timeout で各最大 5 秒）行う。待機だけで最大 20 秒になり、そこへ競合で遅くなったハッシュ 2 回分（Go 実装の `BenchmarkHashSaturated` で 1 回約 1 秒。TS 実装で再測定する）が加わるため、合計は約 22 秒になる。30 秒なら、ハッシュ 1 回が 5 秒かかるまで収まる。これより短いと、503 などの応答を書く前に接続が切られる
+- 応答の期限は、1 リクエストで起こりうる最長の待ち時間より長くする。最長になるのは再ハッシュを伴うログインで、セマフォ待機（最大 5 秒）とハッシュをそれぞれ 2 回（`verify` と再ハッシュ）、ストアへのアクセスを 2 回（読み込みと更新。busy timeout で各最大 5 秒）行う。待機だけで最大 20 秒になり、そこへ競合で遅くなったハッシュ 2 回分（Go 実装の `BenchmarkHashSaturated` で 1 回約 1 秒。TS 実装で再測定する）が加わるため、合計は約 22 秒になる。30 秒なら、ハッシュ 1 回が 5 秒かかるまで収まる。これより短いと、503 などの応答を書く前にサーバーが接続を破棄する
 
 ### 6.7 テスト
 
@@ -473,7 +476,7 @@ Node には Go の `net/mail.ParseAddress` に相当する標準 API が無い�
 
 Go 実装を動かしたまま、TS 実装を `src/` に段階的に作り、仕様をすべて満たしてから Go 実装を削除する。
 
-1. 土台を作る：`.nvmrc`（`26`）、`package.json`（`engines` に Node 26）、`package-lock.json`、`tsconfig.json`、`vitest.config.ts`、`eslint.config.js`、`.prettierignore`、`.gitignore`。TS 用の CI ジョブ、CodeQL の JavaScript/TypeScript の解析、Dependabot の npm の設定を Go 用の設定と並べて追加する
+1. 土台を作る：`.nvmrc`（`26`）、`package.json`（`engines.node` に `>=26.11.0 <27`）、`package-lock.json`、`tsconfig.json`、`vitest.config.ts`、`eslint.config.js`、`.prettierignore`、`.gitignore`。TS 用の CI ジョブ、CodeQL の JavaScript/TypeScript の解析、Dependabot の npm の設定を Go 用の設定と並べて追加する
 2. password を実装し、テストを通す。ベンチマークで既定パラメータを確認し、結果を 4.7 に記録する
 3. DB（init.sql、store/sqlite）を実装し、テストを通す
 4. auth と API（httpapi、config、main）を実装し、テストを通す
@@ -504,7 +507,7 @@ Go 実装を動かしたまま、TS 実装を `src/` に段階的に作り、仕
 | 13 | ログイン時の再ハッシュ失敗 | 警告ログを出して 200 | 6.4 |
 | 14 | サーバータイムアウト値 | ヘッダー 5 秒、要求全体 10 秒、応答の期限 30 秒、keep-alive 60 秒 | 6.6 |
 | 15 | DB の書き込みロック待機の打ち切り | `BusyError`（503）。接続は 1 つ | 5.4、6.2 |
-| 16 | 言語と実行環境 | TypeScript、Node.js 26（LTS）。Next.js などのフレームワークは使わない | 3 章 |
+| 16 | 言語と実行環境 | TypeScript、Node.js 26 系の 26.11.0 以上（2026-10-28 に LTS へ移行する予定）。Next.js などのフレームワークは使わない | 3 章 |
 | 17 | 暗号と DB の実装 | Node 標準の `crypto.argon2` と `node:sqlite`。外部パッケージに依存しない | 4.1、5.1 |
 | 18 | テスト | Vitest。Vite は使わない | 4.7、6.7 |
 | 19 | 移行の進め方 | 同じリポジトリで TS 実装を `src/` に作り、仕様をすべて満たしてから Go 実装を削除する | 10 章 |
@@ -512,7 +515,7 @@ Go 実装を動かしたまま、TS 実装を `src/` に段階的に作り、仕
 
 ## 変更履歴
 
-- v0.23：バックエンドを Go から TypeScript（Node.js 26）へ移行する方針に改訂。Argon2id・SQLite・UUID・正規化を Node 標準の API に置き換え、外部の実行時依存をなくした。値オブジェクトの伏字を private フィールドと `util.inspect.custom` で行い、Go のゼロ値に関する契約を削除。`ctx` を `AbortSignal` に、エラーを `cause` 付きのクラスに置き換えた。保存済み PHC のソルトの下限を 8 バイトに変更。「不正な UTF-8」の拒否をペアになっていないサロゲートの拒否に置き換えた。JSON の項目名を大文字小文字を区別する照合に変更。メールアドレスの受理形式を dot-atom として明記し、ドメインリテラルを拒否する。SQLite を 1 接続の同期 API とし、イベントループが止まる制限を追記。サーバータイムアウトを Node の設定に対応させ、Node が自動で返す 400・408 を既知の制限に追記。テストを Vitest に変更。静的検査に ESLint（typescript-eslint）、整形に Prettier を採用。Go 実装の性能測定の結果は記録として残し、TS 実装で再測定する。移行の作業手順を追加
+- v0.23：バックエンドを Go から TypeScript（Node.js 26 系の 26.11.0 以上）へ移行する方針に改訂。Argon2id・SQLite・UUID・正規化を Node 標準の API に置き換え、外部の実行時依存をなくした。値オブジェクトの伏字を private フィールドと `util.inspect.custom` で行い、Go のゼロ値に関する契約を削除。`ctx` を `AbortSignal` に、エラーを `cause` 付きのクラスに置き換えた。保存済み PHC のソルトの下限を 8 バイトに変更。「不正な UTF-8」の拒否をペアになっていないサロゲートの拒否に置き換えた。JSON の項目名を大文字小文字を区別する照合に変更。メールアドレスの受理形式を dot-atom として明記し、ドメインリテラルを拒否する。SQLite を 1 接続の同期 API とし、イベントループが止まる制限を追記。SQLite のエラーは `code` と数値の `errcode` がそろう場合だけ判定し、それ以外は予期しないエラーとする。Argon2id の飽和時にイベントループの遅延も測る。サーバータイムアウトを Node の設定に対応させ、Node が自動で返す 400・408 を既知の制限に追記。テストを Vitest に変更。静的検査に ESLint（typescript-eslint）、整形に Prettier を採用。Go 実装の性能測定の結果は記録として残し、TS 実装で再測定する。移行の作業手順を追加
 - v0.22：同じ Go サーバーから配信する最小の Web 画面を追加。静的ファイルの配信、入力と結果の表示、パスワードの扱いを確定。WSL から Windows の IPv4 への転送のため IPv4 の待ち受けを明示。Android の接続案内を Windows のブラウザーからの利用・実接続確認へ置き換え。コードレビューを反映し、すべての応答への no-store・nosniff、メール欄の `type="text"`、待ち受け範囲と別サイトからの要求を既知の制限に追記
 - v0.21：メールアドレスを ASCII に限定。401 に `WWW-Authenticate` を付けない理由を明記。既知の制限に、Argon2id の同時計算枠の枯渇、`/mnt/c` 以外の Windows ドライブを検出しないこと、正常終了の期限切れ後のハンドラと DB の後始末を追記
 - v0.20：コードレビューの指摘を反映。メールアドレスはグループ構文・コメント・引用符付きのローカル部を拒否し、`users.email` には解析したアドレスを保存する。リクエストの `ctx` の取り消し・期限切れを 503 に統一して記録しない。本文の読み込み失敗に専用の `detail` を返し、authority 形式の CONNECT も Problem Details の 404 にする
