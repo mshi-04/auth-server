@@ -1,4 +1,4 @@
-# 認証基盤バックエンド 設計書（学習用 v0.18）
+# 認証基盤バックエンド 設計書（学習用 v0.22）
 
 ## 1. 目的
 
@@ -13,6 +13,7 @@
 3. SQLite のテーブル 2 つ（`users`、`password_credentials`）
 4. GitHub Actions による CI（全パッケージのテスト、レース検出、Lint、カバレッジレポート、CodeQL による Go のセキュリティ解析）
 5. Dependabot による Go モジュールと GitHub Actions の依存更新
+6. 同じ Go サーバーから配信する、登録・ログインを試す日本語の Web 画面
 
 ### 実装しないもの
 
@@ -29,7 +30,7 @@ auth-server/
 ├── cmd/authd/              # エントリポイント
 ├── internal/
 │   ├── config/             # 環境変数（DATABASE_PATH、PORT）
-│   ├── httpapi/            # ハンドラ、ミドルウェア、Problem Details
+│   ├── httpapi/            # ハンドラ、Problem Details、埋め込み Web 画面
 │   ├── auth/               # 登録とログインの処理
 │   ├── password/           # Argon2id とパスワードポリシー
 │   └── store/sqlite/       # SQLite による永続化（init.sql を埋め込んで Open で実行）
@@ -238,6 +239,7 @@ CREATE TABLE IF NOT EXISTS password_credentials (
 ```
 
 - `STRICT` テーブルにして、型の異なる値が入るのを防ぐ
+- `email` は `net/mail.ParseAddress` で解析したアドレス（大文字小文字は入力のまま）。山括弧や前後の空白は含めない
 - `email_normalized` はメールアドレスを小文字化した値。重複判定に使う
 - 時刻は UTC の ISO 8601 文字列
 - ユーザー ID はアプリ側で `github.com/google/uuid` の v4 を使って生成する（SQLite には UUID 生成関数が無いため）
@@ -290,12 +292,30 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 
 | メソッド | パス | リクエスト | 成功 | 主なエラー |
 |---|---|---|---|---|
-| POST | `/v1/users` | `{email, password}` | 201 | 400 / 409 / 413 / 422 / 503 |
+| POST | `/v1/users` | `{email, password}` | 201 `{user_id}` | 400 / 409 / 413 / 422 / 503 |
 | POST | `/v1/sessions` | `{email, password}` | 200 `{user_id}` | 400 / 401 / 413 / 503 |
 | GET | `/healthz` | なし | 200 | |
 
 - HTTP は標準 `net/http`（Go 1.22 以降の `ServeMux` パターン）。Web フレームワークは使わない
 - ログイン成功時にトークンは発行しない（スコープ外）
+- 登録とログインの成功応答は `application/json`。`GET /healthz` は DB を照会せず、本文なしの 200 を返す。標準 ServeMux の GET パターンに従い HEAD も受け付ける
+
+#### JSON 入力
+
+- 本文は 16 KiB 以下の JSON オブジェクト 1 つとし、文字列の `email` と `password` を必須にする
+- 不正な JSON、オブジェクト以外、未知の項目、必須項目の欠落・null・文字列以外、後続の JSON や空白以外のデータは 400。末尾の空白も含めた本文全体の上限超過は 413
+- 空文字は入力形式エラーにせず auth へ渡し、auth の検証・認証結果に従う。登録では入力検証で 422 になる。既存の空パスワードは Verify・Rehash の契約に従ってログインと移行ができる
+- Content-Type ヘッダーは必須にせず、本文を検査する。項目名の大文字小文字を区別しない照合、重複項目の後勝ち、不正 UTF-8・不正 UTF-16 サロゲートの U+FFFD への置換は `encoding/json` の標準動作に従う。auth の不正 UTF-8 の拒否はデコード後の文字列に対して適用する
+
+#### エラー応答
+
+- 404・405 を含めて `application/problem+json` とし、`type: "about:blank"`、HTTP 標準の英語 `title`、数値の `status`、原因別の固定された日本語 `detail` を返す。`instance` や拡張項目は付けない
+- 401 の `detail` は「メールアドレスまたはパスワードが正しくありません」。500 は内部の原因を含めない。405 は許可するメソッドを `Allow` ヘッダーへ設定する
+- 401 には `WWW-Authenticate` を付けない。認証情報を本文で受け取る方式で、該当する HTTP 認証スキームが無いため、RFC 9110 の要求から意図的に外れる
+- 通常の入力エラーや認証失敗はログに出さず、予期しないエラーだけ httpapi で 1 回記録する。JSON の解析エラー自体は本文の一部を含むことがあるためログに出さない
+- 本文の読み込み自体の失敗（上限超過以外の通信エラーや ReadTimeout）は 400 とし、JSON 不正とは別の `detail` を返す
+- ServeMux が経路を決められない要求（authority 形式の CONNECT など）も 404 の Problem Details にする。正規化が必要なパスへの ServeMux の 307 リダイレクトはエラー応答ではないため、そのまま返す
+- クライアントの切断などでリクエストの `ctx` が取り消された・期限切れになった場合は、どの層で起きても 503 とし、予期しないエラーとして記録しない
 
 ### 6.2 ステータスコード
 
@@ -306,11 +326,13 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 | メールアドレス重複 | 409 |
 | ボディ上限（16 KiB）超過 | 413 |
 | パスワードポリシー違反、登録時のメールアドレス形式不正 | 422 |
-| セマフォ待機タイムアウト、DB の書き込みロック待機の打ち切り（`ErrBusy`） | 503 |
+| セマフォ待機タイムアウト、DB の書き込みロック待機の打ち切り（`ErrBusy`）、リクエストの `ctx` の取り消し・期限切れ | 503 |
 
 ### 6.3 メールアドレスの検証
 
 - `net/mail.ParseAddress` で解析でき、表示名（`"Name" <a@example.com>` 形式）を含まないこと
+- 前後の空白を除いた入力は、解析したアドレスそのもの（`a@example.com`）か、それを山括弧で囲んだもの（`<a@example.com>`）に限る。グループ構文（`Group: a@example.com;`）やコメント、引用符付きのローカル部は拒否する
+- アドレスは ASCII に限る。Unicode の小文字化で見た目の異なるアドレスが同じ正規化値になるのを防ぐため。ログインで ASCII 以外を含む場合は形式不正と同じく扱う（6.4）
 - 正規化はアドレス全体の小文字化
 
 ### 6.4 ログインの振る舞い
@@ -337,6 +359,10 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 | サーバータイムアウト | 6.6 の値を設定 |
 | 設定 | 環境変数 `DATABASE_PATH`（必須。未設定なら起動エラー）、`PORT`（任意、既定 8080） |
 
+- `DATABASE_PATH` は未設定・空を起動エラーとする。絶対パス化したパスと、既存の DB または既存の親ディレクトリのリンク解決後のパスが `/mnt/c` またはその配下なら、DB 接続前に拒否する。パスの自動作成・権限変更・`~` 展開は行わない。所有者・権限・ファイル種別の検査は既存の保存層が担当する
+- `PORT` は未設定・空なら 8080。それ以外は十進数字だけで表す 1〜65535 とし、符号や空白は拒否する
+- `cmd/authd` は IPv4 の全インターフェースで待ち受ける（`tcp4`）。WSL の IPv6 待ち受けから Windows の IPv4 への転送に依存せず、`127.0.0.1` で接続できるようにする。IPv6 では待ち受けない。SIGINT・SIGTERM を受けたら最大 30 秒の正常終了を待ち、期限を超えた接続を閉じてから DB を閉じる。起動失敗も DB を閉じて非ゼロで終了する
+
 通常の予期しないエラーは httpapi で 1 回だけログに出す。6.4 の再ハッシュ失敗と保存済み PHC 異常は auth で記録する例外とし、httpapi は成功または通常の認証失敗として扱って重複記録しない。
 
 ### 6.6 サーバータイムアウト
@@ -356,6 +382,16 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 - ハンドラのテストは `httptest` で行い、ステータスコードと Problem Details の形を検証する
 - パッケージごとのテスト方法は [architecture.md](architecture.md) の「テスト」を参照
 
+### 6.8 Web 画面
+
+- `GET /` で日本語の登録・ログイン画面を返す。`GET /assets/app.css` と `GET /assets/app.js` を含む 3 ファイルだけを Go の実行ファイルへ埋め込む。各パスは `HEAD` にも対応し、それ以外のメソッドは既存と同じ Problem Details の 405 を返す。未知のパスは 404 とし、ディレクトリ一覧は配信しない
+- HTML・CSS・JavaScript は標準のブラウザー機能だけを使い、別の開発サーバー、ビルドツール、外部ライブラリは追加しない。Web 画面と API は同じオリジンとし、API を相対 URL で呼ぶ
+- 登録・ログインの切り替え、パスワードの表示切り替え、処理中の重複送信防止、成功・失敗の表示、`GET /healthz` による接続確認と再確認を提供する。成功時は `user_id` を画面に表示する。ヘルスチェックは HTTP サーバーへの疎通だけを示す
+- メールとパスワードの意味的な検証は API に任せる。ブラウザーの文字数制限で NFKC 後の判定や短い既存パスワードのログインを妨げない。メール欄は `type="email"` の値の書き換え（国際化ドメインの punycode 化など）を避けるため `type="text"` とし、入力をそのまま送る。エラーの表示にはテキストを使い、サーバーの応答を HTML として解釈しない
+- パスワードは JSON の本文で送信し、URL・ログ・Web Storage には保存しない。要求の終了後はパスワード欄を消去する。Cookie やトークンは使わず、ログイン状態を維持しない。JavaScript が無効な場合は送信フォームを表示しない
+- API・Problem Details を含むすべての応答に `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を付ける。静的ファイルには正しい UTF-8 の Content-Type を付ける。Content Security Policy は同じオリジンのスクリプト・スタイル・通信だけを許可し、フォームによる画面遷移、フレームへの埋め込み、base URL の変更を禁止する
+- Windows のブラウザーから IPv4 の `http://127.0.0.1:8080/` を開いて登録・ログインを確認する。Android アプリは今回の対象に含めない
+
 ## 7. 既知の制限（README に明記する）
 
 - 登録 API は重複時に 409 を返すため、**メールアドレスが登録済みかどうかを第三者が確認できる**（ユーザー列挙）
@@ -365,6 +401,11 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 - `Open` の接続初期化でも、ドライバ内の PRAGMA がロックを待っている間は `ctx` の取り消しで中断できない。再試行の開始期限は 5 秒だが、期限直前に始めた 1 回の接続処理がロックを待つと、`Open` 全体はその待機時間だけ長くなる
 - 書き込みが集中して、ロック待ちが 5 秒を超えた登録やハッシュ更新は 503 になる
 - NFKC の安定性が保証されるのは割り当て済みの文字だけである。`golang.org/x/text` の Unicode 表で未割り当ての文字を含むパスワードは、x/text の更新でその文字に分解が定義されると正規化の結果が変わり、正しいパスワードでもログインできなくなる
+- 認証なしの要求で Argon2id の同時計算枠（4 つ）を埋められる。登録・ログインの要求が続くと、ほかの利用者の要求が待機切れで 503 になり、ログインの試行回数にも上限がない（レート制限はスコープ外）
+- `DATABASE_PATH` の起動時検査が拒否するのは `/mnt/c` とその配下だけである。ほかのドライブ（`/mnt/d` など）、`/etc/wsl.conf` で automount の root を変えた場合、Windows 側のパスのバインドマウントは検出しない
+- 正常終了の期限（30 秒）を超えて残ったハンドラは、接続を閉じた後も動き続けることがあり、DB を閉じた後のアクセスが失敗してログを出す。書き込みは SQLite のトランザクションで守られる
+- サーバーは IPv4 の全インターフェースで待ち受けるため、WSL の仮想ネットワーク（mirrored モードでは LAN）からも登録・ログイン API と Web 画面に届く
+- API は Content-Type を必須にせず、Origin・Host も検査しない。サーバーの起動中に利用者が開いた別のサイトから、`text/plain` の POST で登録やログインの要求を送れる（応答は読めないが副作用は起きる）。DNS リバインドを使えば応答も読める
 
 ## 8. 開発環境
 
@@ -373,7 +414,7 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 - SQLite のファイルは `/mnt/c` 配下ではなく、WSL 側のファイルシステム（例：`~/.local/share/auth-server/auth.db`）に置く。`/mnt/c` はファイルロックや WAL の共有メモリが正しく動かないことがあるため
 - `*.db`、`*.db-wal`、`*.db-shm`、`*.db-journal` は `.gitignore` に入れる
 - `Open` は親ディレクトリを作らないため、DB を置くディレクトリは事前に所有者専用で作っておく（例：`mkdir -p -m 700 ~/.local/share/auth-server`）。既存のディレクトリは `chmod 700`、既存の DB と関連ファイルは `chmod 600` で所有者専用にしてから起動する
-- Android エミュレータから叩く場合、接続先はホストを指す `10.0.2.2`。HTTP（cleartext）通信は Android 9 以降でデフォルト禁止のため、デバッグビルドの Network Security Config で `10.0.2.2` のみ許可する。README にこの注意を記載する
+- Windows のブラウザーから `http://127.0.0.1:8080/` に接続する。WSL のローカルホスト転送と接続できない場合の切り分けは README に記載する
 
 ## 9. 完了条件
 
@@ -382,7 +423,8 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 - CodeQL（`.github/workflows/codeql.yml`）で Go の解析と結果のアップロードが成功する。実行条件と出力は development.md の「CI」を正本とする
 - Dependabot（`.github/dependabot.yml`）の設定が `main` に入った後、development.md の「依存関係の更新」にある設定の確認を行い、最初の更新 PR が作られることを確認する。設定と運用は development.md の「依存関係の更新」を正本とする
 - `go test -bench=. ./internal/password` でハッシュ 1 回の所要時間が出る
-- README に起動手順、curl による登録・ログイン例、Android エミュレータからの接続先と cleartext 通信の注意がある
+- README に起動手順、curl による登録・ログイン例、Windows のブラウザーからの利用方法と WSL への接続の切り分けがある
+- Windows から WSL 上のサーバーへ疎通でき、Web 画面で登録・ログイン・重複登録・誤パスワードの応答を確認できる
 
 ## 10. 作業手順
 
@@ -391,6 +433,7 @@ file:<DATABASE_PATH の絶対パス>?_pragma=foreign_keys(1)&_pragma=journal_mod
 3. DB（init.sql、store/sqlite）を実装し、テストを通す
 4. auth と API（httpapi）を実装し、テストを通す
 5. README を書き、完了条件を確認する
+6. Web 画面を追加し、配信のテストと Windows のブラウザーからの実接続を確認する
 
 CI は 2 の完了後に、ほかの段階と並行して導入する。導入後は、各段階で CI と CodeQL も通ってから次へ進む。Dependabot は設定が `main` に入った後に、9 章の完了条件で動作を確認する。
 
@@ -418,6 +461,10 @@ CI は 2 の完了後に、ほかの段階と並行して導入する。導入�
 
 ## 変更履歴
 
+- v0.22：同じ Go サーバーから配信する最小の Web 画面を追加。静的ファイルの配信、入力と結果の表示、パスワードの扱いを確定。WSL から Windows の IPv4 への転送のため IPv4 の待ち受けを明示。Android の接続案内を Windows のブラウザーからの利用・実接続確認へ置き換え。コードレビューを反映し、すべての応答への no-store・nosniff、メール欄の `type="text"`、待ち受け範囲と別サイトからの要求を既知の制限に追記
+- v0.21：メールアドレスを ASCII に限定。401 に `WWW-Authenticate` を付けない理由を明記。既知の制限に、Argon2id の同時計算枠の枯渇、`/mnt/c` 以外の Windows ドライブを検出しないこと、正常終了の期限切れ後のハンドラと DB の後始末を追記
+- v0.20：コードレビューの指摘を反映。メールアドレスはグループ構文・コメント・引用符付きのローカル部を拒否し、`users.email` には解析したアドレスを保存する。リクエストの `ctx` の取り消し・期限切れを 503 に統一して記録しない。本文の読み込み失敗に専用の `detail` を返し、authority 形式の CONNECT も Problem Details の 404 にする
+- v0.19：登録成功時の user_id、JSON 入力の必須項目・未知項目・本文上限・標準デコード動作、404・405 を含む Problem Details を確定。設定の検証、リンク解決を含む /mnt/c の起動時拒否、サーバーの待ち受けと終了処理を確定
 - v0.18：Dependabot による依存更新をスコープ、完了条件、作業手順に追加。設定と運用は development.md の「依存関係の更新」を正本とする
 - v0.17：Go の CodeQL 解析をスコープ、完了条件、作業手順に追加。実行条件と出力は development.md の「CI」を正本とする
 - v0.16：同じリポジトリの PR にカバレッジコメントを表示し、Coverage ジョブの実行ごとに同じコメントを更新する。計測に失敗した場合は失敗表示に更新し、古い実行結果で新しい結果を上書きしない。実行サマリーと artifact の保存も継続する
