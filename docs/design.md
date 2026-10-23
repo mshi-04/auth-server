@@ -40,6 +40,7 @@ auth-server/
 │   └── store/sqlite/        # SQLite による永続化（init.sql を open で実行）
 ├── docs/                    # design.md、architecture.md など
 ├── .nvmrc                   # Node のメジャーバージョン
+├── .npmrc                   # engine-strict=true
 ├── .prettierignore
 ├── eslint.config.js
 ├── package.json
@@ -454,7 +455,7 @@ Node には Go の `net/mail.ParseAddress` に相当する標準 API が無い�
 
 ## 8. 開発環境
 
-- Node.js 26 は WSL（Ubuntu 24.04）にだけインストールする。Windows 側には入れない。プロジェクトは Windows 側のフォルダに置き、WSL から `/mnt/c` 経由で実行する
+- Node.js 26 は WSL（Ubuntu 24.04）に nvm でインストールする。Windows 側にほかの用途の Node が入っていても、このプロジェクトでは使わない。WSL の非対話シェルでは nvm を明示的に読み込む（development.md）。プロジェクトは Windows 側のフォルダに置き、WSL から `/mnt/c` 経由で実行する
 - DB は SQLite のファイル 1 つで、別途サーバーを起動する必要はない
 - SQLite のファイルは `/mnt/c` 配下ではなく、WSL 側のファイルシステム（例：`~/.local/share/auth-server/auth.db`）に置く。`/mnt/c` はファイルロックや WAL の共有メモリが正しく動かないことがあるため
 - `*.db`、`*.db-wal`、`*.db-shm`、`*.db-journal`、`node_modules/`、`coverage/` は `.gitignore` に入れる
@@ -476,15 +477,16 @@ Node には Go の `net/mail.ParseAddress` に相当する標準 API が無い�
 
 Go 実装を動かしたまま、TS 実装を `src/` に段階的に作り、仕様をすべて満たしてから Go 実装を削除する。
 
-1. 土台を作る：`.nvmrc`（`26`）、`package.json`（`engines.node` に `>=26.11.0 <27`）、`package-lock.json`、`tsconfig.json`、`vitest.config.ts`、`eslint.config.js`、`.prettierignore`、`.gitignore`。TS 用の CI ジョブ、CodeQL の JavaScript/TypeScript の解析、Dependabot の npm の設定を Go 用の設定と並べて追加する
+1. 土台を作る：`.nvmrc`（`26`）、`.npmrc`（`engine-strict=true`）、`package.json`（`engines.node` に `>=26.11.0 <27`）、`package-lock.json`、`tsconfig.json`、`vitest.config.ts`、`eslint.config.js`、`.prettierignore`、`.gitignore`。TS 用の CI ジョブ、CodeQL の JavaScript/TypeScript の解析、Dependabot の npm の設定を Go 用の設定と並べて追加する。型検査・静的検査・テスト・カバレッジの対象が空のまま CI が失敗しないよう、依存の無い `src/errors.ts` とそのテストもこの段階で作る。Vitest の `passWithNoTests` は使わない
 2. password を実装し、テストを通す。ベンチマークで既定パラメータを確認し、結果を 4.7 に記録する
 3. DB（init.sql、store/sqlite）を実装し、テストを通す
-4. auth と API（httpapi、config、main）を実装し、テストを通す
-5. Web 画面を `src/httpapi/web/` へ移し、配信のテストと Windows のブラウザーからの実接続を確認する
-6. README を TS 実装の手順に書き換え、完了条件を確認する
-7. Go 実装のコードと、Go 用の CI・CodeQL・Dependabot の設定を削除する
+4. auth と API（httpapi、config、log、main）を実装し、テストを通す。httpapi は生成時に Web 画面のファイルを読み込むため（6.8）、この段階の最初に `internal/httpapi/web/` の 3 ファイルを内容を変えずに `src/httpapi/web/` へコピーし、配信のテストもこの段階で書く。Go の `internal/httpapi/static.go` が `go:embed` で元のファイルを参照しているため、移動はしない
+5. Windows のブラウザーから TS 実装のサーバーへ実際に接続し、Web 画面で登録・ログイン・重複登録・誤パスワードの応答を確認する
+6. README を TS 実装の手順に書き換える
+7. Go 実装を削除する。対象は `cmd/`、`internal/`（`internal/httpapi/web/` を含む）、`go.mod`、`go.sum`、`.github/actions/setup-go/`、`ci.yml` の Go 用のジョブ、`codeql.yml` の `go` の解析、`dependabot.yml` の `gomod` と `/.github/actions/setup-go` の確認先、development.md の「Go 実装（移行完了まで）」の節、tech-stack.md の「Go 実装で使っていたもの」の節
+8. 9 章の完了条件のうち、移行のブランチで確かめられるものをすべて確認する。Dependabot の npm の最初の更新 PR だけは、設定が `main` に入った後の週次実行で確認する
 
-手順 1 の後は、各段階で TS 用の CI と CodeQL も通ってから次へ進む。Go 用の CI は手順 7 まで残し、Go 実装を壊さない。Dependabot は npm の設定が `main` に入った後に、9 章の完了条件で動作を確認する。
+手順 1 の後は、各段階で TS 用の CI と CodeQL も通ってから次へ進む。Go 用の CI は手順 7 まで残し、Go 実装を壊さない。手順 4 から 7 までの間は、Web 画面の 3 ファイルが 2 か所にある。2 か所の内容は一致させ（`diff -r internal/httpapi/web src/httpapi/web` が差分なしで終わる）、この間に画面を変える場合は両方に同じ変更を入れる。`src/httpapi/web/` は Prettier・ESLint・カバレッジの対象から外す（development.md）。
 
 各段階でテストが通ってから次へ進む。不明点や本書と矛盾する点があれば、推測で進めず質問する。
 
@@ -515,7 +517,7 @@ Go 実装を動かしたまま、TS 実装を `src/` に段階的に作り、仕
 
 ## 変更履歴
 
-- v0.23：バックエンドを Go から TypeScript（Node.js 26 系の 26.11.0 以上）へ移行する方針に改訂。Argon2id・SQLite・UUID・正規化を Node 標準の API に置き換え、外部の実行時依存をなくした。値オブジェクトの伏字を private フィールドと `util.inspect.custom` で行い、Go のゼロ値に関する契約を削除。`ctx` を `AbortSignal` に、エラーを `cause` 付きのクラスに置き換えた。保存済み PHC のソルトの下限を 8 バイトに変更。「不正な UTF-8」の拒否をペアになっていないサロゲートの拒否に置き換えた。JSON の項目名を大文字小文字を区別する照合に変更。メールアドレスの受理形式を dot-atom として明記し、ドメインリテラルを拒否する。SQLite を 1 接続の同期 API とし、イベントループが止まる制限を追記。SQLite のエラーは `code` と数値の `errcode` がそろう場合だけ判定し、それ以外は予期しないエラーとする。Argon2id の飽和時にイベントループの遅延も測る。サーバータイムアウトを Node の設定に対応させ、Node が自動で返す 400・408 を既知の制限に追記。テストを Vitest に変更。静的検査に ESLint（typescript-eslint）、整形に Prettier を採用。Go 実装の性能測定の結果は記録として残し、TS 実装で再測定する。移行の作業手順を追加
+- v0.23：バックエンドを Go から TypeScript（Node.js 26 系の 26.11.0 以上）へ移行する方針に改訂。Argon2id・SQLite・UUID・正規化を Node 標準の API に置き換え、外部の実行時依存をなくした。値オブジェクトの伏字を private フィールドと `util.inspect.custom` で行い、Go のゼロ値に関する契約を削除。`ctx` を `AbortSignal` に、エラーを `cause` 付きのクラスに置き換えた。保存済み PHC のソルトの下限を 8 バイトに変更。「不正な UTF-8」の拒否をペアになっていないサロゲートの拒否に置き換えた。JSON の項目名を大文字小文字を区別する照合に変更。メールアドレスの受理形式を dot-atom として明記し、ドメインリテラルを拒否する。SQLite を 1 接続の同期 API とし、イベントループが止まる制限を追記。SQLite のエラーは `code` と数値の `errcode` がそろう場合だけ判定し、それ以外は予期しないエラーとする。Argon2id の飽和時にイベントループの遅延も測る。サーバータイムアウトを Node の設定に対応させ、Node が自動で返す 400・408 を既知の制限に追記。テストを Vitest に変更。静的検査に ESLint（typescript-eslint）、整形に Prettier を採用。Go 実装の性能測定の結果は記録として残し、TS 実装で再測定する。移行の作業手順を追加。Node は WSL に nvm で入れ、Windows 側の Node は使わない。対象外の Node での `npm ci` を `.npmrc` の `engine-strict=true` で失敗させる。作業手順では、Web 画面のファイルを httpapi の段階（手順 4）で移動せずにコピーし、移行中は Go 実装と内容を一致させる。土台の段階（手順 1）で `src/errors.ts` とそのテストを作り、CI の対象を空にしない。Go 実装の削除対象を列挙し、完了条件の確認を Go 実装の削除後の手順 8 に置く
 - v0.22：同じ Go サーバーから配信する最小の Web 画面を追加。静的ファイルの配信、入力と結果の表示、パスワードの扱いを確定。WSL から Windows の IPv4 への転送のため IPv4 の待ち受けを明示。Android の接続案内を Windows のブラウザーからの利用・実接続確認へ置き換え。コードレビューを反映し、すべての応答への no-store・nosniff、メール欄の `type="text"`、待ち受け範囲と別サイトからの要求を既知の制限に追記
 - v0.21：メールアドレスを ASCII に限定。401 に `WWW-Authenticate` を付けない理由を明記。既知の制限に、Argon2id の同時計算枠の枯渇、`/mnt/c` 以外の Windows ドライブを検出しないこと、正常終了の期限切れ後のハンドラと DB の後始末を追記
 - v0.20：コードレビューの指摘を反映。メールアドレスはグループ構文・コメント・引用符付きのローカル部を拒否し、`users.email` には解析したアドレスを保存する。リクエストの `ctx` の取り消し・期限切れを 503 に統一して記録しない。本文の読み込み失敗に専用の `detail` を返し、authority 形式の CONNECT も Problem Details の 404 にする

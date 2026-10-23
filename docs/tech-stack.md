@@ -14,8 +14,9 @@
 | 型検査 | `tsc --noEmit` | 型の検査だけを行い、JavaScript は出力しない |
 | 静的検査 | ESLint と typescript-eslint（`strictTypeChecked`） | `tsc` の型情報を使って、`Promise` の誤用、`any`・型アサーション、依存の向きの違反、`Math.random` などを検出する |
 | 整形 | Prettier（既定の設定） | 書式を手で揃えず、差分を意味のある変更だけにする |
-| tsconfig | `erasableSyntaxOnly`、`verbatimModuleSyntax`、`rewriteRelativeImportExtensions`、`module: nodenext`、`target: esnext`、`noEmit`、`strict` | Node の型除去が扱えない構文（`enum`、実行時コードを持つ `namespace`、パラメータプロパティ）を型検査で拒否する。import には `.ts` の拡張子を書く |
+| tsconfig | `erasableSyntaxOnly`、`verbatimModuleSyntax`、`rewriteRelativeImportExtensions`、`module: nodenext`、`target: esnext`、`noEmit`、`strict`。`include` は `src/**/*.ts` と `vitest.config.ts` | Node の型除去が扱えない構文（`enum`、実行時コードを持つ `namespace`、パラメータプロパティ）を型検査で拒否する。import には `.ts` の拡張子を書く |
 | モジュール形式 | ES Modules（`package.json` の `"type": "module"`） | Node の型除去と `import.meta.url` をそのまま使う |
+| npm の設定 | `.npmrc` の `engine-strict=true` | `engines.node` の範囲外の Node（WSL の `PATH` に含まれる Windows 側の Node など）で `npm ci` を実行したら失敗させ、別のプラットフォーム向けの依存が入るのを防ぐ |
 | 開発環境 | WSL2（Ubuntu 24.04） | Node は WSL にだけ入れる。ソースは Windows 側のフォルダに置く |
 | CI | GitHub Actions（実行条件は development.md の「CI」） | PR と統合後の変更に対し、型検査・テスト・カバレッジレポートを同じ Node のバージョンで実行するため |
 | セキュリティ解析 | GitHub CodeQL（実行条件は development.md の「CodeQL」） | JavaScript/TypeScript の脆弱性を検査し、GitHub code scanning に結果を集約するため |

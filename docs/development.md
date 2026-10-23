@@ -6,25 +6,35 @@ TypeScript 実装の手順を正本とする。移行の完了（design.md 10 �
 
 ## 開発環境
 
-- Node.js 26 は WSL（ディストリビューション名 `Ubuntu-24.04`）にだけ入れる。Windows 側には入れない
-- Node のメジャーバージョンはリポジトリのルートの `.nvmrc`（`26`）を正本とする。WSL では nvm で入れ、リポジトリのルートで `nvm install` と `nvm use` を実行する。26 系の最新版が入る
-- 対象の下限は 26.11.0 で、`package.json` の `engines.node`（`>=26.11.0 <27`）に書く。古い 26 系を使っていると `npm ci` が警告を出すので、`nvm install` で更新する
+- このプロジェクトの Node.js 26 は、WSL（ディストリビューション名 `Ubuntu-24.04`）に nvm で入れる。Windows 側にほかの用途の Node（winget で入れた Node 24 など）が入っていても、このプロジェクトでは使わない
+- Node のメジャーバージョンはリポジトリのルートの `.nvmrc`（`26`）を正本とする。`nvm install` と `nvm use` で 26 系の最新版を使う
+- 対象の下限は 26.11.0 で、`package.json` の `engines.node`（`>=26.11.0 <27`）に書く。リポジトリのルートの `.npmrc` に `engine-strict=true` を置き、対象外の版の Node（Windows 側の Node 24 や古い 26 系）で `npm ci` を実行したら、警告で済ませずに失敗させる。失敗したら nvm を読み込んでから実行し直すか、`nvm install` で 26 系を更新する
 - ソースは Windows 側のフォルダ（例：`C:\Users\<ユーザー名>\repos\auth-server`）に置く。WSL からは `/mnt/c/Users/<ユーザー名>/repos/auth-server` で見える
 - `npm ci` で作る `node_modules/` も Windows 側のフォルダに置かれる。`/mnt/c` 経由のファイルアクセスは遅いため、インストールとテストに時間がかかる
 - npm は WSL からだけ実行する。Windows 側の Node や npm で `node_modules/` を作り直さない
 - エディターの補完は、エディターに同梱の TypeScript と、WSL で作った `node_modules/@types/node` で動く。Windows 側に Node は要らない
+
+### nvm と Node の初回の準備
+
+WSL のシェルで 1 回だけ行う。
+
+1. nvm を[公式の手順](https://github.com/nvm-sh/nvm#install--update-script)で入れる。入れる先は既定の `~/.nvm` とする。`XDG_CONFIG_HOME` を設定した状態でインストーラーを実行すると `~/.config/nvm` に入り、下のコマンドの `$HOME/.nvm` と食い違うため、設定していない状態で実行する
+2. `. "$HOME/.nvm/nvm.sh" && nvm install 26` で 26 系の最新版を入れる。`.nvmrc` ができた後（design.md 10 章の手順 1 の後）は、リポジトリのルートで `nvm install` を実行すれば `.nvmrc` の版が入る
+3. `command -v node npm` が `~/.nvm/` 配下を指し、`node --version` が 26.11.0 以上であることを確かめる
 
 ### Windows から Node のコマンドを実行する
 
 Windows 側のリポジトリのルートで実行する。wsl.exe は呼び出し元のフォルダを WSL のパスに変換して作業ディレクトリにするため、`cd` は要らない。
 
 ```
-wsl -d Ubuntu-24.04 --exec bash -lc 'npm test'
+wsl -d Ubuntu-24.04 --exec bash -lc '. "$HOME/.nvm/nvm.sh" && nvm use --silent && npm test'
 ```
 
 - `--exec` を必ず付ける。付けないと wsl.exe が外側のシェルでコマンドを解釈し、`$VAR` が bash に渡る前に空へ展開される
-- `bash -lc` のログインシェルで nvm の設定を読み込む。読み込まれないと `node` と `npm` が見つからない
-- 込み入った処理はスクリプトファイルにして `wsl -d Ubuntu-24.04 --exec bash <スクリプトのパス>` で実行する
+- コマンドの中で `nvm.sh` を読み込み、`nvm use` で `.nvmrc` の版を選ぶ。nvm のインストーラーは初期化の処理を `~/.bashrc` の末尾に追加するが、Ubuntu 標準の `~/.bashrc` は非対話のシェルでは冒頭で終了するため、`bash -lc` だけでは nvm が読み込まれない
+- 引数のない `nvm use` は `.nvmrc` を読む。`.nvmrc` が無い間（design.md 10 章の手順 1 より前）は `nvm use --silent 26` と版を指定する。nvm を入れていない場合は `nvm.sh` の読み込みが失敗し、`&&` により `npm` は実行されない。その場合は「nvm と Node の初回の準備」を行う
+- nvm を読み込まないと、WSL の `PATH` に含まれる Windows 側の `npm`（`/mnt/c/...`）が選ばれることがある。Windows の npm で `node_modules/` が作られないよう、`npm` の前に必ず nvm を読み込む。どちらが選ばれるかは `command -v node npm` で確かめ、`~/.nvm/` 配下を指していることを確認する
+- 込み入った処理はスクリプトファイルにして `wsl -d Ubuntu-24.04 --exec bash <スクリプトのパス>` で実行する。`bash <スクリプト>` も非対話シェルで nvm は読み込まれないため、Node や npm を使うスクリプトは、先頭で `. "$HOME/.nvm/nvm.sh" && nvm use --silent` を実行してから呼ぶ
 
 ### SQLite の DB ファイル
 
@@ -50,8 +60,8 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 | ベンチマーク（ハッシュ 1 回の所要時間） | `npm run bench` | `vitest bench --run src/password` |
 | 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db npm start` | `node src/main.ts` |
 
-- ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイルと設定ファイルを対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。ブラウザーで動く `src/httpapi/web/` は対象から外す
-- Prettier は既定の設定で使い、設定ファイルは置かない。Markdown と GitHub Actions の YAML は `.prettierignore` で対象から外す。Go 実装のファイルは Prettier の対象外の拡張子なので、指定しなくても整形されない
+- ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイルとルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts` と `vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。ブラウザーで動く `src/httpapi/web/` は対象から外す
+- Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML、`src/httpapi/web/` は `.prettierignore` で対象から外す。`src/httpapi/web/` は Go 実装の `internal/httpapi/web/` からコピーした手書きの書式のまま保ち、移行中は 2 か所の内容を一致させる（design.md 10 章）。Go 実装のファイルは Prettier の対象外の拡張子なので、指定しなくても整形されない
 
 ## CI
 
@@ -63,7 +73,7 @@ CI の実行条件と出力はこの節を正本とする。GitHub Actions の `
 | Test | `npm test` |
 | Coverage | `npm run coverage` と、カバレッジレポートの生成・保存 |
 
-Test と Coverage はそれぞれ別にテストを実行する。Coverage は `src/` 配下の全ファイル（テストとベンチマークを除く）を計測対象にし、テストから読み込まれないファイルも集計に含める。
+Test と Coverage はそれぞれ別にテストを実行する。Coverage は `src/` 配下の全ファイル（テスト、ベンチマーク、ブラウザーで動く `src/httpapi/web/` を除く）を計測対象にし、テストから読み込まれないファイルも集計に含める。
 
 - 合計カバレッジは GitHub Actions の実行サマリーに表示する
 - 同じリポジトリのブランチから作った PR には、合計・ファイル別カバレッジ、計測したコミット、実行ログと artifact へのリンクをコメントする。初回だけ作成し、Coverage ジョブの再実行時は同じコメントを更新する。テストやレポート生成に失敗したときも、以前の数値を残さず失敗表示へ更新する。取り消された実行、現在の PR と異なるコミットの実行、すでにコメントした実行より古い実行は更新しない
