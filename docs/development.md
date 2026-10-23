@@ -41,10 +41,16 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 |---|---|---|
 | 依存のインストール | `npm ci` | `package-lock.json` のとおりに入れる |
 | 型検査 | `npm run typecheck` | `tsc --noEmit` |
+| 静的検査 | `npm run lint` | `eslint .` |
+| 整形 | `npm run format` | `prettier --write .` |
+| 整形確認 | `npm run format:check` | `prettier --check .`（ファイルは書き換えない） |
 | テスト | `npm test` | `vitest run` |
 | カバレッジ | `npm run coverage` | `vitest run --coverage` |
 | ベンチマーク（ハッシュ 1 回の所要時間） | `npm run bench` | `vitest bench --run src/password` |
 | 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db npm start` | `node src/main.ts` |
+
+- ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイルと設定ファイルを対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。ブラウザーで動く `src/httpapi/web/` は対象から外す
+- Prettier は既定の設定で使い、設定ファイルは置かない。Markdown と GitHub Actions の YAML は `.prettierignore` で対象から外す。Go 実装のファイルは Prettier の対象外の拡張子なので、指定しなくても整形されない
 
 ## CI
 
@@ -52,7 +58,7 @@ CI の実行条件と出力はこの節を正本とする。GitHub Actions の `
 
 | ジョブ | 内容 |
 |---|---|
-| Lint | `npm ci`（`package.json` と `package-lock.json` が食い違うと失敗する）、`npm run typecheck` |
+| Lint | `npm ci`（`package.json` と `package-lock.json` が食い違うと失敗する）、`npm run typecheck`、`npm run lint`、`npm run format:check` |
 | Test | `npm test` |
 | Coverage | `npm run coverage` と、カバレッジレポートの生成・保存 |
 

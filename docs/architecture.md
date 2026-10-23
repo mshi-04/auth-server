@@ -59,7 +59,7 @@ auth-server/
 - 依存は表の向きだけにする。`auth` は `httpapi` と `store/sqlite` を import しない
 - `httpapi` は `password` と `store/sqlite` を直接使わない。パスワードポリシー違反やセマフォのタイムアウトも、`auth` のエラーとして受け取る
 - `UserStore` は使う側の `auth` で定義する
-- 依存の向きを検査するツールは入れず、レビューで守る
+- 表にない依存と、他のモジュールの `index.ts` 以外のファイルの import は、ESLint の `no-restricted-imports` でモジュールごとに禁止する（`eslint.config.js`）
 
 ## auth モジュール
 

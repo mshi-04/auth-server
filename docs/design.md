@@ -11,7 +11,7 @@
 1. `src/password` モジュール（ハッシュ化・検証・再ハッシュ判定・パスワードポリシー・同時実行制限）
 2. 登録・ログイン API（`POST /v1/users`、`POST /v1/sessions`、`GET /healthz`）
 3. SQLite のテーブル 2 つ（`users`、`password_credentials`）
-4. GitHub Actions による CI（型検査、全テスト、カバレッジレポート、CodeQL による JavaScript/TypeScript のセキュリティ解析）
+4. GitHub Actions による CI（型検査、静的検査、整形確認、全テスト、カバレッジレポート、CodeQL による JavaScript/TypeScript のセキュリティ解析）
 5. Dependabot による npm パッケージと GitHub Actions の依存更新
 6. 同じ Node.js サーバーから配信する、登録・ログインを試す日本語の Web 画面
 7. Go 実装から TypeScript 実装への移行（10 章の手順）
@@ -40,6 +40,8 @@ auth-server/
 │   └── store/sqlite/        # SQLite による永続化（init.sql を open で実行）
 ├── docs/                    # design.md、architecture.md など
 ├── .nvmrc                   # Node のメジャーバージョン
+├── .prettierignore
+├── eslint.config.js
 ├── package.json
 ├── package-lock.json
 ├── tsconfig.json
@@ -458,8 +460,8 @@ Node には Go の `net/mail.ParseAddress` に相当する標準 API が無い�
 
 ## 9. 完了条件
 
-- `npm run typecheck`（`tsc --noEmit`）と `npm test`（`vitest run`）が通る
-- GitHub Actions の CI（`.github/workflows/ci.yml`）で型検査・全テスト・カバレッジレポートが通る。同じリポジトリの PR ではカバレッジ用のコメントを 1 件作り、Coverage ジョブの再実行時に更新する。実行条件と出力は development.md の「CI」を正本とする
+- `npm run typecheck`（`tsc --noEmit`）、`npm run lint`（`eslint .`）、`npm run format:check`（`prettier --check .`）、`npm test`（`vitest run`）が通る
+- GitHub Actions の CI（`.github/workflows/ci.yml`）で型検査・静的検査・整形確認・全テスト・カバレッジレポートが通る。同じリポジトリの PR ではカバレッジ用のコメントを 1 件作り、Coverage ジョブの再実行時に更新する。実行条件と出力は development.md の「CI」を正本とする
 - CodeQL（`.github/workflows/codeql.yml`）で JavaScript/TypeScript の解析と結果のアップロードが成功する。実行条件と出力は development.md の「CI」を正本とする
 - Dependabot（`.github/dependabot.yml`）の npm の設定が `main` に入った後、development.md の「依存関係の更新」にある設定の確認を行い、npm の最初の更新 PR が作られることを確認する。設定と運用は development.md の「依存関係の更新」を正本とする
 - `npm run bench`（`vitest bench --run src/password`）でハッシュ 1 回の所要時間が出て、TS 実装の測定結果を 4.7 に記録している
@@ -471,7 +473,7 @@ Node には Go の `net/mail.ParseAddress` に相当する標準 API が無い�
 
 Go 実装を動かしたまま、TS 実装を `src/` に段階的に作り、仕様をすべて満たしてから Go 実装を削除する。
 
-1. 土台を作る：`.nvmrc`（`26`）、`package.json`（`engines` に Node 26）、`package-lock.json`、`tsconfig.json`、`vitest.config.ts`、`.gitignore`。TS 用の CI ジョブ、CodeQL の JavaScript/TypeScript の解析、Dependabot の npm の設定を Go 用の設定と並べて追加する
+1. 土台を作る：`.nvmrc`（`26`）、`package.json`（`engines` に Node 26）、`package-lock.json`、`tsconfig.json`、`vitest.config.ts`、`eslint.config.js`、`.prettierignore`、`.gitignore`。TS 用の CI ジョブ、CodeQL の JavaScript/TypeScript の解析、Dependabot の npm の設定を Go 用の設定と並べて追加する
 2. password を実装し、テストを通す。ベンチマークで既定パラメータを確認し、結果を 4.7 に記録する
 3. DB（init.sql、store/sqlite）を実装し、テストを通す
 4. auth と API（httpapi、config、main）を実装し、テストを通す
@@ -506,10 +508,11 @@ Go 実装を動かしたまま、TS 実装を `src/` に段階的に作り、仕
 | 17 | 暗号と DB の実装 | Node 標準の `crypto.argon2` と `node:sqlite`。外部パッケージに依存しない | 4.1、5.1 |
 | 18 | テスト | Vitest。Vite は使わない | 4.7、6.7 |
 | 19 | 移行の進め方 | 同じリポジトリで TS 実装を `src/` に作り、仕様をすべて満たしてから Go 実装を削除する | 10 章 |
+| 20 | 静的検査と整形 | ESLint（typescript-eslint の `strictTypeChecked`）と Prettier。Biome は使わない | 9 章、10 章 |
 
 ## 変更履歴
 
-- v0.23：バックエンドを Go から TypeScript（Node.js 26）へ移行する方針に改訂。Argon2id・SQLite・UUID・正規化を Node 標準の API に置き換え、外部の実行時依存をなくした。値オブジェクトの伏字を private フィールドと `util.inspect.custom` で行い、Go のゼロ値に関する契約を削除。`ctx` を `AbortSignal` に、エラーを `cause` 付きのクラスに置き換えた。保存済み PHC のソルトの下限を 8 バイトに変更。「不正な UTF-8」の拒否をペアになっていないサロゲートの拒否に置き換えた。JSON の項目名を大文字小文字を区別する照合に変更。メールアドレスの受理形式を dot-atom として明記し、ドメインリテラルを拒否する。SQLite を 1 接続の同期 API とし、イベントループが止まる制限を追記。サーバータイムアウトを Node の設定に対応させ、Node が自動で返す 400・408 を既知の制限に追記。テストを Vitest に変更。Go 実装の性能測定の結果は記録として残し、TS 実装で再測定する。移行の作業手順を追加
+- v0.23：バックエンドを Go から TypeScript（Node.js 26）へ移行する方針に改訂。Argon2id・SQLite・UUID・正規化を Node 標準の API に置き換え、外部の実行時依存をなくした。値オブジェクトの伏字を private フィールドと `util.inspect.custom` で行い、Go のゼロ値に関する契約を削除。`ctx` を `AbortSignal` に、エラーを `cause` 付きのクラスに置き換えた。保存済み PHC のソルトの下限を 8 バイトに変更。「不正な UTF-8」の拒否をペアになっていないサロゲートの拒否に置き換えた。JSON の項目名を大文字小文字を区別する照合に変更。メールアドレスの受理形式を dot-atom として明記し、ドメインリテラルを拒否する。SQLite を 1 接続の同期 API とし、イベントループが止まる制限を追記。サーバータイムアウトを Node の設定に対応させ、Node が自動で返す 400・408 を既知の制限に追記。テストを Vitest に変更。静的検査に ESLint（typescript-eslint）、整形に Prettier を採用。Go 実装の性能測定の結果は記録として残し、TS 実装で再測定する。移行の作業手順を追加
 - v0.22：同じ Go サーバーから配信する最小の Web 画面を追加。静的ファイルの配信、入力と結果の表示、パスワードの扱いを確定。WSL から Windows の IPv4 への転送のため IPv4 の待ち受けを明示。Android の接続案内を Windows のブラウザーからの利用・実接続確認へ置き換え。コードレビューを反映し、すべての応答への no-store・nosniff、メール欄の `type="text"`、待ち受け範囲と別サイトからの要求を既知の制限に追記
 - v0.21：メールアドレスを ASCII に限定。401 に `WWW-Authenticate` を付けない理由を明記。既知の制限に、Argon2id の同時計算枠の枯渇、`/mnt/c` 以外の Windows ドライブを検出しないこと、正常終了の期限切れ後のハンドラと DB の後始末を追記
 - v0.20：コードレビューの指摘を反映。メールアドレスはグループ構文・コメント・引用符付きのローカル部を拒否し、`users.email` には解析したアドレスを保存する。リクエストの `ctx` の取り消し・期限切れを 503 に統一して記録しない。本文の読み込み失敗に専用の `detail` を返し、authority 形式の CONNECT も Problem Details の 404 にする

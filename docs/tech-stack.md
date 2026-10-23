@@ -12,6 +12,8 @@
 | 実行環境 | Node.js 26（LTS。2026-10-28 に LTS 入り） | 標準モジュールだけで HTTP サーバー、Argon2id、SQLite、乱数、正規化がそろう。サポート期限は 2029-04-30 |
 | TS の実行 | Node の型除去（type stripping）で `.ts` を直接実行する | ビルドの工程と出力ファイルを持たない。型除去は Node 25.2 で安定版になった |
 | 型検査 | `tsc --noEmit` | 型の検査だけを行い、JavaScript は出力しない |
+| 静的検査 | ESLint と typescript-eslint（`strictTypeChecked`） | `tsc` の型情報を使って、`Promise` の誤用、`any`・型アサーション、依存の向きの違反、`Math.random` などを検出する |
+| 整形 | Prettier（既定の設定） | 書式を手で揃えず、差分を意味のある変更だけにする |
 | tsconfig | `erasableSyntaxOnly`、`verbatimModuleSyntax`、`rewriteRelativeImportExtensions`、`module: nodenext`、`target: esnext`、`noEmit`、`strict` | Node の型除去が扱えない構文（`enum`、実行時コードを持つ `namespace`、パラメータプロパティ）を型検査で拒否する。import には `.ts` の拡張子を書く |
 | モジュール形式 | ES Modules（`package.json` の `"type": "module"`） | Node の型除去と `import.meta.url` をそのまま使う |
 | 開発環境 | WSL2（Ubuntu 24.04） | Node は WSL にだけ入れる。ソースは Windows 側のフォルダに置く |
@@ -38,11 +40,15 @@
 
 ## 開発用の依存
 
-devDependency は次の 4 つに限る。
+devDependency は次の 8 つに限る。
 
 | パッケージ | 用途 |
 |---|---|
 | `typescript` | `tsc --noEmit` による型検査 |
+| `eslint` | 静的検査 |
+| `@eslint/js` | ESLint の推奨規則 |
+| `typescript-eslint` | 型情報を使う TypeScript の規則 |
+| `prettier` | 整形 |
 | `@types/node` | Node の標準モジュールの型 |
 | `vitest` | テストとベンチマーク（`vitest bench`） |
 | `@vitest/coverage-v8` | V8 のカバレッジ計測と HTML・サマリーのレポート |
@@ -73,6 +79,8 @@ devDependency は次の 4 つに限る。
 | マイグレーションツール | `init.sql` 1 つで足りる |
 | 外部の Argon2 パッケージ（`argon2`、`@node-rs/argon2` など） | Node 標準の `crypto.argon2` で足りる |
 | 外部の SQLite ドライバ（`better-sqlite3` など） | Node 標準の `node:sqlite` で足りる |
+| Biome | ESLint と Prettier を使う。型情報を使う規則（`Promise` の誤用など）を `tsc` の型で判定でき、一般的な構成を学べるため |
+| `eslint-config-prettier` | 採用する規則（`@eslint/js` の推奨、typescript-eslint の `strictTypeChecked`）に書式の規則が無く、Prettier と衝突しない |
 | husky などの Git フック | Windows 側の Git から実行されると Windows の Node を探すが、Node は WSL にだけ入れる |
 | tsx、ts-node、esbuild などのトランスパイラ | Node の型除去で直接実行できる |
 | Docker、testcontainers | SQLite で DB サーバーが不要になった |

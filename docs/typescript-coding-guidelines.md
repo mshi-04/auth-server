@@ -15,7 +15,7 @@
 
 ## 型
 
-- `tsconfig.json` の `strict` を有効にし、`any` と型アサーション（`as`）を使わない。外から来た値は `unknown` で受け取り、検査して型を絞る
+- `tsconfig.json` の `strict` を有効にし、`any` と型アサーション（`as`）を使わない。外から来た値は `unknown` で受け取り、検査して型を絞る。ESLint の `no-explicit-any`・`no-unsafe-*`・`consistent-type-assertions`（`assertionStyle: 'never'`）で検査する
 - Node の型除去が扱えない構文（`enum`、実行時コードを持つ `namespace`、パラメータプロパティ、デコレーター）を使わない。列挙は文字列リテラルの union 型で表す
 - 型だけの import には `import type`（または `import { type X }`）を使う。import には `.ts` の拡張子を書く
 - `null` と `undefined` を混ぜない。値が無いことは `undefined` で表し、省略可能な項目は `?` で表す
@@ -26,7 +26,7 @@
 - 非同期処理は `async`・`await` で書く。`then` の連鎖やコールバックは、Node の API が要求する場合（`crypto.argon2`）を `Promise` に包む箇所だけにする
 - 後始末は `try`・`finally` で書く。トランザクションは `BEGIN IMMEDIATE` の成功を確かめた後に `try` を始め、`COMMIT` まで進まなければ `ROLLBACK` する
 - 中断の `signal: AbortSignal` は最後の引数で受け取り、下の層（DB 呼び出し、`hash`、`verify`）までそのまま渡す。クラスのフィールドに保存しない
-- 待たない `Promise` を作らない。作った `Promise` は必ず `await` するか、失敗を処理する
+- 待たない `Promise` を作らない。作った `Promise` は必ず `await` するか、失敗を処理する。条件式に `Promise` を渡さない（`if (hasher.verify(...))` は常に真になる）。ESLint の `no-floating-promises`・`no-misused-promises` で検査する
 
 ## 値オブジェクト
 
@@ -78,6 +78,12 @@
 - 共通の準備はヘルパー関数にまとめ、失敗したときにどの入力か分かるテスト名にする
 - 変更した振る舞いには、その振る舞いが壊れたら失敗するテストを付ける。必ず通ってしまうテストを書かない
 - 時間に依存するテストは、Vitest の偽タイマー（`vi.useFakeTimers`）で決定的にする。並行性に依存するテストは、`Promise` の解決の順序をテスト側で制御する
+
+## 検査と整形
+
+- 書式は Prettier に任せ、手で揃えない。整形だけの変更を、ほかの変更と同じコミットに混ぜない
+- ESLint は typescript-eslint の `strictTypeChecked` を基本にし、このプロジェクトの禁止事項（`Math.random`、`node:crypto` の `argon2Sync`、architecture.md の依存の向きに反する import）も規則で禁止する
+- ESLint の指摘は抑制コメントで消さず、コードを直す。どうしても抑制する場合は、`eslint-disable-next-line` で規則名を明示し、理由を同じ行に書く
 
 ## 作りすぎない
 
