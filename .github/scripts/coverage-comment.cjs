@@ -1,5 +1,23 @@
 const fs = require("node:fs");
 
+function coverageTarget(language) {
+  if (language === "go") {
+    return {
+      marker: "<!-- auth-server-coverage -->",
+      runMarker: "auth-server-coverage-run",
+      heading: "Go Coverage",
+    };
+  }
+  if (language === "typescript") {
+    return {
+      marker: "<!-- auth-server-ts-coverage -->",
+      runMarker: "auth-server-ts-coverage-run",
+      heading: "TypeScript Coverage",
+    };
+  }
+  throw new Error("Unknown coverage language");
+}
+
 function readCoverageReport(language) {
   if (language === "go") {
     const details = fs.readFileSync("coverage/coverage.txt", "utf8").trim();
@@ -51,14 +69,7 @@ function readCoverageReport(language) {
 
 async function updateCoverageComment({ github, context, core }) {
   const language = process.env.COVERAGE_LANGUAGE;
-  const isGo = language === "go";
-  const marker = isGo
-    ? "<!-- auth-server-coverage -->"
-    : "<!-- auth-server-ts-coverage -->";
-  const runMarker = isGo
-    ? "auth-server-coverage-run"
-    : "auth-server-ts-coverage-run";
-  const heading = isGo ? "Go Coverage" : "TypeScript Coverage";
+  const { marker, runMarker, heading } = coverageTarget(language);
   const pr = context.payload.pull_request;
   const runNumber = context.runNumber;
   const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
@@ -150,9 +161,11 @@ async function updateCoverageComment({ github, context, core }) {
 module.exports = updateCoverageComment;
 
 if (require.main === module) {
-  const report = readCoverageReport(process.env.COVERAGE_LANGUAGE);
+  const language = process.env.COVERAGE_LANGUAGE;
+  const { heading } = coverageTarget(language);
+  const report = readCoverageReport(language);
   fs.appendFileSync(
     process.env.GITHUB_STEP_SUMMARY,
-    `## TypeScript Coverage\n\n合計カバレッジ: **${report.total}%**\n`,
+    `## ${heading}\n\n合計カバレッジ: **${report.total}%**\n`,
   );
 }

@@ -14,25 +14,76 @@ const forbiddenAssertions = {
   selector: "TSAsExpression, TSTypeAssertion",
   message: "Do not use type assertions, including const assertions.",
 };
+const forbiddenNamedImports = [
+  {
+    source: "node:crypto",
+    names: ["argon2Sync"],
+    message: "Use asynchronous crypto.argon2.",
+  },
+  {
+    source: "node:crypto",
+    names: [
+      "getRandomValues",
+      "randomFill",
+      "randomFillSync",
+      "randomInt",
+      "webcrypto",
+    ],
+    message: "Use randomBytes or randomUUID from node:crypto.",
+  },
+  {
+    source: "node:module",
+    names: ["createRequire"],
+    message: "Use static imports so module dependencies can be checked.",
+  },
+].map(({ source, names, message }) => {
+  const pattern = `/^(?:${names.join("|")})$/`;
+  return {
+    selector: [
+      `ImportDeclaration[source.value='${source}'] > ImportSpecifier[imported.name=${pattern}]`,
+      `ExportNamedDeclaration[source.value='${source}'] > ExportSpecifier[local.name=${pattern}]`,
+    ].join(", "),
+    message,
+  };
+});
+const forbiddenSyntax = [forbiddenAssertions, ...forbiddenNamedImports];
+const forbiddenProperties = [
+  {
+    object: "Math",
+    property: "random",
+    message: "Use node:crypto randomness.",
+  },
+  { property: "argon2Sync", message: "Use asynchronous crypto.argon2." },
+  ...["getRandomValues", "randomFill", "randomFillSync", "randomInt"].map(
+    (property) => ({
+      property,
+      message: "Use randomBytes or randomUUID from node:crypto.",
+    }),
+  ),
+  {
+    property: "webcrypto",
+    message: "Use randomBytes or randomUUID from node:crypto.",
+  },
+  {
+    property: "createRequire",
+    message: "Use static imports so module dependencies can be checked.",
+  },
+];
 
 function restrictedImports(
   allowedModules,
   allowHttp = false,
   allowSqlite = false,
 ) {
-  const paths = [
-    {
-      name: "node:crypto",
-      importNames: ["argon2Sync"],
-      message: "Use asynchronous crypto.argon2.",
-    },
-  ];
+  const paths = [];
 
   if (!allowHttp) {
-    paths.push({
-      name: "node:http",
-      message: "Only httpapi and main.ts may depend on node:http.",
-    });
+    for (const name of ["node:http", "node:https", "node:http2"]) {
+      paths.push({
+        name,
+        message: "Only httpapi and main.ts may depend on HTTP modules.",
+      });
+    }
   }
   if (!allowSqlite) {
     paths.push({
@@ -67,8 +118,8 @@ function restrictedImports(
   }
   if (!allowedModules.includes("errors")) {
     patterns.push({
-      regex: "^(?:\\.\\.?/)+errors\\.ts$",
-      message: "This module must not depend on errors.ts.",
+      regex: "^(?:\\.\\./)+errors\\.ts$",
+      message: "This module must not depend on src/errors.ts.",
     });
   }
   patterns.push({
@@ -88,12 +139,18 @@ export default defineConfig(
       ".agents/**",
       ".claude/**",
       ".codex/**",
-      ".github/**",
+      ".github/*",
+      "!.github/scripts/",
       "src/httpapi/web/**",
     ],
   },
   {
-    files: ["src/**/*.ts", "vitest.config.ts", "eslint.config.js"],
+    files: [
+      "src/**/*.ts",
+      ".github/scripts/**/*.ts",
+      "vitest.config.ts",
+      "eslint.config.js",
+    ],
     extends: [js.configs.recommended, tseslint.configs.strictTypeChecked],
     languageOptions: {
       parserOptions: {
@@ -107,16 +164,8 @@ export default defineConfig(
         { assertionStyle: "never" },
       ],
       "@typescript-eslint/consistent-type-imports": "error",
-      "no-restricted-syntax": ["error", forbiddenAssertions],
-      "no-restricted-properties": [
-        "error",
-        {
-          object: "Math",
-          property: "random",
-          message: "Use node:crypto randomness.",
-        },
-        { property: "argon2Sync", message: "Use asynchronous crypto.argon2." },
-      ],
+      "no-restricted-syntax": ["error", ...forbiddenSyntax],
+      "no-restricted-properties": ["error", ...forbiddenProperties],
     },
   },
   {
@@ -124,12 +173,24 @@ export default defineConfig(
     extends: [tseslint.configs.disableTypeChecked],
   },
   {
+    files: [".github/scripts/**/*.cjs"],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      sourceType: "commonjs",
+      globals: {
+        module: "writable",
+        process: "readonly",
+        require: "readonly",
+      },
+    },
+  },
+  {
     files: ["src/**/*.ts"],
     ignores: ["src/**/*.test.ts", "src/**/*.bench.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
-        forbiddenAssertions,
+        ...forbiddenSyntax,
         {
           selector: "ImportExpression",
           message: "Use static imports so module dependencies can be checked.",
@@ -143,6 +204,10 @@ export default defineConfig(
     },
   },
   {
+    files: ["src/**/*.ts"],
+    rules: { "no-restricted-imports": restrictedImports([]) },
+  },
+  {
     files: ["src/main.ts"],
     rules: {
       "no-restricted-imports": restrictedImports(
@@ -154,10 +219,6 @@ export default defineConfig(
   {
     files: ["src/errors.ts", "src/errors.test.ts"],
     rules: { "no-restricted-imports": restrictedImports(["errors"]) },
-  },
-  {
-    files: ["src/config/**/*.ts", "src/log/**/*.ts"],
-    rules: { "no-restricted-imports": restrictedImports([]) },
   },
   {
     files: ["src/password/**/*.ts"],

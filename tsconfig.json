@@ -7,7 +7,9 @@
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "rewriteRelativeImportExtensions": true,
+    "skipLibCheck": true,
+    "allowJs": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "vitest.config.ts"]
+  "include": ["src/**/*.ts", ".github/scripts/**/*.ts", "vitest.config.ts"]
 }

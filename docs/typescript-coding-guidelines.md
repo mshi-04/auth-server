@@ -82,7 +82,7 @@
 ## 検査と整形
 
 - 書式は Prettier に任せ、手で揃えない。整形だけの変更を、ほかの変更と同じコミットに混ぜない
-- ESLint は typescript-eslint の `strictTypeChecked` を基本にし、このプロジェクトの禁止事項（`Math.random`、`node:crypto` の `argon2Sync`、architecture.md の依存の向きに反する import）も規則で禁止する
+- ESLint は typescript-eslint の `strictTypeChecked` を基本にし、このプロジェクトの禁止事項（`Math.random` と、`randomBytes`・`randomUUID` 以外の乱数 API、`node:crypto` の `argon2Sync`、architecture.md の依存の向きに反する import、それを回避する動的 import と `createRequire`）も規則で禁止する。`src` 直下のファイルも、main.ts と errors.ts 以外はプロジェクト内のどのモジュールにも依存できない
 - ESLint の指摘は抑制コメントで消さず、コードを直す。どうしても抑制する場合は、`eslint-disable-next-line` で規則名を明示し、理由を同じ行に書く
 
 ## 作りすぎない
