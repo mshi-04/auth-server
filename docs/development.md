@@ -63,6 +63,7 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 | ベンチマーク（ハッシュ 1 回の所要時間） | `npm run bench` | `vitest bench --run src/password` |
 | 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db npm start` | `node src/main.ts` |
 
+- `npm run bench` は既定パラメータの `hash`・`hash saturated` と飽和時のイベントループ遅延を測る。`AUTH_PASSWORD_BENCH_RUN=1 npm run bench` の番号を 1・2・3 と変えて 3 回実行すると、各回の JSON を `coverage/password-bench/` に残せる。番号を省略した場合は `latest` として上書きする。既定値が design.md 4.7 の目標から外れた場合は、`AUTH_PASSWORD_BENCH_CANDIDATES=1 npm run bench` で候補も比較する。Vitest 5 では `*.bench.ts` 内のテストコンテキストの `bench` を使い、通常の `npm test` ではベンチマークを実行しない
 - ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイル、CI のスクリプト（`.github/scripts/`）、ルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。`actions/github-script` から `require` する `.github/scripts/*.cjs` は、`@eslint/js` の推奨規則で検査し、テスト（`*.test.ts`）から読み込んで振る舞いを確かめる。ブラウザーで動く `src/httpapi/web/` は対象から外す
 - `tsconfig.json` の `skipLibCheck` で依存パッケージの型定義は型検査しない。依存の更新で型定義どうしが食い違っても、このプロジェクトのコードと無関係に型検査が失敗しないようにするため
 - Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML、`src/httpapi/web/` は `.prettierignore` で対象から外す。`src/httpapi/web/` は Go 実装の `internal/httpapi/web/` からコピーした手書きの書式のまま保ち、移行中は 2 か所の内容を一致させる（design.md 10 章）。Go 実装のファイルは Prettier の対象外の拡張子なので、指定しなくても整形されない

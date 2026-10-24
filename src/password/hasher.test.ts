@@ -1,0 +1,175 @@
+import { format, inspect } from "node:util";
+import { describe, expect, it } from "vitest";
+import {
+  defaultParams,
+  EncodedHash,
+  Hasher,
+  Password,
+  PolicyViolationError,
+} from "./index.ts";
+import type { Params } from "./index.ts";
+
+const signal = new AbortController().signal;
+const valid = "correct horse battery staple";
+function smallParams(): Params {
+  return { ...defaultParams(), memoryKiB: 64, iterations: 1, parallelism: 1 };
+}
+
+describe("password values and hashing", () => {
+  it.each([
+    "",
+    "short",
+    "a".repeat(11),
+    "a".repeat(12),
+    "a".repeat(128),
+    "😀".repeat(128),
+    "㍿".repeat(32),
+    "e\u0301".repeat(128),
+  ])("parses valid well-formed input #%#", (raw) => {
+    expect(Password.parse(raw)).toBeInstanceOf(Password);
+  });
+
+  it.each([
+    "a".repeat(129),
+    "😀".repeat(129),
+    "㍿".repeat(33),
+    "\ud800",
+    "\udfff",
+    "a\ud800b",
+  ])("rejects malformed or long input #%#", (raw) => {
+    expect(() => Password.parse(raw)).toThrow(PolicyViolationError);
+    try {
+      Password.parse(raw);
+    } catch (error) {
+      if (error instanceof Error) {
+        expect(error.message).not.toContain(raw);
+      }
+    }
+  });
+
+  it.each([
+    ["", false],
+    ["a".repeat(11), false],
+    ["a".repeat(12), true],
+    ["a".repeat(128), true],
+    ["😀".repeat(11), false],
+    ["😀".repeat(12), true],
+    ["㍿".repeat(2), false],
+    ["㍿".repeat(3), true],
+    ["e\u0301".repeat(11), false],
+    ["e\u0301".repeat(12), true],
+  ])("applies minimum to normalized codepoints #%#", async (raw, accepted) => {
+    const hasher = Hasher.create(smallParams());
+    const password = Password.parse(raw);
+    if (!accepted) {
+      await expect(hasher.hash(password, signal)).rejects.toBeInstanceOf(
+        PolicyViolationError,
+      );
+      return;
+    }
+    const encoded = await hasher.hash(password, signal);
+    expect(await hasher.verify(password, encoded, signal)).toBe(true);
+  });
+
+  it("round trips using saved parameters, rejects wrong input and uses fresh salts", async () => {
+    const hasher = Hasher.create(smallParams());
+    const password = Password.parse(valid);
+    const encoded = await hasher.hash(password, signal);
+    const parsed = EncodedHash.parse(encoded.phc());
+    const changed = Hasher.create({
+      ...smallParams(),
+      memoryKiB: 128,
+      iterations: 2,
+    });
+    expect(await changed.verify(password, parsed, signal)).toBe(true);
+    for (const raw of ["wrong password", "short", ""]) {
+      expect(await changed.verify(Password.parse(raw), parsed, signal)).toBe(
+        false,
+      );
+    }
+    expect((await hasher.hash(password, signal)).phc()).not.toBe(encoded.phc());
+  });
+
+  it.each([
+    ["ＡＢＣ１２３ａｂｃ４５６", "ABC123abc456"],
+    ["ABC123abc456", "ＡＢＣ１２３ａｂｃ４５６"],
+    ["e\u0301".repeat(12), "é".repeat(12)],
+  ])("normalizes consistently #%#", async (stored, raw) => {
+    const hasher = Hasher.create(smallParams());
+    const encoded = await hasher.hash(Password.parse(stored), signal);
+    expect(await hasher.verify(Password.parse(raw), encoded, signal)).toBe(
+      true,
+    );
+  });
+
+  it.each(["", "old"])(
+    "verifies and rehashes legacy short values #%#",
+    async (raw) => {
+      const old = Hasher.create({ ...smallParams(), iterations: 2 });
+      const current = Hasher.create(smallParams());
+      const password = Password.parse(raw);
+      const encoded = await old.rehash(password, signal);
+      expect(await current.verify(password, encoded, signal)).toBe(true);
+      expect(current.needsRehash(encoded)).toBe(true);
+      const rehashed = await current.rehash(password, signal);
+      expect(current.needsRehash(rehashed)).toBe(false);
+      expect(await current.verify(password, rehashed, signal)).toBe(true);
+    },
+  );
+
+  it.each([
+    [{}, false],
+    [{ memoryKiB: 128 }, true],
+    [{ iterations: 2 }, true],
+    [{ parallelism: 2 }, true],
+    [{ saltLength: 32 }, true],
+    [{ keyLength: 16 }, true],
+    [{ maxConcurrent: 1 }, false],
+    [{ waitTimeoutMs: 1 }, false],
+  ])("compares only hash parameters #%#", async (patch, expected) => {
+    const old = Hasher.create({ ...smallParams(), ...patch });
+    const encoded = await old.hash(Password.parse(valid), signal);
+    expect(Hasher.create(smallParams()).needsRehash(encoded)).toBe(expected);
+  });
+
+  it("requests canonical order without re-parsing or changing stored text", async () => {
+    const hasher = Hasher.create(smallParams());
+    const password = Password.parse(valid);
+    const phc = (await hasher.hash(password, signal)).phc();
+    const reordered = phc.replace("m=64,t=1,p=1", "p=1,t=1,m=64");
+    const encoded = EncodedHash.parse(reordered);
+    expect(encoded.phc()).toBe(reordered);
+    expect(hasher.needsRehash(encoded)).toBe(true);
+    expect(await hasher.verify(password, encoded, signal)).toBe(true);
+  });
+
+  it("copies settings at creation", async () => {
+    const params = smallParams();
+    const hasher = Hasher.create(params);
+    params.memoryKiB = 128;
+    params.maxConcurrent = 0;
+    const encoded = await hasher.hash(Password.parse(valid), signal);
+    expect(hasher.needsRehash(encoded)).toBe(false);
+    expect(encoded.phc()).toContain("m=64,t=1,p=1");
+  });
+
+  it("redacts both value objects through all normal output paths", async () => {
+    const password = Password.parse(valid);
+    const encoded = await Hasher.create(smallParams()).hash(password, signal);
+    for (const value of [password, encoded]) {
+      expect(value.toString()).toBe("[REDACTED]");
+      expect(value.toJSON()).toBe("[REDACTED]");
+      expect(JSON.stringify(value)).toBe('"[REDACTED]"');
+      expect(inspect(value)).toBe("[REDACTED]");
+      expect(inspect({ value })).toBe("{ value: [REDACTED] }");
+      expect(JSON.stringify({ value })).toBe('{"value":"[REDACTED]"}');
+      expect(format("%s", value)).toBe("[REDACTED]");
+      expect(format("%o", value)).toBe("[REDACTED]");
+      // eslint-disable-next-line @typescript-eslint/restrict-template-expressions -- Exercise implicit interpolation of secret value objects.
+      expect(`${value}`).toBe("[REDACTED]");
+      expect(Object.keys(value)).toEqual([]);
+    }
+    expect(inspect({ encoded })).not.toContain(encoded.phc());
+    expect(inspect({ password })).not.toContain(valid);
+  });
+});
