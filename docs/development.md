@@ -26,13 +26,14 @@ WSL のシェルで 1 回だけ行う。
 
 Windows 側のリポジトリのルートで実行する。wsl.exe は呼び出し元のフォルダを WSL のパスに変換して作業ディレクトリにするため、`cd` は要らない。
 
-```
+```powershell
 wsl -d Ubuntu-24.04 --exec bash -lc '. "$HOME/.nvm/nvm.sh" && nvm use --silent && npm test'
 ```
 
-- `--exec` を必ず付ける。付けないと wsl.exe が外側のシェルでコマンドを解釈し、`$VAR` が bash に渡る前に空へ展開される
+- `--exec` は、既定の Linux シェルを介さず、指定した `bash` を直接実行するために付ける。Windows 側のシェルによる変数展開を防ぐオプションではない（[WSL の説明](https://learn.microsoft.com/en-us/windows/wsl/release-notes#build-18305)）
+- この例は PowerShell 用。`bash -lc` へ渡す文字列をシングルクォートで囲むことで、`$HOME` などを PowerShell では展開せず bash へ渡す（[PowerShell の引用符の規則](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_quoting_rules#single-quoted-strings)）。Command Prompt（`cmd.exe`）ではシングルクォートは引数をまとめる引用符にならず、引用符や変数の規則も異なるため、この例をそのまま使わない
 - コマンドの中で `nvm.sh` を読み込み、`nvm use` で `.nvmrc` の版を選ぶ。nvm のインストーラーは初期化の処理を `~/.bashrc` の末尾に追加するが、Ubuntu 標準の `~/.bashrc` は非対話のシェルでは冒頭で終了するため、`bash -lc` だけでは nvm が読み込まれない
-- 引数のない `nvm use` は `.nvmrc` を読む。`.nvmrc` が無い間（design.md 10 章の手順 1 より前）は `nvm use --silent 26` と版を指定する。nvm を入れていない場合は `nvm.sh` の読み込みが失敗し、`&&` により `npm` は実行されない。その場合は「nvm と Node の初回の準備」を行う
+- 引数のない `nvm use` は `.nvmrc` を読む。`.nvmrc` が無い間（design.md 10 章の手順 1 より前）は `nvm use --silent 26` と版を指定する。nvm を入れていない場合は `nvm.sh` の読み込みが、nvm はあっても Node 26 が未インストールの場合は `nvm use` が失敗し、`&&` により `npm` は実行されない。いずれの場合も「nvm と Node の初回の準備」を行う
 - nvm を読み込まないと、WSL の `PATH` に含まれる Windows 側の `npm`（`/mnt/c/...`）が選ばれることがある。Windows の npm で `node_modules/` が作られないよう、`npm` の前に必ず nvm を読み込む。どちらが選ばれるかは `command -v node npm` で確かめ、`~/.nvm/` 配下を指していることを確認する
 - 込み入った処理はスクリプトファイルにして `wsl -d Ubuntu-24.04 --exec bash <スクリプトのパス>` で実行する。`bash <スクリプト>` も非対話シェルで nvm は読み込まれないため、Node や npm を使うスクリプトは、先頭で `. "$HOME/.nvm/nvm.sh" && nvm use --silent` を実行してから呼ぶ
 
@@ -70,8 +71,8 @@ CI の実行条件と出力はこの節を正本とする。GitHub Actions の `
 | ジョブ | 内容 |
 |---|---|
 | Lint | `npm ci`（`package.json` と `package-lock.json` が食い違うと失敗する）、`npm run typecheck`、`npm run lint`、`npm run format:check` |
-| Test | `npm test` |
-| Coverage | `npm run coverage` と、カバレッジレポートの生成・保存 |
+| Test | `npm ci` の後に `npm test` |
+| Coverage | `npm ci` の後に `npm run coverage` と、カバレッジレポートの生成・保存 |
 
 Test と Coverage はそれぞれ別にテストを実行する。Coverage は `src/` 配下の全ファイル（テスト、ベンチマーク、ブラウザーで動く `src/httpapi/web/` を除く）を計測対象にし、テストから読み込まれないファイルも集計に含める。
 
@@ -81,7 +82,7 @@ Test と Coverage はそれぞれ別にテストを実行する。Coverage は `
 - Coverage ジョブのテスト成功時に `coverage-report` artifact を 14 日間保存する。`index.html` はブラウザでソース行ごとの実行状況を確認でき、`coverage-summary.json` はファイル別の集計、`coverage-final.json` は V8 の計測データ。再実行時は同名の artifact を上書きする
 - カバレッジの出力先と形式は `vitest.config.ts` に定義する。生成先の `coverage/` は Git の管理対象から外す
 - 実行環境は Ubuntu 24.04。Node のバージョンは `.nvmrc` から読み込む
-- Node のインストールと npm のキャッシュの復元は `.github/actions/setup-node` にまとめ、各ジョブから呼ぶ。キャッシュは `package-lock.json` が変わるまで再利用する
+- Node のインストールと npm のキャッシュの復元は `.github/actions/setup-node` にまとめ、各ジョブから呼ぶ。キャッシュは `package-lock.json` が変わるまで再利用する。キャッシュは npm のダウンロード済みパッケージ用で `node_modules/` は共有しないため、Lint・Test・Coverage の各ジョブで `npm ci` を実行する
 - 各ジョブの制限時間は 15 分。同じ PR で新しい実行が始まったら、古い実行を取り消す。`develop`・`main` への push では実行中の CI を取り消さないが、同じブランチの待機中の実行は新しい push によって置き換わることがある
 - 性能測定は WSL で行い、ベンチマークは CI では実行しない
 - Go 実装にあったレース検出（Race ジョブ）に相当する仕組みは Node に無いため、TS 実装ではジョブを設けない。並行性の振る舞いはテストで検証する

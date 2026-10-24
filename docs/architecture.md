@@ -120,7 +120,7 @@ type Credential = {
 | `WeakPasswordError` | 登録時のパスワードポリシー違反 | 422 |
 | `EmailTakenError` | 登録時のメールアドレス重複 | 409 |
 | `InvalidCredentialsError` | ログイン失敗（原因を区別しない） | 401 |
-| `BusyError` | ハッシュのセマフォ待機の打ち切り、または DB の書き込みロック待機の打ち切り。password の `BusyError` は `auth` が、`SQLITE_BUSY` は `store/sqlite` が `auth` の `BusyError` へ変換し、`signal.reason` は `cause` に残す。`httpapi` は `BusyError` に包まれていない要求の `signal` の中断（`signal.reason`）も 503 にし、ログに出さない | 503 |
+| `BusyError` | ハッシュのセマフォ待機の打ち切り、または DB の書き込みロック待機の打ち切り。password の `BusyError` は `auth` が、`SQLITE_BUSY` は `store/sqlite` が `auth` の `BusyError` へ変換し、`signal.reason` は `cause` に残す。httpapi まで伝播し、要求が中断されておらず応答を書ける場合は 503。要求の `signal` の中断は、このエラーに包まれているかを問わずログに出さず、design.md 6.6 の応答規則を優先する | 503（要求中断時を除く） |
 | `UserNotFoundError` | `UserStore` の検索・ハッシュ更新で対象がない場合に投げる。`login` の検索では `InvalidCredentialsError` に変換し、再ハッシュ保存では警告して成功を返す | — |
 | password の `InvalidHashError` | 保存済みハッシュが壊れているときに `EncodedHash.parse` が投げる。`login` の中でダミーハッシュの `verify` を実行して応答時間を揃え、エラーログを出して `InvalidCredentialsError` に変換する | — |
 | password の `InvalidParamsError` | 組み立ての誤りというプログラムの誤り。`auth` は利用者向けのエラーに変換せず、文脈を付けて包んで投げる。`httpapi` は予期しないエラーとして 500 にし、ログに出す | 500 |
@@ -133,7 +133,7 @@ function createHandler(service: AuthService, logger: Logger): Promise<http.Reque
 
 - メソッドとパスの対応表で API と Web 画面のルート、404・405 を処理する。有効な `AuthService` と `Logger` を渡して生成する
 - 入力・応答・エラー形式は design.md 6.1 に従う。入力検証は HTTP の形式に限り、メール・パスワードの意味的な検証は auth に任せる
-- 要求ごとに、応答の期限（30 秒）とクライアントの切断をまとめた `signal` を作り、auth に渡す（design.md 6.6）
+- 要求ごとに、応答の期限（30 秒）とクライアントの切断をまとめた `signal` を作り、auth に渡す。クライアント切断時は応答を書かず、応答期限超過時は応答を書かずに接続を破棄する。これらは成功応答やエラーのステータスコードへの変換より優先する（design.md 6.6）
 - httpapi は password や SQLite を直接参照しない
 - `web/index.html`・`web/app.css`・`web/app.js` を `createHandler` の中でメモリへ読み込み、design.md 6.8 に従って明示したパスだけに配信する。Web 画面も既存 API を呼び、認証処理を重複実装しない
 

@@ -28,7 +28,7 @@ Claude Code がこのリポジトリで作業するときの指示書。
 
 - このプロジェクトの Node と Go は WSL の中のものを使う。Windows 側にもほかの用途の Node と npm が入っており、WSL の `PATH` からも見えるが、このプロジェクトでは使わない
 - Windows から Node・npm・Go のコマンドを実行するときは `wsl -d Ubuntu-24.04 --exec bash -lc '...'` を使う（詳細は development.md）
-- Node・npm のコマンドは、その中で先に `. "$HOME/.nvm/nvm.sh" && nvm use --silent` を実行する。読み込まないと Windows 側の `npm` が選ばれる。`.nvmrc` が無い間は `nvm use --silent 26` とし、nvm が入っていなければ development.md の「nvm と Node の初回の準備」を利用者に依頼する
+- Node・npm のコマンドは、その中で先に `. "$HOME/.nvm/nvm.sh" && nvm use --silent` を実行する。読み込まないと Windows 側の `npm` が選ばれる。`.nvmrc` が無い間は `nvm use --silent 26` とする。nvm が入っていない場合、または Node 26 が未インストールで `nvm use` が失敗する場合は、development.md の「nvm と Node の初回の準備」を利用者に依頼する
 - npm は WSL からだけ実行する。Windows 側の Node や npm で `node_modules/` を作り直さない
 - SQLite の DB ファイルは `/mnt/c` 配下に置かない
 
