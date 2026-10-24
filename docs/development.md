@@ -22,6 +22,8 @@ WSL のシェルで 1 回だけ行う。
 2. `. "$HOME/.nvm/nvm.sh" && nvm install 26` で 26 系の最新版を入れる。`.nvmrc` ができた後（design.md 10 章の手順 1 の後）は、リポジトリのルートで `nvm install` を実行すれば `.nvmrc` の版が入る
 3. `command -v node npm` が `~/.nvm/` 配下を指し、`node --version` が 26.11.0 以上であることを確かめる
 
+Node の起動時に `libatomic.so.1` が見つからないと表示された場合は、WSL で `sudo apt-get update && sudo apt-get install --no-install-recommends libatomic1` を実行してから、起動を確かめる。
+
 ### Windows から Node のコマンドを実行する
 
 Windows 側のリポジトリのルートで実行する。wsl.exe は呼び出し元のフォルダを WSL のパスに変換して作業ディレクトリにするため、`cd` は要らない。

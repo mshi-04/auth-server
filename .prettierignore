@@ -1,0 +1,9 @@
+**/*.md
+.agents/
+.claude/
+.codex/
+.github/**/*.yml
+.github/**/*.yaml
+coverage/
+internal/
+src/httpapi/web/

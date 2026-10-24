@@ -1,6 +1,18 @@
 version: 2
 
 updates:
+  - package-ecosystem: npm
+    directory: /
+    target-branch: develop
+    groups:
+      npm-packages:
+        patterns: ['*']
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Tokyo
+
   - package-ecosystem: gomod
     directory: /
     target-branch: develop
@@ -17,6 +29,7 @@ updates:
     directories:
       - /
       - /.github/actions/setup-go
+      - /.github/actions/setup-node
     target-branch: develop
     groups:
       github-actions:
