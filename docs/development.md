@@ -135,6 +135,8 @@ Test と Coverage はそれぞれ別にテストを実行する。Coverage は `
 | `develop` | 統合先 |
 | `feature/*` | 作業用。`develop` から作り、`develop` へ PR を出す |
 
+- TypeScript への移行は、design.md 10 章の手順ごとに feature ブランチを分ける。ブランチ名と、前の手順のマージを待ってから次のブランチを作る決まりは design.md 10 章を正本とする
+
 ### コミット
 
 - メッセージは日本語。1 行目に要約を書き、必要なら空行の後に箇条書きで内容を書く
