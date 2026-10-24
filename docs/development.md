@@ -2,22 +2,40 @@
 
 開発環境、コマンド、Git の運用をまとめる。
 
+TypeScript 実装の手順を正本とする。移行の完了（design.md 10 章の手順 7）までは、Go 実装の手順と CI も残る。それらは末尾の「Go 実装（移行完了まで）」にまとめる。
+
 ## 開発環境
 
-- Go は WSL（ディストリビューション名 `Ubuntu-24.04`）にだけ入っている。Windows 側には無い
+- このプロジェクトの Node.js 26 は、WSL（ディストリビューション名 `Ubuntu-24.04`）に nvm で入れる。Windows 側にほかの用途の Node（winget で入れた Node 24 など）が入っていても、このプロジェクトでは使わない
+- Node のメジャーバージョンはリポジトリのルートの `.nvmrc`（`26`）を正本とする。`nvm install` と `nvm use` で 26 系の最新版を使う
+- 対象の下限は 26.11.0 で、`package.json` の `engines.node`（`>=26.11.0 <27`）に書く。リポジトリのルートの `.npmrc` に `engine-strict=true` を置き、対象外の版の Node（Windows 側の Node 24 や古い 26 系）で `npm ci` を実行したら、警告で済ませずに失敗させる。失敗したら nvm を読み込んでから実行し直すか、`nvm install` で 26 系を更新する
 - ソースは Windows 側のフォルダ（例：`C:\Users\<ユーザー名>\repos\auth-server`）に置く。WSL からは `/mnt/c/Users/<ユーザー名>/repos/auth-server` で見える
-- Go のモジュールキャッシュは WSL 側（`~/go`）に置かれる
+- `npm ci` で作る `node_modules/` も Windows 側のフォルダに置かれる。`/mnt/c` 経由のファイルアクセスは遅いため、インストールとテストに時間がかかる
+- npm は WSL からだけ実行する。Windows 側の Node や npm で `node_modules/` を作り直さない
+- エディターの補完は、エディターに同梱の TypeScript と、WSL で作った `node_modules/@types/node` で動く。Windows 側に Node は要らない
 
-### Windows から Go のコマンドを実行する
+### nvm と Node の初回の準備
+
+WSL のシェルで 1 回だけ行う。
+
+1. nvm を[公式の手順](https://github.com/nvm-sh/nvm#install--update-script)で入れる。入れる先は既定の `~/.nvm` とする。`XDG_CONFIG_HOME` を設定した状態でインストーラーを実行すると `~/.config/nvm` に入り、下のコマンドの `$HOME/.nvm` と食い違うため、設定していない状態で実行する
+2. `. "$HOME/.nvm/nvm.sh" && nvm install 26` で 26 系の最新版を入れる。`.nvmrc` ができた後（design.md 10 章の手順 1 の後）は、リポジトリのルートで `nvm install` を実行すれば `.nvmrc` の版が入る
+3. `command -v node npm` が `~/.nvm/` 配下を指し、`node --version` が 26.11.0 以上であることを確かめる
+
+### Windows から Node のコマンドを実行する
 
 Windows 側のリポジトリのルートで実行する。wsl.exe は呼び出し元のフォルダを WSL のパスに変換して作業ディレクトリにするため、`cd` は要らない。
 
-```
-wsl -d Ubuntu-24.04 --exec bash -lc 'go test ./...'
+```powershell
+wsl -d Ubuntu-24.04 --exec bash -lc '. "$HOME/.nvm/nvm.sh" && nvm use --silent && npm test'
 ```
 
-- `--exec` を必ず付ける。付けないと wsl.exe が外側のシェルでコマンドを解釈し、`$VAR` が bash に渡る前に空へ展開される
-- 込み入った処理はスクリプトファイルにして `wsl -d Ubuntu-24.04 --exec bash <スクリプトのパス>` で実行する
+- `--exec` は、既定の Linux シェルを介さず、指定した `bash` を直接実行するために付ける。Windows 側のシェルによる変数展開を防ぐオプションではない（[WSL の説明](https://learn.microsoft.com/en-us/windows/wsl/release-notes#build-18305)）
+- この例は PowerShell 用。`bash -lc` へ渡す文字列をシングルクォートで囲むことで、`$HOME` などを PowerShell では展開せず bash へ渡す（[PowerShell の引用符の規則](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_quoting_rules#single-quoted-strings)）。Command Prompt（`cmd.exe`）ではシングルクォートは引数をまとめる引用符にならず、引用符や変数の規則も異なるため、この例をそのまま使わない
+- コマンドの中で `nvm.sh` を読み込み、`nvm use` で `.nvmrc` の版を選ぶ。nvm のインストーラーは初期化の処理を `~/.bashrc` の末尾に追加するが、Ubuntu 標準の `~/.bashrc` は非対話のシェルでは冒頭で終了するため、`bash -lc` だけでは nvm が読み込まれない
+- 引数のない `nvm use` は `.nvmrc` を読む。`.nvmrc` が無い間（design.md 10 章の手順 1 より前）は `nvm use --silent 26` と版を指定する。nvm を入れていない場合は `nvm.sh` の読み込みが、nvm はあっても Node 26 が未インストールの場合は `nvm use` が失敗し、`&&` により `npm` は実行されない。いずれの場合も「nvm と Node の初回の準備」を行う
+- nvm を読み込まないと、WSL の `PATH` に含まれる Windows 側の `npm`（`/mnt/c/...`）が選ばれることがある。Windows の npm で `node_modules/` が作られないよう、`npm` の前に必ず nvm を読み込む。どちらが選ばれるかは `command -v node npm` で確かめ、`~/.nvm/` 配下を指していることを確認する
+- 込み入った処理はスクリプトファイルにして `wsl -d Ubuntu-24.04 --exec bash <スクリプトのパス>` で実行する。`bash <スクリプト>` も非対話シェルで nvm は読み込まれないため、Node や npm を使うスクリプトは、先頭で `. "$HOME/.nvm/nvm.sh" && nvm use --silent` を実行してから呼ぶ
 
 ### SQLite の DB ファイル
 
@@ -29,54 +47,60 @@ wsl -d Ubuntu-24.04 --exec bash -lc 'go test ./...'
 
 ## コマンド
 
-WSL 上のリポジトリのルートで実行する。
+WSL 上のリポジトリのルートで実行する。`npm run` の名前は `package.json` の `scripts` に定義する。
 
-| 目的 | コマンド |
-|---|---|
-| 整形確認 | `gofmt -l .`（出力が空なら整形済み。`gofmt -w .` で整形する） |
-| go.mod の整理確認 | `go mod tidy -diff` |
-| 静的検査 | `go vet ./...` |
-| テスト | `go test ./...` |
-| ベンチマーク（ハッシュ 1 回の所要時間） | `go test -bench=. ./internal/password` |
-| 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db go run ./cmd/authd` |
+| 目的 | コマンド | 中身 |
+|---|---|---|
+| 依存のインストール | `npm ci` | `package-lock.json` のとおりに入れる |
+| 型検査 | `npm run typecheck` | `tsc --noEmit` |
+| 静的検査 | `npm run lint` | `eslint .` |
+| 整形 | `npm run format` | `prettier --write .` |
+| 整形確認 | `npm run format:check` | `prettier --check .`（ファイルは書き換えない） |
+| テスト | `npm test` | `vitest run` |
+| カバレッジ | `npm run coverage` | `vitest run --coverage` |
+| ベンチマーク（ハッシュ 1 回の所要時間） | `npm run bench` | `vitest bench --run src/password` |
+| 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db npm start` | `node src/main.ts` |
+
+- ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイルとルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts` と `vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。ブラウザーで動く `src/httpapi/web/` は対象から外す
+- Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML、`src/httpapi/web/` は `.prettierignore` で対象から外す。`src/httpapi/web/` は Go 実装の `internal/httpapi/web/` からコピーした手書きの書式のまま保ち、移行中は 2 か所の内容を一致させる（design.md 10 章）。Go 実装のファイルは Prettier の対象外の拡張子なので、指定しなくても整形されない
 
 ## CI
 
-CI の実行条件と出力はこの節を正本とする。GitHub Actions の `.github/workflows/ci.yml` で、`develop`・`main` 向けの PR と両ブランチへの push 時に、次の 4 ジョブを独立して並行実行する。ジョブ間の依存は設けず、それぞれの結果を PR のチェックとして表示する。CodeQL の解析は別の `.github/workflows/codeql.yml` で独立して実行する。
+CI の実行条件と出力はこの節を正本とする。GitHub Actions の `.github/workflows/ci.yml` で、`develop`・`main` 向けの PR と両ブランチへの push 時に、次の 3 ジョブを独立して並行実行する。ジョブ間の依存は設けず、それぞれの結果を PR のチェックとして表示する。CodeQL の解析は別の `.github/workflows/codeql.yml` で独立して実行する。
 
 | ジョブ | 内容 |
 |---|---|
-| Lint | `gofmt -l .` による整形確認（ファイルは書き換えない）、`go mod tidy -diff`、`go vet ./...` |
-| Test | `go test -count=1 ./...` |
-| Coverage | `go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage/coverage.out ./...` とカバレッジレポートの生成・保存 |
-| Race | `CGO_ENABLED=1 go test -count=1 -race ./...` |
+| Lint | `npm ci`（`package.json` と `package-lock.json` が食い違うと失敗する）、`npm run typecheck`、`npm run lint`、`npm run format:check` |
+| Test | `npm ci` の後に `npm test` |
+| Coverage | `npm ci` の後に `npm run coverage` と、カバレッジレポートの生成・保存 |
 
-Test と Coverage はそれぞれ別にテストを実行し、キャッシュ済みの結果を使わない。Coverage は全パッケージを計測対象にし、テストのないパッケージのコードも集計に含める。
+Test と Coverage はそれぞれ別にテストを実行する。Coverage は `src/` 配下の全ファイル（テスト、ベンチマーク、ブラウザーで動く `src/httpapi/web/` を除く）を計測対象にし、テストから読み込まれないファイルも集計に含める。
 
 - 合計カバレッジは GitHub Actions の実行サマリーに表示する
-- 同じリポジトリのブランチから作った PR には、合計・関数別カバレッジ、計測したコミット、実行ログと artifact へのリンクをコメントする。初回だけ作成し、Coverage ジョブの再実行時は同じコメントを更新する。テストやレポート生成に失敗したときも、以前の数値を残さず失敗表示へ更新する。取り消された実行、現在の PR と異なるコミットの実行、すでにコメントした実行より古い実行は更新しない
+- 同じリポジトリのブランチから作った PR には、合計・ファイル別カバレッジ、計測したコミット、実行ログと artifact へのリンクをコメントする。初回だけ作成し、Coverage ジョブの再実行時は同じコメントを更新する。テストやレポート生成に失敗したときも、以前の数値を残さず失敗表示へ更新する。取り消された実行、現在の PR と異なるコミットの実行、すでにコメントした実行より古い実行は更新しない
 - コメント投稿用の `pull-requests: write` 権限は Coverage ジョブだけに付与する。push、外部フォークの PR、トークンが読み取り専用になる Dependabot の実行ではコメントせず、従来どおり実行サマリーと artifact を出力する
-- Coverage ジョブのテスト成功時に `coverage-report` artifact を 14 日間保存する。`coverage.html` はブラウザでソース行ごとの実行状況を確認でき、`coverage.txt` は関数別一覧、`coverage.out` は Go 標準の計測データ。再実行時は同名の artifact を上書きする
-- ローカルで同じコマンドを実行するときも、先に `mkdir -p coverage` を行う。`go tool cover -func=coverage/coverage.out` で関数別一覧を、`go tool cover -html=coverage/coverage.out -o coverage/coverage.html` で HTML を生成できる。生成先の `coverage/` は Git の管理対象から外す
-- 実行環境は Ubuntu 24.04、`CGO_ENABLED=0`。Go のバージョンは `go.mod` から読み込む
-- レース検出は cgo が必要なため、Race ジョブだけ `CGO_ENABLED=1` にする。対象は全パッケージ。WSL には gcc が無いため、ローカルでは実行しない
-- Go のインストールとキャッシュの復元は `.github/actions/setup-go` にまとめ、各ジョブから呼ぶ。キャッシュ（モジュールとビルド結果）はジョブごとに分け、`go.mod` と `go.sum` が変わるまで再利用する
+- Coverage ジョブのテスト成功時に `coverage-report` artifact を 14 日間保存する。`index.html` はブラウザでソース行ごとの実行状況を確認でき、`coverage-summary.json` はファイル別の集計、`coverage-final.json` は V8 の計測データ。再実行時は同名の artifact を上書きする
+- カバレッジの出力先と形式は `vitest.config.ts` に定義する。生成先の `coverage/` は Git の管理対象から外す
+- 実行環境は Ubuntu 24.04。Node のバージョンは `.nvmrc` から読み込む
+- Node のインストールと npm のキャッシュの復元は `.github/actions/setup-node` にまとめ、各ジョブから呼ぶ。キャッシュは `package-lock.json` が変わるまで再利用する。キャッシュは npm のダウンロード済みパッケージ用で `node_modules/` は共有しないため、Lint・Test・Coverage の各ジョブで `npm ci` を実行する
 - 各ジョブの制限時間は 15 分。同じ PR で新しい実行が始まったら、古い実行を取り消す。`develop`・`main` への push では実行中の CI を取り消さないが、同じブランチの待機中の実行は新しい push によって置き換わることがある
 - 性能測定は WSL で行い、ベンチマークは CI では実行しない
+- Go 実装にあったレース検出（Race ジョブ）に相当する仕組みは Node に無いため、TS 実装ではジョブを設けない。並行性の振る舞いはテストで検証する
 
 ### CodeQL
 
-- `develop`・`main` 向けの PR と両ブランチへの push 時に Go を解析する。手動実行にも対応する。毎週月曜 03:17 UTC（日本時間 12:17）には既定ブランチの `main` を解析する。定期・手動実行はワークフローが `main` に入ってから利用できる。public リポジトリでは 60 日間活動がないと定期実行が自動で無効になるため、止まっていたら Actions 画面で有効にし直す
+- `develop`・`main` 向けの PR と両ブランチへの push 時に JavaScript/TypeScript を解析する。手動実行にも対応する。毎週月曜 03:17 UTC（日本時間 12:17）には既定ブランチの `main` を解析する。定期・手動実行はワークフローが `main` に入ってから利用できる。public リポジトリでは 60 日間活動がないと定期実行が自動で無効になるため、止まっていたら Actions 画面で有効にし直す
 - Markdown ファイルだけを変える PR では実行しない（`paths-ignore`）。CodeQL を必須チェックにする場合は、この除外で PR がチェック待ちのまま止まらないか見直す
-- Ubuntu 24.04、`CGO_ENABLED=0` で、共通の Go セットアップを使う。CodeQL 初期化後に `build-mode: manual` で `go build ./...` を実行する。クエリは `security-extended` を使い、Go の本番コードを対象にする（テストコードは既定で解析対象外）
+- 言語は `javascript-typescript`、`build-mode: none` で解析する。ビルドの工程は無い。クエリは `security-extended` を使う。テストコード（`*.test.ts`・`*.bench.ts`）は CodeQL の設定ファイルの `paths-ignore` で解析対象から外す
 - 解析結果は GitHub code scanning にアップロードし、PR のチェックとリポジトリのセキュリティ画面で確認する。結果のアップロード用に `security-events: write` を CodeQL ジョブだけに付与し、リポジトリの内容は `contents: read` で読み取る。fork からの PR はトークンが読み取り専用になるため、解析だけ行い結果はアップロードしない
-- 制限時間は 20 分。同じ PR の古い実行は取り消し、push・定期・手動の実行中ジョブは取り消さない。Lint・Test・Coverage・Race との依存は設けない
+- 制限時間は 20 分。同じ PR の古い実行は取り消し、push・定期・手動の実行中ジョブは取り消さない。Lint・Test・Coverage との依存は設けない
 
 ## 依存関係の更新
 
-- `.github/dependabot.yml` で Go モジュール（`gomod`）と GitHub Actions（`github-actions`）を毎週月曜 09:00（`Asia/Tokyo`）に確認する。すべての設定に `target-branch: develop` を指定し、`develop` 上の依存情報を調べ、更新 PR のマージ先も `develop` に固定する
+- `.github/dependabot.yml` で npm パッケージ（`npm`）と GitHub Actions（`github-actions`）を毎週月曜 09:00（`Asia/Tokyo`）に確認する。すべての設定に `target-branch: develop` を指定し、`develop` 上の依存情報を調べ、更新 PR のマージ先も `develop` に固定する
 - 更新はエコシステムごとに 1 件の PR にまとめる（`groups`）
-- Go モジュールはルートの `go.mod`・`go.sum`、GitHub Actions は `.github/workflows/` と `.github/actions/setup-go/action.yml` を対象にする。共通アクション内の依存も更新できるよう、GitHub Actions の確認先に `/` と `/.github/actions/setup-go` を指定する
+- npm パッケージはルートの `package.json`・`package-lock.json`、GitHub Actions は `.github/workflows/` と `.github/actions/setup-node/action.yml` を対象にする。共通アクション内の依存も更新できるよう、GitHub Actions の確認先に `/` と `/.github/actions/setup-node` を指定する
+- Node のメジャーバージョン（`.nvmrc`）は Dependabot の対象外とし、手で更新する
 - Dependabot は既定ブランチの設定ファイルを読むため、定期更新はこの設定が `main` に入ってから有効になる。設定ファイルの配置先と、更新 PR のマージ先の `develop` は異なる
 - GitHub の自動セキュリティ更新 PR は `target-branch` に従わず既定ブランチの `main` 向けになるため、リポジトリ設定で無効にする。Dependabot alerts（脆弱性の通知）は有効のまま残す。[GitHub の target-branch 仕様](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch)を参照
 - 通知された脆弱性は、修正 PR を手で `develop` 向けに作るか、週次の更新 PR で直す。通知は `main` の依存関係から計算されるため、修正が `main` に入るまで通知は残り、`main` には脆弱な版が残る。急ぐ場合は、修正後すぐに `develop` を `main` へマージする
@@ -93,9 +117,9 @@ Test と Coverage はそれぞれ別にテストを実行し、キャッシュ�
 
 ## Web 画面と Windows からの接続
 
-- Go サーバーの起動後、Windows のブラウザーで `http://127.0.0.1:8080/` を開く。画面と API は同じサーバーが配信するため、フロントエンド用の起動コマンドや依存のインストールは不要
-- HTML・CSS・JavaScript は `internal/httpapi/web/` に置き、Go の実行ファイルに埋め込む。変更後は再ビルドしてサーバーを再起動する
-- WSL 2.4.11.0 のこの開発環境では、IPv6 の全アドレスで待ち受けると Windows 側に IPv6 のループバックだけが転送され、IPv4 の `127.0.0.1` が失敗した。サーバーは `tcp4` で待ち受け、この差を避ける。IPv6 の接続は対象外
+- Node サーバーの起動後、Windows のブラウザーで `http://127.0.0.1:8080/` を開く。画面と API は同じサーバーが配信するため、フロントエンド用の起動コマンドや依存のインストールは不要
+- HTML・CSS・JavaScript は `src/httpapi/web/` に置き、サーバーの起動時にメモリへ読み込む。変更後はサーバーを再起動する
+- WSL 2.4.11.0 のこの開発環境では、IPv6 の全アドレスで待ち受けると Windows 側に IPv6 のループバックだけが転送され、IPv4 の `127.0.0.1` が失敗した。サーバーは `0.0.0.0` で待ち受け、この差を避ける。IPv6 の接続は対象外
 - 接続確認は通常の Windows PowerShell またはブラウザーで行う。エージェントの実行サンドボックスからの失敗だけでは、Windows ホストから到達できないとは判断しない
 - 起動直後の転送待ちと、WSL 内・Windows 側の切り分け手順は [README](../README.md#接続できない場合) を参照
 
@@ -123,3 +147,37 @@ Test と Coverage はそれぞれ別にテストを実行し、キャッシュ�
 ### リモート
 
 - `origin`：https://github.com/mshi-04/auth-server（public）
+
+## Go 実装（移行完了まで）
+
+design.md 10 章の手順 7 で、この節ごと削除する。それまでは Go 実装を壊さないよう、Go 用の CI も通す。
+
+### 環境とコマンド
+
+- Go は WSL にだけ入っている。モジュールキャッシュは WSL 側（`~/go`）に置かれる。Windows からは `wsl -d Ubuntu-24.04 --exec bash -lc 'go test ./...'` の形で実行する
+
+| 目的 | コマンド |
+|---|---|
+| 整形確認 | `gofmt -l .`（出力が空なら整形済み。`gofmt -w .` で整形する） |
+| go.mod の整理確認 | `go mod tidy -diff` |
+| 静的検査 | `go vet ./...` |
+| テスト | `go test ./...` |
+| ベンチマーク | `go test -bench=. ./internal/password` |
+| 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db go run ./cmd/authd` |
+
+### CI・CodeQL・Dependabot
+
+- `.github/workflows/ci.yml` の Go 用のジョブは、TS 用のジョブと並べて次の 4 つを独立して実行する。design.md 10 章の手順 1 で TS 用のジョブを追加するとき、既存の Go 用のジョブは、`jobs` のキー（job ID）を `go-lint`・`go-test`・`go-coverage`・`go-race` に、表示名を `Go Lint` などに、artifact 名を `go-coverage-report` に変えて、TS 用の `lint`・`test`・`coverage` と区別する。job ID は 1 つのワークフロー内で一意でなければならないため、表示名だけでは区別できない
+
+| ジョブ | 内容 |
+|---|---|
+| Go Lint | `gofmt -l .` による整形確認（ファイルは書き換えない）、`go mod tidy -diff`、`go vet ./...` |
+| Go Test | `go test -count=1 ./...` |
+| Go Coverage | `go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage/coverage.out ./...` とカバレッジレポートの生成・保存 |
+| Go Race | `CGO_ENABLED=1 go test -count=1 -race ./...` |
+
+- 実行環境は Ubuntu 24.04、`CGO_ENABLED=0`。Go のバージョンは `go.mod` から読み込む。Race ジョブだけ `CGO_ENABLED=1` にする。WSL には gcc が無いため、Race はローカルでは実行しない
+- Go のインストールとキャッシュの復元は `.github/actions/setup-go` にまとめる。キャッシュ（モジュールとビルド結果）はジョブごとに分け、`go.mod` と `go.sum` が変わるまで再利用する
+- Go Coverage の PR コメントと artifact の扱いは TS の Coverage と同じ規則に従う。Go の artifact は `go-coverage-report` とし、`coverage.html`・`coverage.txt`（関数別一覧）・`coverage.out` を保存する
+- CodeQL は `go` も解析する。`build-mode: manual` で `go build ./...` を実行し、共通の Go セットアップを使う
+- Dependabot は `gomod` のルートの `go.mod`・`go.sum` と、`/.github/actions/setup-go` の GitHub Actions も確認する

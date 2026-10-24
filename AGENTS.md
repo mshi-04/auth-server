@@ -4,15 +4,15 @@ AI エージェントがこのリポジトリで作業するときの指示書�
 
 ## プロジェクト
 
-パスワード保存の仕組み（Argon2id、ソルト、PHC 形式、定数時間比較、再ハッシュ）を学ぶための、最小構成の認証 API。Go 製。
+パスワード保存の仕組み（Argon2id、ソルト、PHC 形式、定数時間比較、再ハッシュ）を学ぶための、最小構成の認証 API。TypeScript（Node.js 26）製。Go 製の実装から移行中で、移行の完了（design.md 10 章の手順 7）まで Go 実装も残る。
 
 ## 参照する文書
 
 | 文書 | 内容 |
 |---|---|
 | [docs/design.md](docs/design.md) | 仕様の正本。実装前に必ず読む |
-| [docs/architecture.md](docs/architecture.md) | パッケージ構成、責務、依存の向き、テスト方法の正本。実装前に必ず読む |
-| [docs/go-coding-guidelines.md](docs/go-coding-guidelines.md) | Go のコーディング方針。実装前に必ず読む。仕様と構成は design.md・architecture.md を優先する |
+| [docs/architecture.md](docs/architecture.md) | モジュール構成、責務、依存の向き、テスト方法の正本。実装前に必ず読む |
+| [docs/typescript-coding-guidelines.md](docs/typescript-coding-guidelines.md) | TypeScript のコーディング方針。実装前に必ず読む。仕様と構成は design.md・architecture.md を優先する |
 | [docs/tech-stack.md](docs/tech-stack.md) | 採用技術と、使わない技術 |
 | [docs/development.md](docs/development.md) | 開発環境（WSL）、コマンド、Git の運用 |
 
@@ -26,13 +26,16 @@ AI エージェントがこのリポジトリで作業するときの指示書�
 
 ## 実行環境の注意
 
-- Go は WSL にだけ入っている。Windows から Go のコマンドを実行するときは `wsl -d Ubuntu-24.04 --exec bash -lc '...'` を使う（詳細は development.md）
+- このプロジェクトの Node と Go は WSL の中のものを使う。Windows 側にもほかの用途の Node と npm が入っており、WSL の `PATH` からも見えるが、このプロジェクトでは使わない
+- Windows から Node・npm・Go のコマンドを実行するときは `wsl -d Ubuntu-24.04 --exec bash -lc '...'` を使う（詳細は development.md）
+- Node・npm のコマンドは、その中で先に `. "$HOME/.nvm/nvm.sh" && nvm use --silent` を実行する。読み込まないと Windows 側の `npm` が選ばれる。`.nvmrc` が無い間は `nvm use --silent 26` とする。nvm が入っていない場合、または Node 26 が未インストールで `nvm use` が失敗する場合は、development.md の「nvm と Node の初回の準備」を利用者に依頼する
+- npm は WSL からだけ実行する。Windows 側の Node や npm で `node_modules/` を作り直さない
 - SQLite の DB ファイルは `/mnt/c` 配下に置かない
 
 ## 禁止事項
 
-- 暗号処理を自前で実装しない。Argon2id は `golang.org/x/crypto/argon2` を使う
-- 乱数は `crypto/rand` だけを使う。`math/rand` は使わない
+- 暗号処理を自前で実装しない。Argon2id は Node 標準の `node:crypto` の `argon2` を使う
+- 乱数は `node:crypto` の `randomBytes`・`randomUUID` だけを使う。`Math.random` は使わない
 - パスワード、ハッシュ、リクエストボディをログに出さない
 - テストを通すために、テストや仕様の側を書き換えない
 - tech-stack.md の「使わないもの」にある技術を、相談なしに導入しない
