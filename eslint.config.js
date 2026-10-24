@@ -46,6 +46,10 @@ const forbiddenAssertions = {
   selector: "TSAsExpression, TSTypeAssertion",
   message: "Do not use type assertions, including const assertions.",
 };
+const forbiddenDecorators = {
+  selector: "Decorator",
+  message: "Node type stripping does not support decorators.",
+};
 const forbiddenNamedImports = [
   {
     source: "node:crypto",
@@ -78,7 +82,11 @@ const forbiddenNamedImports = [
     message,
   };
 });
-const forbiddenSyntax = [forbiddenAssertions, ...forbiddenNamedImports];
+const forbiddenSyntax = [
+  forbiddenAssertions,
+  forbiddenDecorators,
+  ...forbiddenNamedImports,
+];
 const forbiddenProperties = [
   {
     object: "Math",
@@ -194,6 +202,7 @@ export default defineConfig(
         { assertionStyle: "never" },
       ],
       "@typescript-eslint/consistent-type-imports": "error",
+      "@typescript-eslint/switch-exhaustiveness-check": "error",
       "no-restricted-syntax": ["error", ...forbiddenSyntax],
       "no-restricted-properties": ["error", ...forbiddenProperties],
     },

@@ -84,3 +84,32 @@ describe.each(declarationForms)(
     });
   },
 );
+
+describe("forbidden syntax", () => {
+  it.each(["src/auth/service.ts", "src/auth/service.test.ts"])(
+    "rejects decorators in %s",
+    (filename) => {
+      const source = [
+        "export function sealed(value: unknown): unknown {",
+        "  return value;",
+        "}",
+        "@sealed",
+        "export class Service {",
+        "  run(): number {",
+        "    return 1;",
+        "  }",
+        "}",
+      ].join("\n");
+
+      const messages = linter.verify(source, lintConfig, { filename });
+
+      expect(messages.filter((message) => message.fatal)).toEqual([]);
+      expect(messages).toEqual([
+        expect.objectContaining({
+          ruleId: "no-restricted-syntax",
+          message: "Node type stripping does not support decorators.",
+        }),
+      ]);
+    },
+  );
+});

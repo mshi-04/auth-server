@@ -11,19 +11,26 @@
 - モジュールは層の名前（`domain`、`usecase` など）ではなく、architecture.md の責務ごとに分ける
 - インターフェースは使う側のモジュールで定義し、使うメソッドだけに絞る。実装が 1 つしかないクラスを、理由なくインターフェースにしない
 - 「インターフェースを受け取り、具体的なクラスを返す」を基本にする
+- テストで偽物に差し替える依存（`UserStore`）だけをインターフェースにする。`#` フィールドを持つクラスには同じ形の偽物を代入できないため、`Hasher` などはテストでも本物を小さいパラメータで使う
+- 状態や依存を持つものはクラスにし、生成経路を static メソッド（`create`、`open`、`parse`）に限る。状態を持たない処理は関数にする
 - ユースケースごとの入出力ポート、DTO、Presenter は作らない。`httpapi` のハンドラ内での変換で済ませる
 
 ## 型
 
-- `tsconfig.json` の `strict` を有効にし、`any` と型アサーション（`as`）を使わない。外から来た値は `unknown` で受け取り、検査して型を絞る。ESLint の `no-explicit-any`・`no-unsafe-*`・`consistent-type-assertions`（`assertionStyle: 'never'`）で検査する
-- Node の型除去が扱えない構文（`enum`、実行時コードを持つ `namespace`、パラメータプロパティ、デコレーター）を使わない。列挙は文字列リテラルの union 型で表す
-- 型だけの import には `import type`（または `import { type X }`）を使う。import には `.ts` の拡張子を書く
-- `null` と `undefined` を混ぜない。値が無いことは `undefined` で表し、省略可能な項目は `?` で表す
+- `tsconfig.json` の `strict`・`noUncheckedIndexedAccess`・`exactOptionalPropertyTypes` を有効にする
+- `any`、型アサーション（`as`。`as const` も含む）、非 null アサーション（`!`）を使わない。外から来た値は `unknown` で受け取り、検査して型を絞る。型を合わせたいときは、型注釈か `satisfies` を使う。ESLint の `no-explicit-any`・`no-unsafe-*`・`consistent-type-assertions`（`assertionStyle: 'never'`）・`no-non-null-assertion`・`no-restricted-syntax` で検査する
+- 添字アクセス（`parts[3]`、`record[key]`）の結果は `undefined` を含む。分割した文字列の要素数などは、使う前に検査して弾く
+- Node の型除去が扱えない構文（`enum`、実行時コードを持つ `namespace`、パラメータプロパティ、デコレーター）を使わない。デコレーターは ESLint の `no-restricted-syntax`、それ以外は `erasableSyntaxOnly` で検査する
+- 列挙は文字列リテラルの union 型で表す。union 型を `switch` で分岐するときはすべての値を `case` で扱う。ESLint の `switch-exhaustiveness-check` で検査する
+- import の書き方（`index.ts` 経由、`.ts` の拡張子、`import type`）は architecture.md の「ディレクトリ」に従う
+- `null` と `undefined` を混ぜない。値が無いことは `undefined` で表し、省略可能な項目は `?` で表す。`?` の項目に `undefined` を代入せず、項目ごと省く
+- `null` を返す外部の値（`node:sqlite` が返す SQL の NULL、`JSON.parse` が返す JSON の null）は、境界のモジュール（`store/sqlite`、`httpapi`）で検査して弾くか `undefined` に変換し、内側へ `null` を渡さない
 
 ## 関数の書き方
 
 - 不正な入力とエラーは早期リターン（`return`・`throw`）で先に弾き、正常系を左端にまっすぐ書く。`return` や `throw` の後に `else` を書かない
 - 非同期処理は `async`・`await` で書く。`then` の連鎖やコールバックは、Node の API が要求する場合（`crypto.argon2`）を `Promise` に包む箇所だけにする
+- 契約として `Promise` を返すが中身が同期の処理（`SqliteStore` のメソッド）は、`async` を付けずに書く。`await` の無い `async` 関数は `require-await` に指摘される。同期の処理を `try` で囲み、成功は `Promise.resolve`、失敗は変換したエラーを `Promise.reject` で返す。呼び出し元へ同期的に例外を投げない
 - 後始末は `try`・`finally` で書く。トランザクションは `BEGIN IMMEDIATE` の成功を確かめた後に `try` を始め、`COMMIT` まで進まなければ `ROLLBACK` する
 - 中断の `signal: AbortSignal` は最後の引数で受け取り、下の層（DB 呼び出し、`hash`、`verify`）までそのまま渡す。クラスのフィールドに保存しない
 - 待たない `Promise` を作らない。作った `Promise` は必ず `await` するか、失敗を処理する。条件式に `Promise` を渡さない（`if (hasher.verify(...))` は常に真になる）。ESLint の `no-floating-promises`・`no-misused-promises` で検査する
@@ -54,7 +61,7 @@
 
 - 依存は static の生成メソッドや関数の引数で渡し、`main.ts` で組み立てる
 - DB 接続やロガーなどの依存をモジュールのトップレベルの変数に置かない。テストの差し込み口が必要なときだけ例外とし、最小限にとどめる
-- `password` の Argon2id の計算を差し替える口は、計算中のセマフォの枠保持を決定的に検証するための、テスト用の最小限の例外とする。差し替えるテストは並列実行せず、終了時に必ず元へ戻す
+- `password` の Argon2id の計算を差し替える口は、計算中のセマフォの枠保持を決定的に検証するための、テスト用の最小限の例外とする。差し替えるテストは、同じファイル内で並行実行（`it.concurrent`・`describe.concurrent`）せず、終了時に必ず元へ戻す。Vitest の既定の設定（`isolate: true`）ではテストファイルごとにモジュールが分かれるため、ファイルをまたいだ影響は考えなくてよい
 
 ## 並行処理
 
@@ -69,7 +76,7 @@
 - モジュールのディレクトリ名を文脈として使う（`password` の `Hasher`。`PasswordHasher` にしない）
 - ゲッターに `get` を付けない
 - スコープが短い変数は短い名前、広い変数は説明的な名前にする
-- コメントで説明したくなったら、まず名前、型、早期リターン、関数の分割で表現できないかを考える。コメントの規約は [CLAUDE.md](../CLAUDE.md) に従う
+- コメントで説明したくなったら、まず名前、型、早期リターン、関数の分割で表現できないかを考える。コメントの規約は [AGENTS.md](../AGENTS.md) に従う
 
 ## テスト
 
@@ -82,7 +89,7 @@
 ## 検査と整形
 
 - 書式は Prettier に任せ、手で揃えない。整形だけの変更を、ほかの変更と同じコミットに混ぜない
-- ESLint は typescript-eslint の `strictTypeChecked` を基本にし、このプロジェクトの禁止事項（`Math.random` と、`randomBytes`・`randomUUID` 以外の乱数 API、`node:crypto` の `argon2Sync`、architecture.md の依存の向きに反する import、それを回避する動的 import と `createRequire`）も規則で禁止する。`src` 直下のファイルも、main.ts と errors.ts 以外はプロジェクト内のどのモジュールにも依存できない
+- ESLint は typescript-eslint の `strictTypeChecked` を基本にする。AGENTS.md の禁止事項（乱数 API の制限など）、イベントループを止める `argon2Sync`、architecture.md の依存の向きに反する import、それを回避する動的 import と `createRequire` も規則で禁止する。`src` 直下のファイルも、main.ts と errors.ts 以外はプロジェクト内のどのモジュールにも依存できない。禁止する名前やパターンの一覧は `eslint.config.js` を正本とし、この文書には書き写さない
 - ESLint の指摘は抑制コメントで消さず、コードを直す。どうしても抑制する場合は、`eslint-disable-next-line` で規則名を明示し、理由を同じ行に書く
 
 ## 作りすぎない
