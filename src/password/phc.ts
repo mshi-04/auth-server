@@ -4,9 +4,13 @@ import type { Cost } from "./params.ts";
 
 export type DecodedHash = { cost: Cost; salt: Buffer; key: Buffer };
 
+export function encodeBase64(bytes: Buffer): string {
+  return bytes.toString("base64").replace(/=+$/, "");
+}
+
 export function encodeHash(decoded: DecodedHash): string {
   const { cost, salt, key } = decoded;
-  return `$argon2id$v=19$m=${cost.memoryKiB.toString()},t=${cost.iterations.toString()},p=${cost.parallelism.toString()}$${salt.toString("base64").replace(/=+$/, "")}$${key.toString("base64").replace(/=+$/, "")}`;
+  return `$argon2id$v=19$m=${cost.memoryKiB.toString()},t=${cost.iterations.toString()},p=${cost.parallelism.toString()}$${encodeBase64(salt)}$${encodeBase64(key)}`;
 }
 
 function decodePart(encoded: string, minimum: number, maximum: number): Buffer {
@@ -20,7 +24,7 @@ function decodePart(encoded: string, minimum: number, maximum: number): Buffer {
   const decoded = Buffer.from(encoded, "base64");
   if (
     !inRange(decoded.length, minimum, maximum) ||
-    decoded.toString("base64").replace(/=+$/, "") !== encoded
+    encodeBase64(decoded) !== encoded
   ) {
     throw new InvalidHashError();
   }
@@ -39,7 +43,7 @@ function parseCost(encoded: string): Cost {
       name === undefined ||
       !["m", "t", "p"].includes(name) ||
       raw === undefined ||
-      raw.match(/^(0|[1-9][0-9]*)$/)?.[0] !== raw ||
+      !/^(0|[1-9][0-9]*)$/.test(raw) ||
       extra !== undefined ||
       values.has(name)
     ) {

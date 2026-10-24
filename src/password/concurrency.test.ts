@@ -8,6 +8,7 @@ import {
   Hasher,
   Password,
 } from "./index.ts";
+import { encodeBase64 } from "./phc.ts";
 
 const password = Password.parse("correct horse battery staple");
 const signal = new AbortController().signal;
@@ -19,7 +20,7 @@ const params = {
   maxConcurrent: 1,
 };
 const fixture = EncodedHash.parse(
-  `$argon2id$v=19$m=64,t=1,p=1$${Buffer.alloc(16).toString("base64").replace(/=+$/, "")}$${Buffer.alloc(32).toString("base64").replace(/=+$/, "")}`,
+  `$argon2id$v=19$m=64,t=1,p=1$${encodeBase64(Buffer.alloc(16))}$${encodeBase64(Buffer.alloc(32))}`,
 );
 type Pending = {
   parameters: Argon2Parameters;
@@ -52,9 +53,14 @@ function take(pending: Pending[]): Pending {
   return item;
 }
 
-async function flush(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+async function waitForPending(
+  pending: Pending[],
+  count: number,
+): Promise<void> {
+  for (let turn = 0; turn < 100 && pending.length < count; turn++) {
+    await Promise.resolve();
+  }
+  expect(pending).toHaveLength(count);
 }
 
 describe("hasher slot ownership", () => {
@@ -80,8 +86,7 @@ describe("hasher slot ownership", () => {
       const hasher = Hasher.create(params);
       const controller = new AbortController();
       const running = operation(hasher, controller.signal);
-      await flush();
-      expect(pending).toHaveLength(1);
+      await waitForPending(pending, 1);
       controller.abort();
       const blocked = hasher
         .hash(password, signal)
@@ -93,7 +98,7 @@ describe("hasher slot ownership", () => {
       task.resolve(Buffer.alloc(task.parameters.tagLength));
       await running;
       const next = hasher.hash(password, signal);
-      await flush();
+      await waitForPending(pending, 1);
       const following = take(pending);
       following.resolve(Buffer.alloc(following.parameters.tagLength));
       await next;
@@ -124,7 +129,7 @@ describe("hasher slot ownership", () => {
     await expect(running).rejects.toBeInstanceOf(BusyError);
     expect(pending).toHaveLength(0);
     const next = hasher.hash(password, signal);
-    await flush();
+    await waitForPending(pending, 1);
     const task = take(pending);
     task.resolve(Buffer.alloc(task.parameters.tagLength));
     await next;
@@ -140,10 +145,10 @@ describe("hasher slot ownership", () => {
         (error: unknown) => error,
       );
       const following = hasher.hash(password, signal);
-      await flush();
+      await waitForPending(pending, 1);
       take(pending).reject(failure);
       expect(await running).toBe(failure);
-      await flush();
+      await waitForPending(pending, 1);
       const next = take(pending);
       next.resolve(Buffer.alloc(next.parameters.tagLength));
       await following;

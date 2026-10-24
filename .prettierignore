@@ -4,6 +4,7 @@
 .codex/
 .github/**/*.yml
 .github/**/*.yaml
+bench-results/
 coverage/
 internal/
 src/httpapi/web/

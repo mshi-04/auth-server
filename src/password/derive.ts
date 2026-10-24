@@ -21,7 +21,6 @@ export function deriveKey(parameters: Argon2Parameters): Promise<Buffer> {
   return derive(parameters);
 }
 
-// Tests hold a derivation pending to verify slot ownership independently of CPU speed.
 export function replaceDerivationForTesting(
   replacement: DeriveKey,
 ): () => void {

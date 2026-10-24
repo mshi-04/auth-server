@@ -2,5 +2,6 @@
 *.db-wal
 *.db-shm
 *.db-journal
+/bench-results/
 /coverage/
 /node_modules/

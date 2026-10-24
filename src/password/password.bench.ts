@@ -9,7 +9,8 @@ const password = Password.parse("correct horse battery staple");
 const signal = new AbortController().signal;
 const hasher = Hasher.create(defaultParams());
 const run = process.env.AUTH_PASSWORD_BENCH_RUN ?? "latest";
-const directory = "coverage/password-bench";
+const directory = "bench-results/password";
+const resolutionMs = 10;
 const options = { iterations: 5, warmupIterations: 1, time: 0, warmupTime: 0 };
 
 it("hash", { timeout: 120000 }, async ({ bench }) => {
@@ -37,7 +38,7 @@ it("hash saturated", { timeout: 120000 }, async ({ bench }) => {
 });
 
 it("event loop delay under saturation", { timeout: 120000 }, async () => {
-  const histogram = monitorEventLoopDelay({ resolution: 10 });
+  const histogram = monitorEventLoopDelay({ resolution: resolutionMs });
   histogram.enable();
   try {
     await setTimeout(20);
@@ -50,8 +51,8 @@ it("event loop delay under saturation", { timeout: 120000 }, async () => {
     );
     const elapsedMs = performance.now() - start;
     await setImmediate();
-    histogram.disable();
-    const maximumDelayMs = histogram.max / 1e6;
+    const maximumDelayMs = histogram.max / 1e6 - resolutionMs;
+    const meanDelayMs = histogram.mean / 1e6 - resolutionMs;
     await mkdir(directory, { recursive: true });
     await writeFile(
       `${directory}/${run}-event-loop.json`,
@@ -65,7 +66,7 @@ it("event loop delay under saturation", { timeout: 120000 }, async () => {
           params: defaultParams(),
           elapsedMs,
           maximumDelayMs,
-          meanDelayMs: histogram.mean / 1e6,
+          meanDelayMs,
         },
         undefined,
         2,

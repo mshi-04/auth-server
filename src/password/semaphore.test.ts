@@ -4,6 +4,7 @@ import { Semaphore } from "./semaphore.ts";
 
 const freeSignal = new AbortController().signal;
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -96,7 +97,6 @@ describe("semaphore waiting", () => {
     vi.spyOn(performance, "now").mockReturnValue(2);
     release();
     expect(await failure).toBeInstanceOf(BusyError);
-    vi.restoreAllMocks();
     (await semaphore.acquire(freeSignal))();
     expect(vi.getTimerCount()).toBe(0);
   });

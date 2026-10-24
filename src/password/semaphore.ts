@@ -2,6 +2,10 @@ import { BusyError } from "./errors.ts";
 
 type Waiter = { grant: () => boolean };
 
+export function abortedError(signal: AbortSignal): BusyError {
+  return new BusyError(undefined, { cause: signal.reason });
+}
+
 export class Semaphore {
   #active = 0;
   #limit: number;
@@ -19,7 +23,7 @@ export class Semaphore {
 
   acquire(signal: AbortSignal): Promise<() => void> {
     if (signal.aborted) {
-      return Promise.reject(new BusyError(undefined, { cause: signal.reason }));
+      return Promise.reject(abortedError(signal));
     }
     if (this.#active < this.#limit) {
       this.#active++;
@@ -35,7 +39,7 @@ export class Semaphore {
       };
       const abort = () => {
         cleanup();
-        reject(new BusyError(undefined, { cause: signal.reason }));
+        reject(abortedError(signal));
       };
       const timeout = () => {
         cleanup();

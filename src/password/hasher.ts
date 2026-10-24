@@ -1,18 +1,17 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { inspect } from "node:util";
 import { deriveKey } from "./derive.ts";
-import { BusyError, PolicyViolationError } from "./errors.ts";
+import { PolicyViolationError } from "./errors.ts";
 import { validateParams } from "./params.ts";
-import type { Params } from "./params.ts";
+import type { Cost, Params } from "./params.ts";
 import { encodeHash, parseHash } from "./phc.ts";
 import type { DecodedHash } from "./phc.ts";
-import { Semaphore } from "./semaphore.ts";
+import { abortedError, Semaphore } from "./semaphore.ts";
 
 type PasswordSecret = { value: string; length: number };
 type HashSecret = { encoded: string; decoded: DecodedHash };
 const redacted = "[REDACTED]";
 
-// Class static blocks share private fields within this module without public secret getters.
 let readPassword: (password: Password) => PasswordSecret;
 let readHash: (encoded: EncodedHash) => HashSecret;
 let createHash: (encoded: string, decoded: DecodedHash) => EncodedHash;
@@ -33,13 +32,13 @@ export class Password {
       throw new PolicyViolationError();
     }
     const value = raw.normalize("NFKC");
+    const codePoints = value[Symbol.iterator]();
     let length = 0;
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Count iterator elements rather than UTF-16 code units.
-    for (const codePoint of value) {
+    while (!codePoints.next().done) {
       length++;
-    }
-    if (length > 128) {
-      throw new PolicyViolationError();
+      if (length > 128) {
+        throw new PolicyViolationError();
+      }
     }
     return new Password({ value, length });
   }
@@ -95,13 +94,14 @@ export class Hasher {
   #slots: Semaphore;
 
   private constructor(params: Params) {
-    this.#params = { ...params };
+    this.#params = params;
     this.#slots = Semaphore.create(params.maxConcurrent, params.waitTimeoutMs);
   }
 
   static create(params: Params): Hasher {
-    validateParams(params);
-    return new Hasher(params);
+    const copy = { ...params };
+    validateParams(copy);
+    return new Hasher(copy);
   }
 
   async hash(password: Password, signal: AbortSignal): Promise<EncodedHash> {
@@ -120,22 +120,11 @@ export class Hasher {
     encoded: EncodedHash,
     signal: AbortSignal,
   ): Promise<boolean> {
-    const release = await this.#slots.acquire(signal);
-    try {
-      checkSignal(signal);
-      const { decoded } = readHash(encoded);
-      const key = await deriveKey({
-        message: readPassword(password).value,
-        nonce: decoded.salt,
-        memory: decoded.cost.memoryKiB,
-        passes: decoded.cost.iterations,
-        parallelism: decoded.cost.parallelism,
-        tagLength: decoded.key.length,
-      });
-      return timingSafeEqual(key, decoded.key);
-    } finally {
-      release();
-    }
+    const { decoded } = readHash(encoded);
+    const key = await this.#withSlot(signal, () =>
+      derive(password, decoded.cost, decoded.salt, decoded.key.length),
+    );
+    return timingSafeEqual(key, decoded.key);
   }
 
   needsRehash(encoded: EncodedHash): boolean {
@@ -150,37 +139,43 @@ export class Hasher {
     );
   }
 
-  async #generate(
-    password: Password,
-    signal: AbortSignal,
-  ): Promise<EncodedHash> {
-    const release = await this.#slots.acquire(signal);
-    try {
-      checkSignal(signal);
-      const salt = randomBytes(this.#params.saltLength);
-      const cost = {
-        memoryKiB: this.#params.memoryKiB,
-        iterations: this.#params.iterations,
-        parallelism: this.#params.parallelism,
-      };
-      const key = await deriveKey({
-        message: readPassword(password).value,
-        nonce: salt,
-        memory: cost.memoryKiB,
-        passes: cost.iterations,
-        parallelism: cost.parallelism,
-        tagLength: this.#params.keyLength,
-      });
+  #generate(password: Password, signal: AbortSignal): Promise<EncodedHash> {
+    return this.#withSlot(signal, async () => {
+      const { memoryKiB, iterations, parallelism, saltLength, keyLength } =
+        this.#params;
+      const cost = { memoryKiB, iterations, parallelism };
+      const salt = randomBytes(saltLength);
+      const key = await derive(password, cost, salt, keyLength);
       const decoded = { cost, salt, key };
       return createHash(encodeHash(decoded), decoded);
+    });
+  }
+
+  async #withSlot<T>(signal: AbortSignal, run: () => Promise<T>): Promise<T> {
+    const release = await this.#slots.acquire(signal);
+    try {
+      if (signal.aborted) {
+        throw abortedError(signal);
+      }
+      return await run();
     } finally {
       release();
     }
   }
 }
 
-function checkSignal(signal: AbortSignal): void {
-  if (signal.aborted) {
-    throw new BusyError(undefined, { cause: signal.reason });
-  }
+function derive(
+  password: Password,
+  cost: Cost,
+  salt: Buffer,
+  tagLength: number,
+): Promise<Buffer> {
+  return deriveKey({
+    message: readPassword(password).value,
+    nonce: salt,
+    memory: cost.memoryKiB,
+    passes: cost.iterations,
+    parallelism: cost.parallelism,
+    tagLength,
+  });
 }

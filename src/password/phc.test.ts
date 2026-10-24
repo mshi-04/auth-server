@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { EncodedHash, InvalidHashError } from "./index.ts";
+import { encodeBase64 } from "./phc.ts";
 
-const salt = Buffer.alloc(16).toString("base64").replace(/=+$/, "");
-const key = Buffer.alloc(32).toString("base64").replace(/=+$/, "");
+const salt = encodeBase64(Buffer.alloc(16));
+const key = encodeBase64(Buffer.alloc(32));
 function phc(cost = "m=64,t=1,p=1", nonce = salt, tag = key): string {
   return `$argon2id$v=19$${cost}$${nonce}$${tag}`;
 }
@@ -28,8 +29,8 @@ describe("PHC parsing", () => {
     (cost, saltLength, keyLength) => {
       const encoded = phc(
         cost,
-        Buffer.alloc(saltLength).toString("base64").replace(/=+$/, ""),
-        Buffer.alloc(keyLength).toString("base64").replace(/=+$/, ""),
+        encodeBase64(Buffer.alloc(saltLength)),
+        encodeBase64(Buffer.alloc(keyLength)),
       );
       expect(EncodedHash.parse(encoded).phc()).toBe(encoded);
     },
@@ -99,7 +100,7 @@ describe("PHC parsing", () => {
       "A".repeat(9),
       "A".repeat(42) + "B",
     ].map((tag) => phc(undefined, undefined, tag)),
-  ])("rejects malformed PHC #%#", (encoded) => {
+  ])("rejects malformed PHC %j", (encoded) => {
     expect(() => EncodedHash.parse(encoded)).toThrow(InvalidHashError);
     try {
       EncodedHash.parse(encoded);
