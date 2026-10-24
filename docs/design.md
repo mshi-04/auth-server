@@ -1,4 +1,4 @@
-# 認証基盤バックエンド 設計書（学習用 v0.24）
+# 認証基盤バックエンド 設計書（学習用 v0.25）
 
 ## 1. 目的
 
@@ -492,6 +492,19 @@ Go 実装を動かしたまま、TS 実装を `src/` に段階的に作り、仕
 7. Go 実装を削除する。対象は `cmd/`、`internal/`（`internal/httpapi/web/` を含む）、`go.mod`、`go.sum`、`.github/actions/setup-go/`、`ci.yml` の Go 用のジョブ、`codeql.yml` の `go` の解析、`dependabot.yml` の `gomod` と `/.github/actions/setup-go` の確認先、development.md の「Go 実装（移行完了まで）」の節、tech-stack.md の「Go 実装で使っていたもの」の節
 8. 9 章の完了条件のうち、移行のブランチで確かめられるものをすべて確認する。Dependabot の npm の最初の更新 PR だけは、設定が `main` に入った後の週次実行で確認する
 
+コードを変える手順（1〜4、6、7）は、手順ごとに `develop` から feature ブランチを作り、`develop` へ PR を出す。前の手順の PR が `develop` にマージされてから、次の手順のブランチを作る。複数の手順を 1 つのブランチにまとめない。
+
+| 手順 | ブランチ |
+|---|---|
+| 1 | `feature/ts-foundation` |
+| 2 | `feature/ts-password` |
+| 3 | `feature/ts-store` |
+| 4 | `feature/ts-auth-api` |
+| 6 | `feature/ts-readme` |
+| 7 | `feature/remove-go` |
+
+確認だけの手順 5 と 8 にはブランチを作らない。確認で直す点が見つかったら、その修正のための feature ブランチを `develop` から作る。
+
 手順 1 の後は、各段階で TS 用の CI と CodeQL も通ってから次へ進む。Go 用の CI は手順 7 まで残し、Go 実装を壊さない。手順 4 から 7 までの間は、Web 画面の 3 ファイルが 2 か所にある。2 か所の内容は一致させ（`diff -r internal/httpapi/web src/httpapi/web` が差分なしで終わる）、この間に画面を変える場合は両方に同じ変更を入れる。`src/httpapi/web/` は Prettier・ESLint・カバレッジの対象から外す（development.md）。
 
 各段階でテストが通ってから次へ進む。不明点や本書と矛盾する点があれば、推測で進めず質問する。
@@ -523,6 +536,7 @@ Go 実装を動かしたまま、TS 実装を `src/` に段階的に作り、仕
 
 ## 変更履歴
 
+- v0.25：移行の作業手順のうちコードを変える手順（1〜4、6、7）は、手順ごとに `develop` から feature ブランチを作り、前の手順のマージ後に次のブランチを作ることを明記し、ブランチ名を定めた
 - v0.24：PR #14 のレビューを反映。セマフォ・DB の待機タイムアウトによる 503 と、クライアント切断・応答期限超過による応答なしの扱いを分け、要求の中断時は成功応答や再ハッシュ失敗時の 200 より優先することを明記。Argon2id 以外の非同期スレッドプール処理を要求時に採用する場合だけ、飽和時の待ち時間も測定する
 - v0.23：バックエンドを Go から TypeScript（Node.js 26 系の 26.11.0 以上）へ移行する方針に改訂。Argon2id・SQLite・UUID・正規化を Node 標準の API に置き換え、外部の実行時依存をなくした。値オブジェクトの伏字を private フィールドと `util.inspect.custom` で行い、Go のゼロ値に関する契約を削除。`ctx` を `AbortSignal` に、エラーを `cause` 付きのクラスに置き換えた。保存済み PHC のソルトの下限を 8 バイトに変更。「不正な UTF-8」の拒否をペアになっていないサロゲートの拒否に置き換えた。JSON の項目名を大文字小文字を区別する照合に変更。メールアドレスの受理形式を dot-atom として明記し、ドメインリテラルを拒否する。SQLite を 1 接続の同期 API とし、イベントループが止まる制限を追記。SQLite のエラーは `code` と数値の `errcode` がそろう場合だけ判定し、それ以外は予期しないエラーとする。Argon2id の飽和時にイベントループの遅延も測る。サーバータイムアウトを Node の設定に対応させ、Node が自動で返す 400・408 を既知の制限に追記。テストを Vitest に変更。静的検査に ESLint（typescript-eslint）、整形に Prettier を採用。Go 実装の性能測定の結果は記録として残し、TS 実装で再測定する。移行の作業手順を追加。Node は WSL に nvm で入れ、Windows 側の Node は使わない。対象外の Node での `npm ci` を `.npmrc` の `engine-strict=true` で失敗させる。作業手順では、Web 画面のファイルを httpapi の段階（手順 4）で移動せずにコピーし、移行中は Go 実装と内容を一致させる。土台の段階（手順 1）で `src/errors.ts` とそのテストを作り、CI の対象を空にしない。Go 実装の削除対象を列挙し、完了条件の確認を Go 実装の削除後の手順 8 に置く
 - v0.22：同じ Go サーバーから配信する最小の Web 画面を追加。静的ファイルの配信、入力と結果の表示、パスワードの扱いを確定。WSL から Windows の IPv4 への転送のため IPv4 の待ち受けを明示。Android の接続案内を Windows のブラウザーからの利用・実接続確認へ置き換え。コードレビューを反映し、すべての応答への no-store・nosniff、メール欄の `type="text"`、待ち受け範囲と別サイトからの要求を既知の制限に追記

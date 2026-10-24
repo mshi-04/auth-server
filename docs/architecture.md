@@ -56,11 +56,12 @@ auth-server/
 | `password` | Password・EncodedHash の解析と契約、Argon2id、PHC 形式、パスワードポリシー、セマフォ | `errors.ts` |
 | `store/sqlite` | 接続の所有（`open`・`close`）、`UserStore` の実装、`init.sql` の実行、SQLite のエラーから `auth` のエラーへの変換 | `auth`、`errors.ts` |
 
-- 「依存してよい先」の表はプロジェクト内のモジュールへの依存を示す。Node の標準モジュール（`node:*`）は、どのモジュールから使ってもよい。ただし `node:http` は `httpapi` と `main.ts` だけ、`node:sqlite` は `store/sqlite` だけが使う。「Node 標準のみ」は、プロジェクト内のどのモジュールにも依存しないことを表す
+- 「依存してよい先」の表はプロジェクト内のモジュールへの依存を示す。Node の標準モジュール（`node:*`）は、どのモジュールから使ってもよい。ただし HTTP のモジュール（`node:http`・`node:https`・`node:http2`）は `httpapi` と `main.ts` だけ、`node:sqlite` は `store/sqlite` だけが使う。「Node 標準のみ」は、プロジェクト内のどのモジュールにも依存しないことを表す
 - 依存は表の向きだけにする。`auth` は `httpapi` と `store/sqlite` を import しない
 - `httpapi` は `password` と `store/sqlite` を直接使わない。パスワードポリシー違反やセマフォのタイムアウトも、`auth` のエラーとして受け取る
 - `UserStore` は使う側の `auth` で定義する
 - 表にない依存と、他のモジュールの `index.ts` 以外のファイルの import は、ESLint の `no-restricted-imports` でモジュールごとに禁止する（`eslint.config.js`）
+- `src/errors.ts` への依存は、同じモジュール内の `errors.ts` と区別できるよう、ローカル規則で読み込み元からの解決後のパスを判定する
 
 ## auth モジュール
 

@@ -22,6 +22,8 @@ WSL のシェルで 1 回だけ行う。
 2. `. "$HOME/.nvm/nvm.sh" && nvm install 26` で 26 系の最新版を入れる。`.nvmrc` ができた後（design.md 10 章の手順 1 の後）は、リポジトリのルートで `nvm install` を実行すれば `.nvmrc` の版が入る
 3. `command -v node npm` が `~/.nvm/` 配下を指し、`node --version` が 26.11.0 以上であることを確かめる
 
+Node の起動時に `libatomic.so.1` が見つからないと表示された場合は、WSL で `sudo apt-get update && sudo apt-get install --no-install-recommends libatomic1` を実行してから、起動を確かめる。
+
 ### Windows から Node のコマンドを実行する
 
 Windows 側のリポジトリのルートで実行する。wsl.exe は呼び出し元のフォルダを WSL のパスに変換して作業ディレクトリにするため、`cd` は要らない。
@@ -61,7 +63,8 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 | ベンチマーク（ハッシュ 1 回の所要時間） | `npm run bench` | `vitest bench --run src/password` |
 | 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db npm start` | `node src/main.ts` |
 
-- ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイルとルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts` と `vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。ブラウザーで動く `src/httpapi/web/` は対象から外す
+- ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイル、CI のスクリプト（`.github/scripts/`）、ルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。`actions/github-script` から `require` する `.github/scripts/*.cjs` は、`@eslint/js` の推奨規則で検査し、テスト（`*.test.ts`）から読み込んで振る舞いを確かめる。ブラウザーで動く `src/httpapi/web/` は対象から外す
+- `tsconfig.json` の `skipLibCheck` で依存パッケージの型定義は型検査しない。依存の更新で型定義どうしが食い違っても、このプロジェクトのコードと無関係に型検査が失敗しないようにするため
 - Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML、`src/httpapi/web/` は `.prettierignore` で対象から外す。`src/httpapi/web/` は Go 実装の `internal/httpapi/web/` からコピーした手書きの書式のまま保ち、移行中は 2 か所の内容を一致させる（design.md 10 章）。Go 実装のファイルは Prettier の対象外の拡張子なので、指定しなくても整形されない
 
 ## CI
@@ -74,14 +77,14 @@ CI の実行条件と出力はこの節を正本とする。GitHub Actions の `
 | Test | `npm ci` の後に `npm test` |
 | Coverage | `npm ci` の後に `npm run coverage` と、カバレッジレポートの生成・保存 |
 
-Test と Coverage はそれぞれ別にテストを実行する。Coverage は `src/` 配下の全ファイル（テスト、ベンチマーク、ブラウザーで動く `src/httpapi/web/` を除く）を計測対象にし、テストから読み込まれないファイルも集計に含める。
+Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテストを実行する。Coverage は `src/` 配下の全ファイル（テスト、ベンチマーク、ブラウザーで動く `src/httpapi/web/` を除く）を計測対象にし、テストから読み込まれないファイルも集計に含める。
 
 - 合計カバレッジは GitHub Actions の実行サマリーに表示する
 - 同じリポジトリのブランチから作った PR には、合計・ファイル別カバレッジ、計測したコミット、実行ログと artifact へのリンクをコメントする。初回だけ作成し、Coverage ジョブの再実行時は同じコメントを更新する。テストやレポート生成に失敗したときも、以前の数値を残さず失敗表示へ更新する。取り消された実行、現在の PR と異なるコミットの実行、すでにコメントした実行より古い実行は更新しない
 - コメント投稿用の `pull-requests: write` 権限は Coverage ジョブだけに付与する。push、外部フォークの PR、トークンが読み取り専用になる Dependabot の実行ではコメントせず、従来どおり実行サマリーと artifact を出力する
 - Coverage ジョブのテスト成功時に `coverage-report` artifact を 14 日間保存する。`index.html` はブラウザでソース行ごとの実行状況を確認でき、`coverage-summary.json` はファイル別の集計、`coverage-final.json` は V8 の計測データ。再実行時は同名の artifact を上書きする
 - カバレッジの出力先と形式は `vitest.config.ts` に定義する。生成先の `coverage/` は Git の管理対象から外す
-- 実行環境は Ubuntu 24.04。Node のバージョンは `.nvmrc` から読み込む
+- 実行環境は Ubuntu 24.04。Node のバージョンは `.nvmrc` から読み込み、`check-latest` で 26 系の最新版を取得する。ランナーのキャッシュにある 26.11.0 未満の 26 系が選ばれると、`engine-strict=true` で `npm ci` が失敗するため
 - Node のインストールと npm のキャッシュの復元は `.github/actions/setup-node` にまとめ、各ジョブから呼ぶ。キャッシュは `package-lock.json` が変わるまで再利用する。キャッシュは npm のダウンロード済みパッケージ用で `node_modules/` は共有しないため、Lint・Test・Coverage の各ジョブで `npm ci` を実行する
 - 各ジョブの制限時間は 15 分。同じ PR で新しい実行が始まったら、古い実行を取り消す。`develop`・`main` への push では実行中の CI を取り消さないが、同じブランチの待機中の実行は新しい push によって置き換わることがある
 - 性能測定は WSL で行い、ベンチマークは CI では実行しない
@@ -132,6 +135,8 @@ Test と Coverage はそれぞれ別にテストを実行する。Coverage は `
 | `main` | 安定版。デフォルトブランチ |
 | `develop` | 統合先 |
 | `feature/*` | 作業用。`develop` から作り、`develop` へ PR を出す |
+
+- TypeScript への移行は、design.md 10 章の手順ごとに feature ブランチを分ける。ブランチ名と、前の手順のマージを待ってから次のブランチを作る決まりは design.md 10 章を正本とする
 
 ### コミット
 
