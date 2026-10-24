@@ -61,6 +61,7 @@ auth-server/
 - `httpapi` は `password` と `store/sqlite` を直接使わない。パスワードポリシー違反やセマフォのタイムアウトも、`auth` のエラーとして受け取る
 - `UserStore` は使う側の `auth` で定義する
 - 表にない依存と、他のモジュールの `index.ts` 以外のファイルの import は、ESLint の `no-restricted-imports` でモジュールごとに禁止する（`eslint.config.js`）
+- `src/errors.ts` への依存は、同じモジュール内の `errors.ts` と区別できるよう、ローカル規則で読み込み元からの解決後のパスを判定する
 
 ## auth モジュール
 

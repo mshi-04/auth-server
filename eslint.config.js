@@ -1,3 +1,4 @@
+import { dirname, resolve } from "node:path";
 import js from "@eslint/js";
 import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
@@ -10,6 +11,37 @@ const projectModules = [
   "config",
   "log",
 ];
+const rootErrorsPath = resolve(import.meta.dirname, "src/errors.ts");
+const projectPlugin = {
+  rules: {
+    "no-root-errors": {
+      meta: {
+        type: "problem",
+        schema: [],
+        messages: {
+          restricted: "This module must not depend on src/errors.ts.",
+        },
+      },
+      create(context) {
+        function check(node) {
+          if (
+            typeof node.source?.value === "string" &&
+            resolve(dirname(context.filename), node.source.value) ===
+              rootErrorsPath
+          ) {
+            context.report({ node, messageId: "restricted" });
+          }
+        }
+
+        return {
+          ImportDeclaration: check,
+          ExportNamedDeclaration: check,
+          ExportAllDeclaration: check,
+        };
+      },
+    },
+  },
+};
 const forbiddenAssertions = {
   selector: "TSAsExpression, TSTypeAssertion",
   message: "Do not use type assertions, including const assertions.",
@@ -98,6 +130,10 @@ function restrictedImports(
       message: "Use a direct relative path without redundant segments.",
     },
     {
+      regex: "^(?:\\.\\.?/)+(?:[^/]+/)*src(?:/|$)",
+      message: "Use a direct relative path within src without re-entering src.",
+    },
+    {
       regex: `^(?:\\.\\.?/)+(?:${projectModules.join("|")})/(?!index\\.ts$)`,
       message: "Import another module through its index.ts.",
     },
@@ -114,12 +150,6 @@ function restrictedImports(
     patterns.push({
       regex: `^(?:\\.\\.?/)+(?:${forbiddenModules.join("|")})(?:/|$)`,
       message: "Follow the dependency direction in docs/architecture.md.",
-    });
-  }
-  if (!allowedModules.includes("errors")) {
-    patterns.push({
-      regex: "^(?:\\.\\./)+errors\\.ts$",
-      message: "This module must not depend on src/errors.ts.",
     });
   }
   patterns.push({
@@ -205,7 +235,23 @@ export default defineConfig(
   },
   {
     files: ["src/**/*.ts"],
-    rules: { "no-restricted-imports": restrictedImports([]) },
+    plugins: { project: projectPlugin },
+    rules: {
+      "no-restricted-imports": restrictedImports([]),
+      "project/no-root-errors": "error",
+    },
+  },
+  {
+    files: [
+      "src/main.ts",
+      "src/errors.ts",
+      "src/errors.test.ts",
+      "src/password/**/*.ts",
+      "src/auth/**/*.ts",
+      "src/httpapi/**/*.ts",
+      "src/store/sqlite/**/*.ts",
+    ],
+    rules: { "project/no-root-errors": "off" },
   },
   {
     files: ["src/main.ts"],
