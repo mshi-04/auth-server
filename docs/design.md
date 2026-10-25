@@ -270,14 +270,16 @@ Go 実装（`golang.org/x/crypto/argon2`）で採用値を決めたときの記�
 
 #### TS 実装時の記録：Node 標準 Argon2id の測定（2026-10-24）
 
-環境：WSL Ubuntu 24.04、Node.js 26.12.1、Vitest 5.0.5、linux/x64、Intel Core i7-12700。`UV_THREADPOOL_SIZE` は未設定（既定の 4）。`Password.parse` と `Hasher.create` は計測外に置いた。
+この節は移行前の `src/password/Hasher` を使った測定記録である。手順 2b で `Argon2PasswordProvider` へ改名・再配置し、`Hasher.create` は `Argon2PasswordProvider.create` に対応する。移行後の再測定でも、初期化を計測外に置き、飽和時は同じ `Argon2PasswordProvider` インスタンスで 4 件を並列実行する。以下の数値は移行後の再測定結果を示すものではない。
+
+環境：WSL Ubuntu 24.04、Node.js 26.12.1、Vitest 5.0.5、linux/x64、Intel Core i7-12700。`UV_THREADPOOL_SIZE` は未設定（既定の 4）。当時の `Password.parse` と `Hasher.create` は計測外に置いた。
 
 - `AUTH_PASSWORD_BENCH_RUN=1 npm run bench` の番号を 1・2・3 に変え、順番に 3 回実行した。`hash` は各回ウォームアップ 1 回と計測 5 回、`hash saturated` は各回ウォームアップ 1 回と計測 3 回。以下は各回の平均値と、その中央値。
 
 | 計測 | 第 1 回 (ms) | 第 2 回 (ms) | 第 3 回 (ms) | 中央値 (ms) |
 |---|---|---|---|---|
 | `hash`（128 MiB・反復 9・並列 2） | 336.804 | 336.668 | 343.933 | **336.804** |
-| `hash saturated`（同じ Hasher で 4 件を並列実行） | 870.010 | 836.935 | 847.905 | **847.905** |
+| `hash saturated`（当時の同一インスタンスで 4 件を並列実行） | 870.010 | 836.935 | 847.905 | **847.905** |
 
 - `hash saturated` は 4 件がすべて完了するまでの時間を測る。4 で割ったスループット換算ではなく、飽和時の 1 要求の所要時間に対応する。Argon2 のメモリは約 512 MiB（4 × 128 MiB）。
 - 同じ既定値の 4 並列実行中に、`monitorEventLoopDelay`（分解能 10ms）を各回 1 回測定した。ヒストグラムはタイマーの発火間隔（分解能の 10ms を含む）を記録するため、分解能を差し引いた値を遅延とする。最大遅延は **0.764 / 1.018 / 0.559ms**、平均遅延は **0.075 / 0.081 / 0.054ms**。各バッチは 907.340 / 823.126 / 841.566ms で完了し、計算中もイベントループが動き続けることを確認した。
