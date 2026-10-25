@@ -5,7 +5,7 @@
 
 移行中の Go 実装は、移行の完了（design.md 10 章の手順 7）で削除するまで機能を追加しない。
 
-以下はレイヤードアーキテクチャへの移行後の方針を定める。現在の TypeScript 実装は `src/errors.ts` と `src/password/` までで、ファイルの移動・各層の実装・ESLint の依存規則の変更は design.md 10 章の後続手順で行う。
+以下はレイヤードアーキテクチャへの移行後の方針を定める。現在の `develop`（PR #17 マージ後）には `src/errors.ts`・`src/password/`・`src/auth/` の保存契約・`src/store/sqlite/` とそのテストがある。これらを再利用し、ファイルの移動・各層の実装・ESLint の依存規則の変更は design.md 10 章の後続手順で行う。
 
 ## 構成
 
@@ -103,7 +103,7 @@
 
 - 書式は Prettier に任せ、手で揃えない。整形だけの変更を、ほかの変更と同じコミットに混ぜない
 - ESLint は typescript-eslint の `strictTypeChecked` を基本にする。AGENTS.md の禁止事項（乱数 API の制限など）、イベントループを止める `argon2Sync`、依存規則を回避する動的 import と `createRequire` も禁止する
-- 移行時に `eslint.config.js` とその検証テストを新しい層へ合わせる。`services` の HTTP・DB・暗号モジュールへの直接依存、`repositories/sqlite` 以外の `node:sqlite`、具体的な Provider 以外の暗号呼び出し、逆向きの import を禁止する。モデル内部へのアクセスは上記の秘密値契約だけを例外とし、`src/index.ts` は全体を組み立てる唯一の入口にする
+- 移行時に `eslint.config.js` とその検証テストを新しい層へ合わせる。`services` の HTTP・DB・暗号モジュールへの直接依存、`repositories/sqlite` 以外の `node:sqlite`、具体的な Provider 以外の暗号呼び出し、逆向きの import を禁止する。移行中は旧 `src/store/sqlite/` に新しい保存契約・モデル・エラーと `node:sqlite` の利用を限定して許可し、手順 3 で Repository とテストの移動を終えてから旧経路と暫定規則を撤去する。モデル内部へのアクセスは上記の秘密値契約だけを例外とし、`src/index.ts` は全体を組み立てる唯一の入口にする
 - 現在の `eslint.config.js` は旧モジュール構成を対象にしており、新しい依存規則はまだ適用されていない。移行後の規則とテストをそろえてから検証済みとする。禁止する名前やパターンの実際の一覧は `eslint.config.js` を正本とする
 - ESLint の指摘は抑制コメントで消さず、コードを直す。どうしても抑制する場合は、`eslint-disable-next-line` で規則名を明示し、理由を同じ行に書く
 

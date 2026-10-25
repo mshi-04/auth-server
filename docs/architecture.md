@@ -4,7 +4,7 @@
 
 ## 現状と移行先
 
-この文書は移行先の設計であり、実装済みの構成を表すものではない。分析対象は `develop` のコミット `d4741833771b846fba3c1ebb57028fe88e4bc343`（2026-10-24）。TS 側は `src/errors.ts` と `src/password/` およびそのテスト・ベンチマークが実装済みで、認証・HTTP・DB・設定・起動処理は Go の `cmd/authd/` と `internal/` にある。`package.json` の起動先 `src/main.ts` はまだ存在しない。
+この文書は移行先の設計であり、実装済みの構成を表すものではない。分析対象は PR #17 マージ後の `develop` のコミット `195aeeed3524123131f991842f2eb83452a17ab3`（2026-10-25）。TS 側は `src/errors.ts`、`src/password/`、保存層の契約を定義する `src/auth/`（`UserStore`・`NewUser`・`Credential` と 3 つのエラー）、`src/store/sqlite/` および対応するテスト・ベンチマークが実装済みである。認証サービス・HTTP・設定・起動処理は Go の `cmd/authd/` と `internal/` にあり、`package.json` の起動先 `src/main.ts` はまだ存在しない。
 
 実装済み TS の再配置と、残る Go の機能の移植を段階的に行う。Go 実装と Go 用 CI は design.md 10 章の手順 7 まで残す。文書を更新する段階では、実装、設定、スクリプト、静的ファイルを変更しない。各実装段階の順番とブランチは design.md 10 章を正本とする。
 
@@ -55,6 +55,8 @@ auth-server/
 │   │       ├── sqlite-user-repository.ts
 │   │       ├── initialization.ts
 │   │       ├── permissions.ts
+│   │       ├── errors.ts
+│   │       ├── node-sqlite.d.ts
 │   │       └── init.sql
 │   ├── providers/
 │   │   ├── password-provider.ts
@@ -128,7 +130,9 @@ auth-server/
 
 基盤実装段階で `eslint.config.js` の旧 `auth`・`password`・`httpapi`・`store/sqlite` 向け規則を上の表へ更新し、`.github/scripts/eslint-config.test.ts` で検証する。新ディレクトリを追加するだけで依存検査が機能したとは扱わない。Service から具体実装への型 import、実装用公開口へのアクセス、再 export や動的 import による回避も禁止する。
 
-現在の設定は旧構成用のままである。移行期間中は旧 `src/password/` の必要な依存だけを暫定的に許可する。手順 2a で値クラスを先に移す際は、旧 `src/password/hasher.ts` にもモデル内部契約へのアクセスを限定して許可し、手順 2b の Provider 移行完了時に旧経路と暫定規則を除去する。`src/index.ts` を唯一の組み立て経路とする。
+現在の設定は旧構成用のままである。手順 2a では `src/auth/store.ts` の interface を `UserRepository` として `repositories` へ、`NewUser`・`Credential` を `models` へ、既存の認証エラーと `src/errors.ts` の探索関数を `errors` へ移す。同時に、既存の `src/store/sqlite/` とそのテストの import・実装する interface を移行先へ合わせ、旧 `src/auth/` の定義と公開口を除去する。
+
+移行期間中は旧 `src/password/` と `src/store/sqlite/` に必要な依存だけを暫定的に許可する。手順 2a で値クラスを先に移す際は、旧 `src/password/hasher.ts` にもモデル内部契約へのアクセスを限定して許可し、手順 2b の Provider 移行完了時にその旧経路と暫定規則を除去する。旧 `src/store/sqlite/` には `repositories` の interface、`models`、`errors` と `node:sqlite` の利用を許可し、手順 3 で SQLite モジュール全体とテストを `repositories/sqlite/` へ移した後に旧経路と暫定規則を除去する。`src/index.ts` を唯一の組み立て経路とする。
 
 ## 型と Interface の契約
 
@@ -149,7 +153,7 @@ Controller が HTTP の `password` を Service の `rawPassword` へ、Service �
 
 ### UserRepository
 
-`repositories/user-repository.ts` に定義する。旧 `UserStore` を改名し、次の契約を維持する。
+`repositories/user-repository.ts` に定義する。実装済みの `src/auth/store.ts` の `UserStore` を手順 2a で改名・移動し、`NewUser`・`Credential` を Models へ移す。次の契約を維持し、既存の `SqliteStore` の import と実装する interface も同じ段階で更新する。
 
 ```ts
 interface UserRepository {
@@ -233,6 +237,8 @@ HTTP フレームワークは使わず、`node:http` 向けの関数として構
 
 `SqliteUserRepository.open(path, signal)` は接続を 1 つだけ所有する具体実装を返す（`Promise`）。`open`・`close` は組み立て用の API で、Service 向けの `UserRepository` には含めない。接続確認・WAL・`init.sql` 初期化の失敗時は接続を閉じる。権限検査、新規 DB の `0o600`、WAL 切り替えだけの再試行、`BEGIN IMMEDIATE`、SQLite エラーの `code` と数値 `errcode` による変換は design.md 5 章を維持する。
 
+手順 3 では実装済みの `src/store/sqlite/store.ts` の `SqliteStore` を `SqliteUserRepository` へ改名・再配置する。初期化・権限検査・DB エラー変換・スキーマ・公開口・型補助宣言と既存テストをモジュール全体で移し、接続の所有と SQL の振る舞いを維持する。`@types/node` 26.6.5 にない `Database` の型だけを補う `node-sqlite.d.ts` は、型定義が改名に対応するまで保持する。実行時は `Database` を直接使う。
+
 SQLite のメソッドは同期 API を使うが、interface は `Promise` を返し、同期例外を外へ投げない。Service へ接続・行型・トランザクション操作を公開しない。予期しない DB エラーは文脈と `cause` を付けて投げ、Repository ではログを出さない。
 
 `index.ts` は次の順に組み立てる。
@@ -260,14 +266,17 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 | TS `src/password/errors.ts` | `errors/password-errors.ts`。`BusyError` は `PasswordBusyError` へ改名 |
 | TS `src/password/index.ts` | Models・Providers・Errors の公開口へ分割 |
 | TS password テスト・ベンチマーク | 対応する実装の隣へ移す。ベンチマークは `providers/password/password.bench.ts` |
-| Go `internal/auth/store.go` | `repositories/user-repository.ts` と `models/user.ts`・`credential.ts` |
+| TS `src/auth/store.ts` | 手順 2a：`UserStore` を `repositories/user-repository.ts` の `UserRepository` へ改名し、`NewUser`・`Credential` を `models/user.ts`・`credential.ts` へ移す |
+| TS `src/auth/errors.ts`・`index.ts` | 手順 2a：既存の認証エラーを `errors/auth-errors.ts` へ移し、Models・Repositories・Errors の公開口へ分割。旧定義と公開口を除去する |
 | Go `internal/auth/service.go` | `services/auth-service.ts`。メール解析は Models、UUID・乱数・ログ・暗号は Provider へ分割 |
-| Go `internal/auth/errors.go` | `errors/auth-errors.ts` |
+| Go `internal/auth/errors.go` | 未移植の認証エラーを `errors/auth-errors.ts` に追加。TS に存在する `EmailTakenError`・`UserNotFoundError`・`BusyError` は再利用する |
 | Go `internal/httpapi/handler.go` | Routes、Controllers、本文・検証・エラー応答の Middlewares、DTO の Schemas へ分割 |
 | Go `internal/httpapi/static.go` | Web の Route・Controller と `index.ts` の起動時読み込み |
 | Go `internal/httpapi/web/*` | `public/*` へコピー |
-| Go `internal/store/sqlite/store.go` | `repositories/sqlite/sqlite-user-repository.ts` |
-| Go `initialization.go`・`permissions.go`・`init.sql` | `repositories/sqlite/` の対応ファイル |
+| TS `src/store/sqlite/store.ts` | 手順 3：`repositories/sqlite/sqlite-user-repository.ts` へ移し、`SqliteStore` を `SqliteUserRepository` へ改名 |
+| TS `src/store/sqlite/initialization.ts`・`permissions.ts`・`errors.ts`・`init.sql`・`index.ts` | 手順 3：`repositories/sqlite/` の対応ファイルへ移す |
+| TS `src/store/sqlite/node-sqlite.d.ts` | 手順 3：`repositories/sqlite/node-sqlite.d.ts` へ移す。`@types/node` が `Database` に対応したら削除する型専用の補助宣言 |
+| TS `src/store/sqlite/*.test.ts` | 手順 2a で契約と import を更新し、手順 3 で実装の隣へ移す。既存の検証内容を維持する |
 | Go `internal/config/config.go` | `config/env.ts` |
 | Go `cmd/authd/main.go` | `src/index.ts` |
 
@@ -280,7 +289,7 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 | Models・Errors | パスワード・PHC・メールの検証、伏字、`cause` の循環検出 |
 | Password Provider | 本物の Argon2id を低コストで使用。Go 生成 PHC の互換性、再ハッシュ、共有枠の保持・解放・中断・待機期限を維持 |
 | AuthService | 手書きの偽 Repository・Provider で手順・エラー変換を検証。本物の低コスト Password Provider を注入するテストも残す |
-| SQLite Repository | 一時ディレクトリの実 DB でトランザクション・重複・対象なし・権限・BUSY を検証。対象 Node の `errcode` の形も固定 |
+| SQLite Repository | 既存の TS 保存層テストを移行先へ移し、一時ディレクトリの実 DB でトランザクション・重複・対象なし・権限・BUSY の検証を維持。対象 Node の `errcode` の形も固定 |
 | Schemas | `unknown` からの構造検証。空文字を意味検査の前に拒否しない |
 | HTTP 境界 | ポート 0 の実 `http.Server` と `fetch` でステータス・ヘッダー・本文・Problem Details・HEAD・静的配信・404/405 を確認 |
 | 要求のライフサイクル | 切断・応答期限時は応答なし、待機切れは要求継続可能なら 503、再ハッシュ失敗は要求継続可能なら成功、と区別 |

@@ -4,7 +4,7 @@
 
 TypeScript 実装の手順を正本とする。移行の完了（design.md 10 章の手順 7）までは、Go 実装の手順と CI も残る。それらは末尾の「Go 実装（移行完了まで）」にまとめる。
 
-レイヤードアーキテクチャと DI・Provider 分離の目標構成は [architecture.md](architecture.md)、段階的な移行手順は [design.md](design.md) 10 章を正本とする。設計更新時点の `develop`（`d474183`）では、TS 実装は `src/errors.ts` と `src/password/` までで、HTTP・認証サービス・DB・設定・起動処理は未移行である。この文書の目標パスに合わせた実装や設定変更は、各実装段階で行う。
+レイヤードアーキテクチャと DI・Provider 分離の目標構成は [architecture.md](architecture.md)、段階的な移行手順は [design.md](design.md) 10 章を正本とする。PR #17 マージ後の `develop`（`195aeee`、2026-10-25）では、`src/errors.ts`、`src/password/`、`src/auth/` の保存層の型・エラー、`src/store/sqlite/` とそのテストが実装済みで、HTTP・認証サービス・設定・起動処理は未移行である。この文書の目標パスに合わせた再配置と設定変更は、各実装段階で行う。
 
 ## 開発環境
 
@@ -43,6 +43,7 @@ wsl -d Ubuntu-24.04 --exec bash -lc '. "$HOME/.nvm/nvm.sh" && nvm use --silent &
 
 ### SQLite の DB ファイル
 
+- `@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、`src/store/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。実行時は `Database` を直接使う。手順 3 でモジュール全体とともに `src/repositories/sqlite/node-sqlite.d.ts` へ移し、型定義が対応したら削除する
 - DB ファイルは `/mnt/c` 配下に置かない。WSL 側（例：`~/.local/share/auth-server/auth.db`）に置く
 - 親ディレクトリは自動で作られないため、初回は `mkdir -p -m 700 ~/.local/share/auth-server` で所有者専用に作っておく
 - 既存の親ディレクトリは `chmod 700 ~/.local/share/auth-server` で権限を制限する。DB と既存の `-wal`・`-shm`・`-journal` ファイルにも所有者以外の権限があれば、該当ファイルを `chmod 600` にしてから起動する。親とファイルの所有者は実行ユーザーと一致させる。シンボリックリンクは使わない
@@ -81,8 +82,10 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 ### レイヤー分離時の設定と検証
 
 - 手順 2a で、`eslint.config.js` の旧 `auth`・`password`・`httpapi`・`store/sqlite`・`log` の依存規則を、新しい `routes` → `controllers` → `services` → Repository／Provider の interface という向きへ更新する。`models`・`errors` は共通の下位モジュールとする。Service から HTTP・SQLite・暗号 API や具体的な Repository／Provider への依存を禁止する。詳細な許可先と、パスワード Provider 専用のモデル内部 import は architecture.md を参照する
-- `.github/scripts/eslint-config.test.ts` も新しい規則に合わせ、許可する import と拒否する import の両方を検証する。移行中の旧 `src/password/` には必要な既存規則を残し、手順 2b で再配置を終えてから不要な規則を削除する。設計文書だけを更新する段階では、これらの設定やテストは変更しない
+- 手順 2a では、既存の `src/auth/store.ts` の `UserStore` を `repositories` の `UserRepository` へ改名・移動し、`NewUser`・`Credential` を `models` へ、既存の認証エラーと `src/errors.ts` の探索関数を `errors` へ移す。`src/store/sqlite/` とそのテストの import・実装する interface もこの段階で更新し、旧 `src/auth/` の定義と公開口を除去する
+- `.github/scripts/eslint-config.test.ts` も新しい規則に合わせ、許可する import と拒否する import の両方を検証する。移行中の旧 `src/password/` には必要な既存規則を残し、手順 2b で再配置を終えてから不要な規則を削除する。旧 `src/store/sqlite/` には移動済みの Repository interface・Models・Errors と `node:sqlite` の利用を限定して許可し、手順 3 で SQLite モジュールとテストを再配置してから旧経路と暫定規則を除去する。設計文書だけを更新する段階では、これらの設定やテストは変更しない
 - 手順 2b では既存の値オブジェクト・PHC・ハッシュ・セマフォのテストを各移行先へ移し、既存の検証内容を維持する。手順 4 の Service のテストでは、手書きの偽 `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、低コスト設定の本物の `Argon2PasswordProvider` と組み合わせる検証も残す
+- 手順 3 では実装済みの `src/store/sqlite/` 全体（接続・初期化・権限検査・DB エラー変換・`init.sql`・公開口・型補助宣言・テスト）を `src/repositories/sqlite/` へ移し、`SqliteStore` を `SqliteUserRepository` へ改名する。既存の SQL とトランザクション、再試行・中断・権限・エラー分類のテストを維持する
 - 手順 4 で `public/` を作るとき、ESLint・Prettier・Vitest の除外設定を確認する。Vitest のカバレッジ対象は `src/**/*.ts` のため、`public/` は対象に入らない。旧 `src/httpapi/web/**` の除外指定もこの段階で整理する
 - コードや設定を変更する各段階で `npm run typecheck`、`npm run lint`、`npm run format:check`、`npm test`、`npm run coverage` を確認し、TS 用の CI・CodeQL と Go 用の CI も通ってから次へ進む。文書だけの変更では、文書間の構成・パス・手順・参照先の整合性と差分を確認する。Markdown は Prettier の対象外なので、`format:check` の成功を文書の検証の代わりにしない
 
