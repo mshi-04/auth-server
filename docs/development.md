@@ -41,6 +41,7 @@ wsl -d Ubuntu-24.04 --exec bash -lc '. "$HOME/.nvm/nvm.sh" && nvm use --silent &
 
 ### SQLite の DB ファイル
 
+- `@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、`src/store/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。実行時は `Database` を直接使う。型定義が対応したら、この補助宣言を削除する
 - DB ファイルは `/mnt/c` 配下に置かない。WSL 側（例：`~/.local/share/auth-server/auth.db`）に置く
 - 親ディレクトリは自動で作られないため、初回は `mkdir -p -m 700 ~/.local/share/auth-server` で所有者専用に作っておく
 - 既存の親ディレクトリは `chmod 700 ~/.local/share/auth-server` で権限を制限する。DB と既存の `-wal`・`-shm`・`-journal` ファイルにも所有者以外の権限があれば、該当ファイルを `chmod 600` にしてから起動する。親とファイルの所有者は実行ユーザーと一致させる。シンボリックリンクは使わない
