@@ -95,6 +95,7 @@
 - Vitest の `describe`・`it` で書き、境界値は `it.each` の行を足して増やす
 - 外部への依存は、モックライブラリや `vi.mock` ではなく、インターフェースを実装する手書きの偽物（メモリ上の `UserRepository`、固定値を返す `IdProvider` など）で置き換える
 - サービスの分岐とエラー変換は偽の `PasswordProvider` で検証する。小さいパラメータの本物の `Argon2PasswordProvider` を使う結合テストも残し、PHC・NFKC・再ハッシュの連携を確かめる
+- `#` フィールドだけを持つ `Password`・`EncodedHash` は、`toEqual`・`toStrictEqual` では別の値でも等しくなる。偽物に渡された値は `toBe`（参照の同一性）、`EncodedHash` の内容は `phc()` で比べる
 - 共通の準備はヘルパー関数にまとめ、失敗したときにどの入力か分かるテスト名にする
 - 変更した振る舞いには、その振る舞いが壊れたら失敗するテストを付ける。必ず通ってしまうテストを書かない
 - 時間に依存するテストは、Vitest の偽タイマー（`vi.useFakeTimers`）で決定的にする。並行性に依存するテストは、`Promise` の解決の順序をテスト側で制御する

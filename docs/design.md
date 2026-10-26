@@ -64,7 +64,7 @@ auth-server/
 - 入力の構造検証は schemas に置き、middlewares が実行する。メールアドレスの意味検証とパスワードポリシーはサービスとモデルが扱い、ログインを一律 422 にする共用の検証は作らない
 - 各層は `errors/` のエラーを投げ、最上位のエラーハンドリング Middleware だけが HTTP ステータスへ変換する。業務の `BusyError` と Provider の `PasswordBusyError` は別のクラスとする
 - テストは対象と同じディレクトリに `*.test.ts` として置く。ベンチマークは `src/providers/password/` の `*.bench.ts` に置く
-- 移行の完了（10 章の手順 7）までは、Go 実装の `cmd/`・`internal/`・`go.mod`・`go.sum` が並存する。Web の 3 ファイルは手順 4 で `public/` へコピーし、Go が参照する元のファイルは残す
+- 移行の完了（10 章の手順 7）までは、Go 実装の `cmd/`・`internal/`・`go.mod`・`go.sum` が並存する。Web の 3 ファイルは手順 4b で `public/` へコピーし、Go が参照する元のファイルは残す
 
 ## 4. パスワードのモデルと Provider
 
@@ -208,7 +208,7 @@ class Argon2PasswordProvider implements PasswordProvider {
 - 制限するのは枠数であり、メモリ量ではない。1 回あたりのメモリは採用値で 128 MiB（4 並列で 512 MiB）だが、`verify` は保存済み PHC のパラメータで計算するため、最悪で 1 回 256 MiB（4.2 の上限）、4 並列で 1 GiB になる
 - 待機がタイムアウトしたら `PasswordBusyError` を投げる。`AuthService` が業務の `BusyError` に包み、エラーハンドリング Middleware が要求を継続できる場合に 503 へ変換する
 - 同じ `Argon2PasswordProvider` の `hash` と `verify` はセマフォを共有する。Argon2id の計算開始後は中断せず、完了まで枠を保持し、`finally` で必ず解放する
-- 同時数の 4 は、アプリが同時に使用する CPU とメモリを制限するための上限とする。`UV_THREADPOOL_SIZE` と独立した設定であり、プールのサイズを変更しても自動では変えない。確認した Node の実装では libuv を共有するため、別のスレッドプール処理への影響は 4.7 の測定で確認する。静的ファイルの読み込みは起動時に済ませる。非同期版の `randomBytes` などを要求の処理で採用する場合は、その待ち時間も測る
+- 同時数の 4 は、同時に計算する Argon2id の件数の上限とし、アプリが同時に使用するメモリと CPU を間接的に制限する。1 件の計算は `parallelism` 本のスレッドを libuv のスレッドプールの外で使うため、CPU を使うスレッドは最大で同時数 × `parallelism`（採用値で 8、`verify` が保存済み PHC の上限 p=16 を使う最悪時は 64）になる（4.7 の 2026-10-26 の確認）。同時数は `UV_THREADPOOL_SIZE` と独立した設定であり、プールのサイズを変更しても自動では変えない。確認した Node の実装では libuv を共有するため、別のスレッドプール処理への影響は 4.7 の測定で確認する。静的ファイルの読み込みは起動時に済ませる。非同期版の `randomBytes` などを要求の処理で採用する場合は、その待ち時間も測る
 
 ### 4.7 テスト・ベンチマーク
 
@@ -302,7 +302,8 @@ Go 実装（`golang.org/x/crypto/argon2`）で採用値を決めたときの記�
 | 8 | 337.509 | 839.742 | 0.547 | 8.596 |
 
 - この環境では、プール 1 のバッチはほぼ単独 4 件分の時間を要し、プール 4・8 のバッチは約 0.84 秒だった。プール 4 では後続の非同期乱数処理が約 785ms 待ったのに対し、プール 8 では約 0.55ms だった。Node の実装で確認した libuv の共有と整合する観測であり、イベントループの遅延とは別の待ち時間である。
-- 各設定 3 回・1 台での観測から、正確な CPU スレッド数や Argon2 内部の lane の実行方法、全環境で最適な同時数は断定しない。アプリの同時数 4、プールサイズ、既定パラメータは変更しない。Node の更新や別の非同期プール処理の採用で条件が変わる場合は、対象の処理を含めて測定し直す。
+- 2026-10-26 の補助確認：同じ環境で、64 MiB・反復 6・出力 32 バイトの非同期 `crypto.argon2` は、単独で p=1 が 218.8ms、p=2 が 113.0ms だった。p=2 を 4 件並列に実行すると、プロセスのスレッド数は待機時の 7 から最大 19（プールの 4 本と lane の 8 本）に増えた。lane はプールの外のスレッドで並列に計算される。
+- 各設定 3 回・1 台での観測から、全環境で最適な同時数は断定しない。アプリの同時数 4、プールサイズ、既定パラメータは変更しない。Node の更新や別の非同期プール処理の採用で条件が変わる場合は、対象の処理を含めて測定し直す。
 
 ## 5. データベース
 
@@ -477,10 +478,11 @@ Node には Go の `net/mail.ParseAddress` に相当する標準 API が無い�
 | `keepAliveTimeout` | 60 秒 | 応答後に次の要求を待つ上限 |
 | `connectionsCheckingInterval` | 1 秒 | `headersTimeout`・`requestTimeout` を検査する間隔。既定の 30 秒では、上の値が 30 秒単位でしか効かない |
 
-- 要求ごとに、応答期限の `AbortSignal.timeout(30_000)` と、クライアントの切断で中断する `signal` を作り、`AbortSignal.any` でまとめて `AuthService` に渡す。元の `signal` も保持し、応答期限とクライアント切断を区別できるようにする
+- 要求ごとに、30 秒後に `setTimeout` で中断する応答期限の `AbortController` と、クライアントの切断で中断する `signal` を作り、`AbortSignal.any` でまとめて `AuthService` に渡す。元の `signal` も保持し、応答期限とクライアント切断を区別できるようにする。`AbortSignal.timeout` は Vitest の偽タイマーで進まず、応答期限のテストを決定的にできないため使わない
+- クライアントの切断は、`res` の `close` で `res.writableFinished` が `false` の場合に判定する。`req` の `close` は本文を読み終えた時点でも発火するため、切断の判定に使わない
 - クライアントが切断したら応答を書かない。応答期限を超えたら応答を書かずに接続を破棄する。これらは、`AuthService` が成功を返した場合や `BusyError` を包んでいない中断理由を投げた場合も、6.1・6.2 の応答や 6.4 の再ハッシュ失敗時の 200 より優先する。中断を原因とするエラーは予期しないエラーや再ハッシュ失敗の警告として記録しない
 - セマフォ待機タイムアウトと SQLite の busy timeout は、要求の `signal` を中断しない。これらによる `BusyError` がエラーハンドリング Middleware まで伝播し、要求が中断されておらず応答を書ける場合は 503 を返す。認証成功後の再ハッシュ中の失敗は、6.4 の規則に従う
-- 応答の期限は、再ハッシュを伴うログインの待機と計算を見込んで定める。セマフォ待機（最大 5 秒）とハッシュをそれぞれ 2 回（`verify` と再ハッシュ）、Repository へのアクセスを 2 回（読み込みと更新。busy timeout で各最大 5 秒）行うため、待機だけで最大 20 秒になる。4.7 の TS 実測では既定値の 4 件バッチが中央値 847.905ms であり、競合時のハッシュ 1 回を約 1 秒と見積もると合計は約 22 秒となる。これは測定環境と既定パラメータでの見積もりであり、保存済み PHC の最大コストや CPU・メモリ競合、他のスレッドプール処理の待ち時間を含む厳密な最悪時間の保証ではない。30 秒の期限を超えた場合も、上の応答破棄規則に従う
+- 応答の期限は、1 リクエストで起こりうる最長の待ち時間より長くする。これより短いと、503 などの応答を書く前にサーバーが接続を破棄する。最長になるのは再ハッシュを伴うログインである。セマフォ待機（最大 5 秒）とハッシュをそれぞれ 2 回（`verify` と再ハッシュ）、Repository へのアクセスを 2 回（読み込みと更新。busy timeout で各最大 5 秒）行うため、待機だけで最大 20 秒になる。4.7 の TS 実測では既定値の 4 件バッチが中央値 847.905ms であり、競合時のハッシュ 1 回を約 1 秒と見積もると合計は約 22 秒となり、30 秒ならハッシュ 1 回が 5 秒かかるまで収まる。この見積もりは測定環境と既定パラメータでの値であり、保存済み PHC の最大コストや CPU・メモリ競合、他のスレッドプール処理の待ち時間は含まない。期限や待機時間、既定パラメータを変えるときは、この要件を満たすことを確かめ直す。30 秒の期限を超えた場合も、上の応答破棄規則に従う
 
 ### 6.7 テスト
 
@@ -542,12 +544,12 @@ Go 実装を動かしたまま、TS 実装を `src/` に段階的に作り、仕
 
 1. 土台を作る（完了）：`.nvmrc`（`26`）、`.npmrc`（`engine-strict=true`）、`package.json`（`engines.node` に `>=26.11.0 <27`）、`package-lock.json`、`tsconfig.json`、`vitest.config.ts`、`eslint.config.js`、`.prettierignore`、`.gitignore`。TS 用の CI・CodeQL・Dependabot を Go 用と並存させた。依存の無い `src/errors.ts` とそのテストを作り、検査対象が空にならないようにした。Vitest の `passWithNoTests` は使わない
 2. password を実装し、テストとベンチマークを行う（完了）：現在は `src/password/` にあり、測定結果は 4.7 に記録済み。続けて次の 2 段階を別々の PR で進める
-   - **2a 基盤**：`models/`・`errors/`・`config/` と `PasswordProvider`・`IdProvider`・`LoggerProvider` のインターフェースを作る。既存の `Password`・`EncodedHash`・`Params`・`Cost`、PHC の解析・構築・パラメータ検証を `models/` へ移す。`src/auth/store.ts` の `UserStore` を `repositories/` の `UserRepository` とし、`NewUser`・`Credential` を `models/` へ、`src/auth/errors.ts` を含むエラーと cause の探索を `errors/` へ移す。既存 `src/password/` と `src/store/sqlite/` の実装・テストを新しい型とエラーへ追随させ、旧 `src/auth/` の保存契約を撤去して二重定義を残さない。業務の `BusyError` と `PasswordBusyError` を分ける。ESLint の依存規則とそのテストもこの段階で更新する。`src/password/` の暫定経路に加え、手順 3 まで残る `src/store/sqlite/` には `models`・`errors`・`UserRepository` と `node:sqlite` の利用だけを必要な範囲で許可し、保存層の既存テストを通す
-   - **2b Provider**：既存 `Hasher` を `Argon2PasswordProvider implements PasswordProvider` として `providers/password/` へ移し、鍵導出・セマフォ・テスト・ベンチマークも移す。`IdProvider` と `LoggerProvider` の実装を追加する。旧 `src/password/` の公開口を削除し、ESLint の暫定規則と `package.json` の `bench` を新配置へ合わせる。既定パラメータや認証の振る舞いは変えない
+   - **2a 基盤**：`models/`・`errors/`・`config/` と `PasswordProvider`・`IdProvider`・`LoggerProvider` のインターフェースを作る。既存の `Password`・`EncodedHash`・`Params`・`Cost`、PHC の解析・構築・パラメータ検証を `models/` へ移す。値オブジェクト・PHC・パラメータのテストも `models/` の実装の隣へ移し、`hasher.test.ts` の値オブジェクトの検証をこのとき分ける。`src/auth/store.ts` の `UserStore` を `repositories/` の `UserRepository` とし、`NewUser`・`Credential` を `models/` へ、`src/auth/errors.ts` を含むエラーと cause の探索を `errors/` へ移す。既存 `src/password/` と `src/store/sqlite/` の実装・テストを新しい型とエラーへ追随させ、旧 `src/auth/` の保存契約を撤去して二重定義を残さない。業務の `BusyError` と `PasswordBusyError` を分ける。ESLint の依存規則とそのテストもこの段階で更新する。`src/password/` の暫定経路に加え、手順 3 まで残る `src/store/sqlite/` には `models`・`errors`・`UserRepository` と `node:sqlite` の利用だけを必要な範囲で許可し、保存層の既存テストを通す
+   - **2b Provider**：既存 `Hasher` を `Argon2PasswordProvider implements PasswordProvider` として `providers/password/` へ移し、鍵導出・セマフォと、`Hasher`・セマフォ・鍵導出のテスト・ベンチマークも移す。`IdProvider` と `LoggerProvider` の実装を追加する。旧 `src/password/` の公開口を削除し、ESLint の暫定規則と `package.json` の `bench` を新配置へ合わせる。既定パラメータや認証の振る舞いは変えない
 3. 既存の TS 保存層を Repository へ移す：`src/store/sqlite/` の `SqliteStore` を `repositories/sqlite/` の `SqliteUserRepository implements UserRepository` とし、`init.sql`、接続初期化、権限検査、エラー変換、型補助宣言 `node-sqlite.d.ts`、テストを移す。`NewUser`・`Credential` の文字列の契約、既存スキーマ、トランザクション、WAL・権限・再試行・中断の振る舞いを維持し、既存の制約違反・原子性・永続化・ロック・権限検査のテストを新配置で通す。Go 実装からの新規作成や TS 保存層の重複実装は行わず、旧 `src/store/sqlite/` と ESLint の暫定規則を撤去する。型補助宣言は `@types/node` が対応済みなら削除し、開発ガイドの参照先も更新する
 4. サービスから HTTP までを次の順に、別々の PR で実装する
-   - **4a サービス**：`services/AuthService` に `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、登録・ログイン・ダミー検証・再ハッシュ・エラー統一を実装する。`models` の `AuthInput`・`AuthResult` を使い、HTTP・DB・暗号 API を直接参照しない。偽実装による単体テストと本物の Provider を使う結合テストを通す
-   - **4b HTTP と起動**：`schemas`・`middlewares`・`controllers`・`routes` を実装し、`src/index.ts` で依存の注入とサーバーの起動・終了を組み立てる。最初に `internal/httpapi/web/` の 3 ファイルを内容を変えずに `public/` へコピーし、配信のテストも書く。Go の `internal/httpapi/static.go` が `go:embed` で元のファイルを参照するため、移動はしない。既存の `start` を `node src/index.ts` へ変更し、`public/` の Prettier・ESLint・カバレッジ除外もこの段階で設定する
+   - **4a サービス**：`services/AuthService` に `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、登録・ログイン・ダミー検証・再ハッシュ・エラー統一を実装する。この段階で `models/email.ts`（6.3 のメールアドレスの解析）、`models/auth.ts`（`AuthInput`・`AuthResult`）と、未移植の認証エラー（`InvalidEmailError`・`WeakPasswordError`・`InvalidCredentialsError`）を `errors/auth-errors.ts` に追加する。サービスはHTTP・DB・暗号 API を直接参照しない。偽実装による単体テストと本物の Provider を使う結合テストを通す
+   - **4b HTTP と起動**：`schemas`・`middlewares`・`controllers`・`routes` と、要求のエラー（`errors/request-errors.ts`）を実装し、`src/index.ts` で依存の注入とサーバーの起動・終了を組み立てる。最初に `internal/httpapi/web/` の 3 ファイルを内容を変えずに `public/` へコピーし、配信のテストも書く。Go の `internal/httpapi/static.go` が `go:embed` で元のファイルを参照するため、移動はしない。既存の `start` を `node src/index.ts` へ変更し、Prettier・ESLint の静的ファイルの除外を `public/` に変え、旧 `src/httpapi/web/` の除外指定もこの段階で整理する
 5. Windows のブラウザーから TS 実装のサーバーへ実際に接続し、Web 画面で登録・ログイン・重複登録・誤パスワードの応答を確認する
 6. README を TS 実装の手順に書き換える
 7. Go 実装を削除する。対象は `cmd/`、`internal/`（`internal/httpapi/web/` を含む）、`go.mod`、`go.sum`、`.github/actions/setup-go/`、`ci.yml` の Go 用のジョブ、`codeql.yml` の `go` の解析、`dependabot.yml` の `gomod` と `/.github/actions/setup-go` の確認先、development.md の「Go 実装（移行完了まで）」の節、tech-stack.md の「Go 実装で使っていたもの」の節
@@ -601,7 +603,7 @@ Go 実装を動かしたまま、TS 実装を `src/` に段階的に作り、仕
 
 ## 変更履歴
 
-- v0.27：TypeScript 移行後の配置をレイヤードアーキテクチャと DI・Provider 分離へ変更。Password・EncodedHash・Params・Cost を models、DB と暗号処理の実装を repositories・providers に分離し、サービスはインターフェースへ依存する。HTTP の DTO とサービスの入出力を分け、エラーから HTTP への変換を Middleware に一元化。業務の BusyError と PasswordBusyError を区別し、Web のコピー先を public/ とする。既完了の手順 1・2 と PR #17 の TS 保存層を引き継ぎ、基盤・Provider・Repository 移行・サービス・HTTP の段階 PR を追加。保存契約とエラーの移設、暫定 import 規則の撤去時期を明記。同時数 4 をアプリの CPU・メモリ上限として説明し、Node の公式実装と別処理の待ち時間の追加測定を記録。振る舞い、採用技術、既定パラメータは維持し、実装と設定の変更は後続の各段階で行う
+- v0.27：TypeScript 移行後の配置をレイヤードアーキテクチャと DI・Provider 分離へ変更。Password・EncodedHash・Params・Cost を models、DB と暗号処理の実装を repositories・providers に分離し、サービスはインターフェースへ依存する。HTTP の DTO とサービスの入出力を分け、エラーから HTTP への変換を Middleware に一元化。業務の BusyError と PasswordBusyError を区別し、Web のコピー先を public/ とする。既完了の手順 1・2 と PR #17 の TS 保存層を引き継ぎ、基盤・Provider・Repository 移行・サービス・HTTP の段階 PR を追加。保存契約とエラーの移設、暫定 import 規則の撤去時期を明記。同時数 4 を同時に計算する件数の上限として説明し、Node の公式実装、別処理の待ち時間、Argon2 の lane がプールの外のスレッドで動くことの追加測定を記録。応答期限を `AbortSignal.timeout` から `setTimeout` で中断する `AbortController` に変え（Vitest の偽タイマーで検証するため）、クライアントの切断を `res` の `close` で判定することを明記。応答期限を最長の待ち時間より長くする要件は維持する。メールアドレスの解析・サービスの入出力型・未移植の認証エラーを手順 4a、要求のエラーを 4b で作り、値オブジェクトのテストは 2a で移す。振る舞い、採用技術、既定パラメータは維持し、実装と設定の変更は後続の各段階で行う
 - v0.26：TypeScript の password モジュールを実装し、Node 標準の非同期 Argon2id のハッシュ時間・飽和時の所要時間・イベントループ遅延を 4.7 に記録。既定のハッシュ時間が目標内のため、採用パラメータは維持した
 - v0.25：移行の作業手順のうちコードを変える手順（1〜4、6、7）は、手順ごとに `develop` から feature ブランチを作り、前の手順のマージ後に次のブランチを作ることを明記し、ブランチ名を定めた
 - v0.24：PR #14 のレビューを反映。セマフォ・DB の待機タイムアウトによる 503 と、クライアント切断・応答期限超過による応答なしの扱いを分け、要求の中断時は成功応答や再ハッシュ失敗時の 200 より優先することを明記。Argon2id 以外の非同期スレッドプール処理を要求時に採用する場合だけ、飽和時の待ち時間も測定する
