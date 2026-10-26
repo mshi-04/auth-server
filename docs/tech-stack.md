@@ -4,7 +4,7 @@
 
 移行の完了（design.md 10 章の手順 7）までは、Go 実装と Go 用の CI が並存する。Go 実装で使っていた技術は、この文書の末尾の「Go 実装で使っていたもの」にまとめる。
 
-本書のパスと構成は、レイヤードアーキテクチャへの移行後の採用方針を示す。PR #17 マージ後の `develop`（`195aeee`、2026-10-25）では `src/errors.ts`、`src/password/`、`src/auth/` の保存層の型・エラー、`src/store/sqlite/` とそのテストが実装済みで、`package.json`・ESLint・Vitest の設定は旧構成のままである。`src/index.ts` への起動経路、`src/providers/password` へのベンチマーク経路、静的ファイルの対象パス、層ごとの依存規則は、design.md 10 章の移行手順で実装と合わせて変更する。
+本書のパスと構成は、レイヤードアーキテクチャへの移行後の採用方針を示す。手順 2a では `models/`・`errors/`・`config/` と Repository／Provider の interface を実装し、ESLint の層ごとの依存規則とテストを更新した。既存のハッシュ計算と SQLite 実装は、新しい契約を参照して `src/password/` と `src/store/sqlite/` に残る。`package.json` の起動・ベンチマーク経路、Vitest などの静的ファイルの対象パスは、design.md 10 章の後続段階で実装と合わせて変更する。
 
 ## 言語・実行環境
 

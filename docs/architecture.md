@@ -4,7 +4,7 @@
 
 ## 現状と移行先
 
-この文書は移行先の設計であり、実装済みの構成を表すものではない。分析対象は PR #17 マージ後の `develop` のコミット `195aeeed3524123131f991842f2eb83452a17ab3`（2026-10-25）。TS 側は `src/errors.ts`、`src/password/`、保存層の契約を定義する `src/auth/`（`UserStore`・`NewUser`・`Credential` と 3 つのエラー）、`src/store/sqlite/` および対応するテスト・ベンチマークが実装済みである。認証サービス・HTTP・設定・起動処理は Go の `cmd/authd/` と `internal/` にあり、`package.json` の起動先 `src/main.ts` はまだ存在しない。
+この文書は移行先全体の設計を定める。移行の基点は PR #17 マージ後の `develop` のコミット `195aeeed3524123131f991842f2eb83452a17ab3`（2026-10-25）。手順 2a で `models/`・`errors/`・`config/`、Repository と Provider の interface、各層の依存検査を追加した。値オブジェクトと保存契約は新配置に移し、旧 `src/auth/` と `src/errors.ts` は撤去済みである。ハッシュ計算は手順 2b まで `src/password/` の `Hasher`、SQLite 実装は手順 3 まで `src/store/sqlite/` の `SqliteStore` に残る。認証サービス・HTTP・起動処理は Go の `cmd/authd/` と `internal/` にあり、`package.json` の起動先 `src/main.ts` はまだ存在しない。
 
 実装済み TS の再配置と、残る Go の機能の移植を段階的に行う。Go 実装と Go 用 CI は design.md 10 章の手順 7 まで残す。文書を更新する段階では、実装、設定、スクリプト、静的ファイルを変更しない。各実装段階の順番とブランチは design.md 10 章を正本とする。
 
@@ -144,7 +144,7 @@ auth-server/
 
 基盤実装段階で `eslint.config.js` の旧 `auth`・`password`・`httpapi`・`store/sqlite` 向け規則を上の表へ更新し、`.github/scripts/eslint-config.test.ts` で検証する。新ディレクトリを追加するだけで依存検査が機能したとは扱わない。Service から具体実装への型 import、実装用公開口へのアクセス、再 export や動的 import による回避も禁止する。
 
-現在の設定は旧構成用のままである。手順 2a では `src/auth/store.ts` の interface を `UserRepository` として `repositories` へ、`NewUser`・`Credential` を `models` へ、既存の認証エラーと `src/errors.ts` の探索関数を `errors` へ移す。同時に、既存の `src/store/sqlite/` とそのテストの import・実装する interface を移行先へ合わせ、旧 `src/auth/` の定義と公開口を除去する。
+手順 2a で依存規則とそのテストを更新した。`src/auth/store.ts` の interface は `repositories` の `UserRepository`、`NewUser`・`Credential` は `models`、既存の認証エラーと `src/errors.ts` の探索関数は `errors` へ移設済みである。`src/store/sqlite/` とそのテストの import・実装する interface も新しい契約に合わせ、旧 `src/auth/` の定義と公開口を除去した。
 
 移行期間中は旧 `src/password/` と `src/store/sqlite/` に必要な依存だけを暫定的に許可する。手順 2a で値クラスを先に移す際は、値オブジェクト・PHC・パラメータのテストも `models/` の実装の隣へ移し、`hasher.test.ts` の値オブジェクトの検証もこのとき分ける。旧 `src/password/` に残る `hasher.ts` と、そのテスト・ベンチマーク（`Hasher`・セマフォ・鍵導出の検証）にだけモデル内部契約へのアクセスを限定して許可し、手順 2b の Provider 移行完了時にその旧経路と暫定規則を除去する。旧 `src/store/sqlite/` には `repositories` の interface、`models`、`errors` と `node:sqlite` の利用を許可し、手順 3 で SQLite モジュール全体とテストを `repositories/sqlite/` へ移した後に旧経路と暫定規則を除去する。`src/index.ts` を唯一の組み立て経路とする。
 

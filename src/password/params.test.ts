@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { defaultParams, Hasher, InvalidParamsError } from "./index.ts";
-import type { Params } from "./index.ts";
+import { InvalidParamsError } from "../errors/index.ts";
+import { defaultParams, Hasher } from "./index.ts";
 
-describe("password parameters", () => {
+describe("password provider settings", () => {
   it("returns fresh complete defaults", () => {
     const params = defaultParams();
     expect(params).toEqual({
@@ -18,37 +18,8 @@ describe("password parameters", () => {
     expect(defaultParams().iterations).toBe(9);
   });
 
-  const fields: (keyof Params)[] = [
-    "memoryKiB",
-    "iterations",
-    "parallelism",
-    "saltLength",
-    "keyLength",
-    "maxConcurrent",
-    "waitTimeoutMs",
-  ];
-  for (const field of fields) {
-    it.each([0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
-      `rejects ${field} = %s`,
-      (value) => {
-        expect(() =>
-          Hasher.create({ ...defaultParams(), [field]: value }),
-        ).toThrow(InvalidParamsError);
-      },
-    );
-  }
-
-  it.each([
-    { memoryKiB: 15 },
-    { memoryKiB: 262145 },
-    { iterations: 11 },
-    { parallelism: 17 },
-    { saltLength: 15 },
-    { saltLength: 65 },
-    { keyLength: 3 },
-    { keyLength: 65 },
-  ])("rejects fixed-limit violation %j", (patch) => {
-    expect(() => Hasher.create({ ...defaultParams(), ...patch })).toThrow(
+  it("validates model parameters at creation", () => {
+    expect(() => Hasher.create({ ...defaultParams(), iterations: 0 })).toThrow(
       InvalidParamsError,
     );
   });
@@ -72,7 +43,7 @@ describe("password parameters", () => {
       maxConcurrent: Number.MAX_SAFE_INTEGER,
       waitTimeoutMs: Number.MAX_SAFE_INTEGER,
     },
-  ])("accepts supported bounds %j", (patch) => {
+  ])("creates a hasher with supported bounds %j", (patch) => {
     expect(Hasher.create({ ...defaultParams(), ...patch })).toBeInstanceOf(
       Hasher,
     );

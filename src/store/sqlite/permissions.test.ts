@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BusyError } from "../../auth/index.ts";
+import { BusyError } from "../../errors/index.ts";
 import { prepareDatabaseFile, requirePrivateOwnership } from "./permissions.ts";
 
 const runFile = promisify(execFile);

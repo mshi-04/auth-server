@@ -1,4 +1,4 @@
-import { BusyError } from "../../auth/index.ts";
+import { BusyError } from "../../errors/index.ts";
 
 export function sqliteCode(error: unknown): number | undefined {
   if (

@@ -3,7 +3,8 @@ import { cpus } from "node:os";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { setImmediate, setTimeout } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
-import { defaultParams, Hasher, Password } from "./index.ts";
+import { Password } from "../models/index.ts";
+import { defaultParams, Hasher } from "./index.ts";
 
 const password = Password.parse("correct horse battery staple");
 const signal = new AbortController().signal;

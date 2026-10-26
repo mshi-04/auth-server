@@ -7,9 +7,10 @@ import {
   BusyError,
   EmailTakenError,
   UserNotFoundError,
-} from "../../auth/index.ts";
-import type { NewUser, UserStore } from "../../auth/index.ts";
-import { findError } from "../../errors.ts";
+  findError,
+} from "../../errors/index.ts";
+import type { NewUser } from "../../models/index.ts";
+import type { UserRepository } from "../../repositories/index.ts";
 import { SqliteStore } from "./index.ts";
 
 const signal = new AbortController().signal;
@@ -103,7 +104,7 @@ describe("SqliteStore", () => {
       { name: "users", strict: 1 },
     ]);
     const user = testUser();
-    const contract: UserStore = store;
+    const contract: UserRepository = store;
     await contract.createUser(user, signal);
     store.close();
     stores.delete(store);

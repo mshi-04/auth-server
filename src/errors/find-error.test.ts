@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { findError } from "./errors.ts";
+import { findError } from "./find-error.ts";
 
 class ExpectedError extends Error {
   override name = "ExpectedError";

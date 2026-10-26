@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { EncodedHash, InvalidHashError } from "./index.ts";
+import { InvalidHashError } from "../../errors/index.ts";
+import { EncodedHash } from "../index.ts";
 import { encodeBase64 } from "./phc.ts";
 
 const salt = encodeBase64(Buffer.alloc(16));

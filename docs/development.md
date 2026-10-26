@@ -4,7 +4,7 @@
 
 TypeScript 実装の手順を正本とする。移行の完了（design.md 10 章の手順 7）までは、Go 実装の手順と CI も残る。それらは末尾の「Go 実装（移行完了まで）」にまとめる。
 
-レイヤードアーキテクチャと DI・Provider 分離の目標構成は [architecture.md](architecture.md)、段階的な移行手順は [design.md](design.md) 10 章を正本とする。PR #17 マージ後の `develop`（`195aeee`、2026-10-25）では、`src/errors.ts`、`src/password/`、`src/auth/` の保存層の型・エラー、`src/store/sqlite/` とそのテストが実装済みで、HTTP・認証サービス・設定・起動処理は未移行である。この文書の目標パスに合わせた再配置と設定変更は、各実装段階で行う。
+レイヤードアーキテクチャと DI・Provider 分離の目標構成は [architecture.md](architecture.md)、段階的な移行手順は [design.md](design.md) 10 章を正本とする。手順 2a の基盤では `models/`・`errors/`・`config/` と Repository／Provider の interface を実装し、ESLint の依存規則を新しい層へ合わせた。旧 `src/auth/` の保存契約は撤去済みで、既存の `src/password/` と `src/store/sqlite/` は新しい型とエラーを利用する。ハッシュ計算・SQLite 実装の再配置、HTTP・認証サービス・起動処理は後続段階で行う。
 
 ## 開発環境
 

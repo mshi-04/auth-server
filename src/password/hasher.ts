@@ -1,93 +1,15 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { inspect } from "node:util";
+import { PolicyViolationError } from "../errors/index.ts";
+import type { Cost, EncodedHash, Params, Password } from "../models/index.ts";
+import {
+  createHash,
+  isCanonicalHash,
+  readHash,
+  readPassword,
+  validateParams,
+} from "../models/password/values.ts";
 import { deriveKey } from "./derive.ts";
-import { PolicyViolationError } from "./errors.ts";
-import { validateParams } from "./params.ts";
-import type { Cost, Params } from "./params.ts";
-import { encodeHash, parseHash } from "./phc.ts";
-import type { DecodedHash } from "./phc.ts";
 import { abortedError, Semaphore } from "./semaphore.ts";
-
-type PasswordSecret = { value: string; length: number };
-type HashSecret = { encoded: string; decoded: DecodedHash };
-const redacted = "[REDACTED]";
-
-let readPassword: (password: Password) => PasswordSecret;
-let readHash: (encoded: EncodedHash) => HashSecret;
-let createHash: (encoded: string, decoded: DecodedHash) => EncodedHash;
-
-export class Password {
-  #secret: PasswordSecret;
-
-  private constructor(secret: PasswordSecret) {
-    this.#secret = secret;
-  }
-
-  static {
-    readPassword = (password) => password.#secret;
-  }
-
-  static parse(raw: string): Password {
-    if (!raw.isWellFormed()) {
-      throw new PolicyViolationError();
-    }
-    const value = raw.normalize("NFKC");
-    const codePoints = value[Symbol.iterator]();
-    let length = 0;
-    while (!codePoints.next().done) {
-      length++;
-      if (length > 128) {
-        throw new PolicyViolationError();
-      }
-    }
-    return new Password({ value, length });
-  }
-
-  toString(): string {
-    return redacted;
-  }
-
-  toJSON(): string {
-    return redacted;
-  }
-
-  [inspect.custom](): string {
-    return redacted;
-  }
-}
-
-export class EncodedHash {
-  #secret: HashSecret;
-
-  private constructor(secret: HashSecret) {
-    this.#secret = secret;
-  }
-
-  static {
-    readHash = (encoded) => encoded.#secret;
-    createHash = (encoded, decoded) => new EncodedHash({ encoded, decoded });
-  }
-
-  static parse(encoded: string): EncodedHash {
-    return new EncodedHash({ encoded, decoded: parseHash(encoded) });
-  }
-
-  phc(): string {
-    return this.#secret.encoded;
-  }
-
-  toString(): string {
-    return redacted;
-  }
-
-  toJSON(): string {
-    return redacted;
-  }
-
-  [inspect.custom](): string {
-    return redacted;
-  }
-}
 
 export class Hasher {
   #params: Params;
@@ -120,7 +42,7 @@ export class Hasher {
     encoded: EncodedHash,
     signal: AbortSignal,
   ): Promise<boolean> {
-    const { decoded } = readHash(encoded);
+    const decoded = readHash(encoded);
     const key = await this.#withSlot(signal, () =>
       derive(password, decoded.cost, decoded.salt, decoded.key.length),
     );
@@ -128,14 +50,14 @@ export class Hasher {
   }
 
   needsRehash(encoded: EncodedHash): boolean {
-    const { decoded, encoded: original } = readHash(encoded);
+    const decoded = readHash(encoded);
     return (
       decoded.cost.memoryKiB !== this.#params.memoryKiB ||
       decoded.cost.iterations !== this.#params.iterations ||
       decoded.cost.parallelism !== this.#params.parallelism ||
       decoded.salt.length !== this.#params.saltLength ||
       decoded.key.length !== this.#params.keyLength ||
-      encodeHash(decoded) !== original
+      !isCanonicalHash(encoded)
     );
   }
 
@@ -146,8 +68,7 @@ export class Hasher {
       const cost = { memoryKiB, iterations, parallelism };
       const salt = randomBytes(saltLength);
       const key = await derive(password, cost, salt, keyLength);
-      const decoded = { cost, salt, key };
-      return createHash(encodeHash(decoded), decoded);
+      return createHash(cost, salt, key);
     });
   }
 
