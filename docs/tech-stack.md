@@ -1,10 +1,10 @@
 # テックスタック
 
-採用技術と、その理由をまとめる。仕様の詳細は [design.md](design.md) を参照。依存パッケージのバージョンは、実装後は `package.json` と `package-lock.json` を正本とする。Node のメジャーバージョンは `.nvmrc` を正本とし、`package.json` の `engines.node`（`>=26.11.0 <27`）は対象外の版で動かしていないかの検査に使う。
+採用技術と、その理由をまとめる。機能仕様の一覧は [design.md](design.md#文書の正本と読む順序) を参照。プロジェクトのフォルダ名と npm のパッケージ名は `auth-server` とする。依存パッケージのバージョンは、実装後は `package.json` と `package-lock.json` を正本とする。Node のメジャーバージョンは `.nvmrc` を正本とし、`package.json` の `engines.node`（`>=26.11.0 <27`）は対象外の版で動かしていないかの検査に使う。
 
-移行の完了（design.md 10 章の手順 7）までは、Go 実装と Go 用の CI が並存する。Go 実装で使っていた技術は、この文書の末尾の「Go 実装で使っていたもの」にまとめる。
+移行の完了（[移行手順 7](migration.md#step-7)）までは、Go 実装と Go 用の CI が並存する。Go 実装の技術は、この文書の末尾の「Go 実装（移行完了まで）」にまとめる。
 
-本書のパスと構成は、レイヤードアーキテクチャへの移行後の採用方針を示す。手順 2a では `models/`・`errors/`・`config/` と Repository／Provider の interface を実装し、ESLint の層ごとの依存規則とテストを更新した。既存のハッシュ計算と SQLite 実装は、新しい契約を参照して `src/password/` と `src/store/sqlite/` に残る。`package.json` の起動・ベンチマーク経路、Vitest などの静的ファイルの対象パスは、design.md 10 章の後続段階で実装と合わせて変更する。
+本書のパスと構成は移行先の採用方針を示す。現在の配置は [アーキテクチャ](architecture.md#現状と移行先)、起動・ベンチマーク・静的ファイルの参照先を変える段階は [移行手順](migration.md)に従う。
 
 ## 言語・実行環境
 
@@ -73,8 +73,6 @@ devDependency は次の 8 つに限る。
 | スキーマ管理 | `src/repositories/sqlite/init.sql` を `open` で読み込んで実行 | テーブルが 2 つだけなのでマイグレーションツールは不要 |
 | 接続設定 | 接続を 1 つだけ持ち、コンストラクタのオプションで外部キー制約と busy timeout を、`PRAGMA` で WAL を設定する。書き込みは `BEGIN IMMEDIATE` で始める | `node:sqlite` は同期 API のため、接続を増やしても同じプロセス内で並行して実行されない |
 
-旧 `src/auth/store.ts` の `UserStore`・入出力型と `src/auth/errors.ts` は、手順 2a で `repositories`・`models`・`errors` に分け、既存の保存層の import も合わせた。手順 3 では `src/store/sqlite/` の `SqliteStore` を `SqliteUserRepository` へ改名し、SQLite モジュール全体と既存テストを `src/repositories/sqlite/` へ移す。SQL・トランザクション・権限検査・エラー変換の既存実装を再利用する。
-
 `@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、現在は `src/store/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。手順 3 では同じ宣言を `src/repositories/sqlite/node-sqlite.d.ts` へ移し、型定義が対応したら削除する。実行時は `Database` を直接使う。
 
 ## テスト
@@ -105,9 +103,9 @@ devDependency は次の 8 つに限る。
 | Docker、testcontainers | SQLite で DB サーバーが不要になった |
 | JWT ライブラリ | トークン発行はスコープ外 |
 
-## Go 実装で使っていたもの
+## Go 実装（移行完了まで）
 
-移行の完了（design.md 10 章の手順 7）で削除する。
+移行の完了（[移行手順 7](migration.md#step-7)）で削除する。
 
 | 用途 | 採用 |
 |---|---|

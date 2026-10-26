@@ -175,13 +175,17 @@ CI では整形・静的検査、全テスト、レース検出、カバレッ�
 
 | 文書 | 内容 |
 |---|---|
-| [設計書](docs/design.md) | API・パスワード・DB の仕様、完了条件 |
+| [設計書](docs/design.md) | 設計全体の入口、スコープ、既知の制限、完了条件 |
+| [パスワード仕様](docs/specs/password.md) | PHC、ポリシー、ハッシュ・検証・再ハッシュ |
+| [DB 仕様](docs/specs/database.md) | スキーマ、初期化、権限、保存契約 |
+| [API・認証・サーバー仕様](docs/specs/api.md) | HTTP 入出力、認証手順、設定、タイムアウト、Web 画面 |
+| [移行手順](docs/migration.md) | 残りの TypeScript 移行手順 |
 | [アーキテクチャ](docs/architecture.md) | 責務、依存の向き、テスト方法 |
 | [開発ガイド](docs/development.md) | Windows/WSL のコマンド、CI、Git 運用 |
 | [テックスタック](docs/tech-stack.md) | 採用技術と採用しない技術 |
 | [TypeScript のコーディング方針](docs/typescript-coding-guidelines.md) | 実装・エラー処理・テストの方針 |
 
-性能測定のコマンドと結果は設計書4.7節にあります。2026-10-19 の型付き API の測定では、既定設定のハッシュ1回の中央値は **358.733 ms** でした。これは記載された環境での過去の測定値です。
+性能測定のコマンドと結果は [性能測定と調査記録](docs/password-benchmarks.md)にあります。2026-10-19 の型付き API の測定では、既定設定のハッシュ1回の中央値は **358.733 ms** でした。これは記載された環境での過去の測定値です。
 
 ## 既知の制限
 
