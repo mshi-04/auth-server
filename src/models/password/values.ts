@@ -4,8 +4,6 @@ import type { Cost } from "./hash-parameters.ts";
 import { encodeHash, parseHash } from "./phc.ts";
 import type { DecodedHash } from "./phc.ts";
 
-export { validateParams } from "./hash-parameters.ts";
-
 type PasswordSecret = { value: string; length: number };
 type HashSecret = { encoded: string; decoded: DecodedHash };
 const redacted = "[REDACTED]";

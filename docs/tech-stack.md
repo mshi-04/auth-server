@@ -73,7 +73,7 @@ devDependency は次の 8 つに限る。
 | スキーマ管理 | `src/repositories/sqlite/init.sql` を `open` で読み込んで実行 | テーブルが 2 つだけなのでマイグレーションツールは不要 |
 | 接続設定 | 接続を 1 つだけ持ち、コンストラクタのオプションで外部キー制約と busy timeout を、`PRAGMA` で WAL を設定する。書き込みは `BEGIN IMMEDIATE` で始める | `node:sqlite` は同期 API のため、接続を増やしても同じプロセス内で並行して実行されない |
 
-実装済みの `src/auth/store.ts` の `UserStore`・入出力型と `src/auth/errors.ts` は、手順 2a で `repositories`・`models`・`errors` に分け、既存の保存層の import も合わせる。手順 3 では `src/store/sqlite/` の `SqliteStore` を `SqliteUserRepository` へ改名し、SQLite モジュール全体と既存テストを `src/repositories/sqlite/` へ移す。SQL・トランザクション・権限検査・エラー変換の既存実装を再利用する。
+旧 `src/auth/store.ts` の `UserStore`・入出力型と `src/auth/errors.ts` は、手順 2a で `repositories`・`models`・`errors` に分け、既存の保存層の import も合わせた。手順 3 では `src/store/sqlite/` の `SqliteStore` を `SqliteUserRepository` へ改名し、SQLite モジュール全体と既存テストを `src/repositories/sqlite/` へ移す。SQL・トランザクション・権限検査・エラー変換の既存実装を再利用する。
 
 `@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、現在は `src/store/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。手順 3 では同じ宣言を `src/repositories/sqlite/node-sqlite.d.ts` へ移し、型定義が対応したら削除する。実行時は `Database` を直接使う。
 

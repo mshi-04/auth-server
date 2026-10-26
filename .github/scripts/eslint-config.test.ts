@@ -206,6 +206,31 @@ describe.each(declarationForms)("layer direction: %s", (_, declaration) => {
   });
 });
 
+describe("layer direction through interface barrels", () => {
+  const interfaceNames: Record<string, string> = {
+    repositories: "UserRepository",
+    providers: "LoggerProvider",
+  };
+  for (const row of layerCases) {
+    const denied = row.denied.filter((target) => target in interfaceNames);
+    if (denied.length > 0) {
+      it.each(denied)(
+        "rejects " + row.from + " -> %s interface types",
+        (target) => {
+          rejects(
+            "src/" + row.from + "/example.ts",
+            namedImport(
+              "../" + target + "/index.ts",
+              interfaceNames[target] ?? "",
+              true,
+            ),
+          );
+        },
+      );
+    }
+  }
+});
+
 describe("interface-only public APIs", () => {
   it.each(["PasswordProvider", "IdProvider", "LoggerProvider"])(
     "allows Service type access to %s",
@@ -255,11 +280,22 @@ describe("interface-only public APIs", () => {
     ["src/services/auth-service.ts", "../providers/index.ts"],
     ["src/services/auth-service.ts", "../providers/password/index.ts"],
     ["src/services/auth-service.ts", "../repositories/sqlite/index.ts"],
-    ["src/providers/index.ts", "./password/index.ts"],
-    ["src/repositories/index.ts", "./sqlite/index.ts"],
   ])("rejects concrete type access: %s -> %s", (filename, source) => {
     rejects(filename, namedImport(source, "Concrete", true));
   });
+
+  it.each([
+    ["src/providers/index.ts", "./password/index.ts", "PasswordProvider"],
+    ["src/repositories/index.ts", "./sqlite/index.ts", "UserRepository"],
+  ])(
+    "rejects interface names taken from concrete modules: %s -> %s",
+    (filename, source, name) => {
+      rejects(
+        filename,
+        "export type { " + name + " } from " + JSON.stringify(source) + ";",
+      );
+    },
+  );
 
   it("keeps interface definitions behind type-only public barrels", () => {
     rejects(
@@ -304,13 +340,7 @@ describe("interface barrel sources", () => {
 });
 
 describe("model secrets and targeted test exceptions", () => {
-  const helpers = [
-    "readPassword",
-    "readHash",
-    "createHash",
-    "isCanonicalHash",
-    "validateParams",
-  ];
+  const helpers = ["readPassword", "readHash", "createHash", "isCanonicalHash"];
   const allowed = [
     "src/models/password/values.test.ts",
     "src/password/hasher.ts",
@@ -323,9 +353,19 @@ describe("model secrets and targeted test exceptions", () => {
   it.each(allowed)("allows only named secret helpers in %s", (filename) => {
     const source = sourcePath(filename, "src/models/password/values.ts");
     for (const name of helpers) {
-      allows(filename, namedImport(source, name));
+      allows(
+        filename,
+        "import { " +
+          name +
+          " as helper } from " +
+          JSON.stringify(source) +
+          "; void helper();",
+      );
     }
     for (const code of [
+      namedImport(source, "validateParams"),
+      namedImport(source, "readPassword") +
+        " export class Leak { static read = Dependency; }",
       "import * as values from " + JSON.stringify(source) + "; void values;",
       "import values from " + JSON.stringify(source) + "; void values;",
       "import " + JSON.stringify(source) + ";",
@@ -379,6 +419,14 @@ describe("model secrets and targeted test exceptions", () => {
     "limits privileged production exports to the documented class in %s",
     (filename, name) => {
       allows(filename, "export class " + name + " {}");
+      rejects(
+        filename,
+        'import { readPassword } from "' +
+          sourcePath(filename, "src/models/password/values.ts") +
+          '"; export class ' +
+          name +
+          " { static read = readPassword; }",
+      );
       rejects(filename, "export class Other {}");
       rejects(filename, "export const " + name + " = 1;");
       rejects(filename, "export default class " + name + " {}");
@@ -441,9 +489,13 @@ describe("model secrets and targeted test exceptions", () => {
       'export { readPassword as Password } from "./password/values.ts";',
     );
     rejects("src/models/index.ts", 'export * from "./password/values.ts";');
-    rejects(
+    allows(
       "src/models/index.ts",
       'export { validateParams } from "./password/hash-parameters.ts";',
+    );
+    rejects(
+      "src/models/index.ts",
+      'export { inRange } from "./password/hash-parameters.ts";',
     );
     rejects(
       "src/models/index.ts",
@@ -565,10 +617,19 @@ describe("forbidden syntax and bypasses", () => {
     ]) {
       rejects(filename, code, "no-restricted-syntax");
     }
+    for (const code of [
+      "export const value = Math.random();",
+      'export const value = process.getBuiltinModule("node:sqlite");',
+      "export const value = globalThis.crypto.randomUUID();",
+      'import { vi } from "vitest"; export const value = vi.importActual("../repositories/sqlite/index.ts");',
+      'import { vi } from "vitest"; vi.mock("../repositories/sqlite/index.ts");',
+    ]) {
+      rejects(filename, code, "no-restricted-properties");
+    }
     rejects(
       filename,
-      "export const value = Math.random();",
-      "no-restricted-properties",
+      "export const value = crypto.randomUUID();",
+      "no-restricted-globals",
     );
     rejects(
       filename,

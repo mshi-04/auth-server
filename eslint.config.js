@@ -24,13 +24,40 @@ const modelSecretFunctions = [
   "readHash",
   "createHash",
   "isCanonicalHash",
-  "validateParams",
 ];
+const privilegedClasses = {
+  "password/hasher.ts": "Hasher",
+  "providers/password/argon2-password-provider.ts": "Argon2PasswordProvider",
+};
 const transitionalSecretCallers = [
-  "password/hasher.ts",
   "password/hasher.test.ts",
   "password/concurrency.test.ts",
   "password/password.bench.ts",
+];
+const serviceIntegrationTests = [
+  "services/auth-service.test.ts",
+  "services/auth-service.integration.test.ts",
+];
+const directoryModules = [
+  "repositories/sqlite",
+  "providers/password",
+  "store/sqlite",
+];
+const singleFileModules = [
+  "providers/crypto-id-provider",
+  "providers/json-logger-provider",
+];
+const implementationModules = [
+  ...directoryModules,
+  ...singleFileModules,
+  "password",
+];
+const sqliteModules = ["repositories/sqlite", "store/sqlite"];
+const cryptoModules = ["providers/password", ...singleFileModules];
+const transitionalCryptoFiles = [
+  "password/hasher.ts",
+  "password/derive.ts",
+  "password/concurrency.test.ts",
 ];
 
 function sourcePath(filename) {
@@ -38,19 +65,12 @@ function sourcePath(filename) {
 }
 
 function moduleName(filename) {
-  for (const module of [
-    "repositories/sqlite",
-    "providers/password",
-    "store/sqlite",
-  ]) {
+  for (const module of directoryModules) {
     if (filename.startsWith(`${module}/`)) {
       return module;
     }
   }
-  for (const module of [
-    "providers/crypto-id-provider",
-    "providers/json-logger-provider",
-  ]) {
+  for (const module of singleFileModules) {
     if (filename === `${module}.ts` || filename === `${module}.test.ts`) {
       return module;
     }
@@ -92,14 +112,7 @@ function namedAccess(node, names, typeOnly = false) {
 }
 
 function implementationModule(module) {
-  return [
-    "repositories/sqlite",
-    "providers/password",
-    "providers/crypto-id-provider",
-    "providers/json-logger-provider",
-    "password",
-    "store/sqlite",
-  ].includes(module);
+  return implementationModules.includes(module);
 }
 
 const projectPlugin = {
@@ -118,16 +131,32 @@ const projectPlugin = {
         const module = moduleName(filename);
         const layer = layerName(module);
         const testing = /\.(?:test|bench)\.ts$/.test(filename);
-        const exportedClass =
-          filename === "password/hasher.ts"
-            ? "Hasher"
-            : filename === "providers/password/argon2-password-provider.ts"
-              ? "Argon2PasswordProvider"
-              : undefined;
+        const exportedClass = Object.hasOwn(privilegedClasses, filename)
+          ? privilegedClasses[filename]
+          : undefined;
         const secretCaller =
           exportedClass !== undefined ||
           filename === "models/password/values.test.ts" ||
           transitionalSecretCallers.includes(filename);
+
+        function rejectNonCallReferences(node) {
+          for (const variable of context.sourceCode.getDeclaredVariables(
+            node,
+          )) {
+            for (const reference of variable.references) {
+              const { parent } = reference.identifier;
+              if (
+                parent.type !== "CallExpression" ||
+                parent.callee !== reference.identifier
+              ) {
+                context.report({
+                  node: reference.identifier,
+                  messageId: "restricted",
+                });
+              }
+            }
+          }
+        }
 
         function check(node) {
           function reject() {
@@ -165,19 +194,10 @@ const projectPlugin = {
               (["node:http", "node:https", "node:http2"].includes(source) &&
                 filename !== "index.ts" &&
                 !["routes", "controllers", "middlewares"].includes(layer)) ||
-              (source === "node:sqlite" &&
-                !["repositories/sqlite", "store/sqlite"].includes(module)) ||
+              (source === "node:sqlite" && !sqliteModules.includes(module)) ||
               (source === "node:crypto" &&
-                ![
-                  "providers/password",
-                  "providers/crypto-id-provider",
-                  "providers/json-logger-provider",
-                ].includes(module) &&
-                ![
-                  "password/hasher.ts",
-                  "password/derive.ts",
-                  "password/concurrency.test.ts",
-                ].includes(filename))
+                !cryptoModules.includes(module) &&
+                !transitionalCryptoFiles.includes(filename))
             ) {
               reject();
             }
@@ -204,33 +224,21 @@ const projectPlugin = {
           }
 
           if (target === "models/password/values.ts") {
-            if (filename === "models/index.ts") {
-              if (!namedAccess(node, ["Password", "EncodedHash"])) {
-                reject();
-              }
-              return;
-            }
             if (
-              filename.startsWith("models/password/") &&
-              filename !== "models/password/values.test.ts"
+              filename === "models/index.ts" ||
+              (filename.startsWith("models/password/") && !secretCaller)
             ) {
               if (!namedAccess(node, ["Password", "EncodedHash"])) {
                 reject();
               }
               return;
             }
-            if (
-              filename === "providers/password/argon2-password-provider.ts" ||
-              filename === "models/password/values.test.ts" ||
-              transitionalSecretCallers.includes(filename)
-            ) {
-              if (
-                node.type !== "ImportDeclaration" ||
-                !namedAccess(node, modelSecretFunctions)
-              ) {
+            if (secretCaller) {
+              if (!namedAccess(node, modelSecretFunctions)) {
                 reject();
                 return;
               }
+              rejectNonCallReferences(node);
               return;
             }
             reject();
@@ -243,7 +251,10 @@ const projectPlugin = {
           ) {
             if (
               target !== "models/password/hash-parameters.ts" ||
-              !namedAccess(node, ["Params", "Cost"], true)
+              !(
+                namedAccess(node, ["Params", "Cost"], true) ||
+                namedAccess(node, ["validateParams"])
+              )
             ) {
               reject();
             }
@@ -251,10 +262,8 @@ const projectPlugin = {
           }
 
           const serviceIntegration =
-            [
-              "services/auth-service.test.ts",
-              "services/auth-service.integration.test.ts",
-            ].includes(filename) && targetModule === "providers/password";
+            serviceIntegrationTests.includes(filename) &&
+            targetModule === "providers/password";
           if (
             implementationModule(targetModule) &&
             filename !== "index.ts" &&
@@ -268,10 +277,7 @@ const projectPlugin = {
           if (
             targetModule !== module &&
             target !== `${targetModule}/index.ts` &&
-            ![
-              "providers/crypto-id-provider.ts",
-              "providers/json-logger-provider.ts",
-            ].includes(target)
+            !singleFileModules.includes(target.replace(/\.ts$/, ""))
           ) {
             reject();
             return;
@@ -294,9 +300,7 @@ const projectPlugin = {
           }
           if (
             filename !== "index.ts" &&
-            targetModule !== module &&
             targetLayer !== layer &&
-            !serviceIntegration &&
             !(layerDependencies[layer] ?? []).includes(targetLayer)
           ) {
             reject();
@@ -384,6 +388,26 @@ const forbiddenProperties = [
     property: "createRequire",
     message: "Use static imports so module dependencies can be checked.",
   },
+  {
+    property: "getBuiltinModule",
+    message: "Use static imports so module dependencies can be checked.",
+  },
+  {
+    object: "globalThis",
+    property: "crypto",
+    message: "Use randomBytes or randomUUID from node:crypto.",
+  },
+  ...["mock", "doMock", "importActual", "importMock"].map((property) => ({
+    object: "vi",
+    property,
+    message: "Use static imports so module dependencies can be checked.",
+  })),
+];
+const forbiddenGlobals = [
+  {
+    name: "crypto",
+    message: "Use randomBytes or randomUUID from node:crypto.",
+  },
 ];
 
 const restrictedImports = [
@@ -444,6 +468,7 @@ export default defineConfig(
       "@typescript-eslint/switch-exhaustiveness-check": "error",
       "no-restricted-syntax": ["error", ...forbiddenSyntax],
       "no-restricted-properties": ["error", ...forbiddenProperties],
+      "no-restricted-globals": ["error", ...forbiddenGlobals],
     },
   },
   {

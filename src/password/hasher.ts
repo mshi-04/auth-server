@@ -1,12 +1,12 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { PolicyViolationError } from "../errors/index.ts";
+import { validateParams } from "../models/index.ts";
 import type { Cost, EncodedHash, Params, Password } from "../models/index.ts";
 import {
   createHash,
   isCanonicalHash,
   readHash,
   readPassword,
-  validateParams,
 } from "../models/password/values.ts";
 import { deriveKey } from "./derive.ts";
 import { abortedError, Semaphore } from "./semaphore.ts";

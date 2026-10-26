@@ -15,6 +15,18 @@ function isWindowsDrive(path: string): boolean {
   return path === "/mnt/c" || path.startsWith("/mnt/c/");
 }
 
+function pathExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if (hasCode(error, "ENOENT")) {
+      return false;
+    }
+    throw new ConfigError("Inspect DATABASE_PATH failed.", { cause: error });
+  }
+}
+
 function resolveDatabaseLinks(path: string): string {
   try {
     return realpathSync(path);
@@ -24,26 +36,17 @@ function resolveDatabaseLinks(path: string): string {
         cause: error,
       });
     }
-
-    try {
-      lstatSync(path);
-    } catch (statError) {
-      if (!hasCode(statError, "ENOENT")) {
-        throw new ConfigError("Inspect DATABASE_PATH failed.", {
-          cause: statError,
-        });
-      }
-
-      try {
-        return resolve(realpathSync(dirname(path)), basename(path));
-      } catch (parentError) {
-        throw new ConfigError("Resolve DATABASE_PATH parent failed.", {
-          cause: parentError,
-        });
-      }
+    if (pathExists(path)) {
+      throw new ConfigError("DATABASE_PATH is a dangling symbolic link.", {
+        cause: error,
+      });
     }
+  }
 
-    throw new ConfigError("Resolve DATABASE_PATH links failed.", {
+  try {
+    return resolve(realpathSync(dirname(path)), basename(path));
+  } catch (error) {
+    throw new ConfigError("Resolve DATABASE_PATH parent failed.", {
       cause: error,
     });
   }
@@ -72,12 +75,7 @@ function parsePort(raw: string | undefined): number {
   }
 
   const port = Number(raw);
-  if (
-    /[^0-9]/u.test(raw) ||
-    !Number.isInteger(port) ||
-    port < 1 ||
-    port > 65535
-  ) {
+  if (/[^0-9]/u.test(raw) || port < 1 || port > 65535) {
     throw new ConfigError("PORT must be decimal digits between 1 and 65535.");
   }
   return port;

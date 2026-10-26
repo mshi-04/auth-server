@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import {
   chmod,
   lstat,
@@ -145,8 +146,11 @@ describe("loadConfig", () => {
     async (file) => {
       const link = join(directory, "windows");
       await symlink("/mnt/c", link);
+      // CI runners have no /mnt/c, so the link dangles there and is rejected for that reason instead.
       expect(() => loadConfig({ DATABASE_PATH: join(link, file) })).toThrow(
-        "DATABASE_PATH must not resolve under /mnt/c",
+        existsSync("/mnt/c")
+          ? "DATABASE_PATH must not resolve under /mnt/c"
+          : ConfigError,
       );
     },
   );
@@ -154,7 +158,7 @@ describe("loadConfig", () => {
   it("rejects a dangling final symlink instead of treating it as a new database", async () => {
     await symlink(join(directory, "nonexistent.db"), path);
     expect(() => loadConfig({ DATABASE_PATH: path })).toThrow(
-      "Resolve DATABASE_PATH links failed",
+      "DATABASE_PATH is a dangling symbolic link",
     );
   });
 
