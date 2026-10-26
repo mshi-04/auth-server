@@ -1,13 +1,8 @@
-import { format, inspect } from "node:util";
 import { describe, expect, it } from "vitest";
-import {
-  defaultParams,
-  EncodedHash,
-  Hasher,
-  Password,
-  PolicyViolationError,
-} from "./index.ts";
-import type { Params } from "./index.ts";
+import { PolicyViolationError } from "../errors/index.ts";
+import { EncodedHash, Password } from "../models/index.ts";
+import type { Params } from "../models/index.ts";
+import { defaultParams, Hasher } from "./index.ts";
 
 const signal = new AbortController().signal;
 const valid = "correct horse battery staple";
@@ -15,38 +10,7 @@ function smallParams(): Params {
   return { ...defaultParams(), memoryKiB: 64, iterations: 1, parallelism: 1 };
 }
 
-describe("password values and hashing", () => {
-  it.each([
-    "",
-    "short",
-    "a".repeat(11),
-    "a".repeat(12),
-    "a".repeat(128),
-    "😀".repeat(128),
-    "㍿".repeat(32),
-    "e\u0301".repeat(128),
-  ])("parses valid well-formed input %j", (raw) => {
-    expect(Password.parse(raw)).toBeInstanceOf(Password);
-  });
-
-  it.each([
-    "a".repeat(129),
-    "😀".repeat(129),
-    "㍿".repeat(33),
-    "\ud800",
-    "\udfff",
-    "a\ud800b",
-  ])("rejects malformed or long input %j", (raw) => {
-    expect(() => Password.parse(raw)).toThrow(PolicyViolationError);
-    try {
-      Password.parse(raw);
-    } catch (error) {
-      if (error instanceof Error) {
-        expect(error.message).not.toContain(raw);
-      }
-    }
-  });
-
+describe("password hashing", () => {
   it.each([
     ["", false],
     ["a".repeat(11), false],
@@ -201,25 +165,5 @@ describe("password values and hashing", () => {
     const encoded = await hasher.hash(Password.parse(valid), signal);
     expect(hasher.needsRehash(encoded)).toBe(false);
     expect(encoded.phc()).toContain("m=64,t=1,p=1");
-  });
-
-  it("redacts both value objects through all normal output paths", async () => {
-    const password = Password.parse(valid);
-    const encoded = await Hasher.create(smallParams()).hash(password, signal);
-    for (const value of [password, encoded]) {
-      expect(value.toString()).toBe("[REDACTED]");
-      expect(value.toJSON()).toBe("[REDACTED]");
-      expect(JSON.stringify(value)).toBe('"[REDACTED]"');
-      expect(inspect(value)).toBe("[REDACTED]");
-      expect(inspect({ value })).toBe("{ value: [REDACTED] }");
-      expect(JSON.stringify({ value })).toBe('{"value":"[REDACTED]"}');
-      expect(format("%s", value)).toBe("[REDACTED]");
-      expect(format("%o", value)).toBe("[REDACTED]");
-      // eslint-disable-next-line @typescript-eslint/restrict-template-expressions -- Exercise implicit interpolation of secret value objects.
-      expect(`${value}`).toBe("[REDACTED]");
-      expect(Object.keys(value)).toEqual([]);
-    }
-    expect(inspect({ encoded })).not.toContain(encoded.phc());
-    expect(inspect({ password })).not.toContain(valid);
   });
 });

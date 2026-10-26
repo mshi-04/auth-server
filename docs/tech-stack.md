@@ -4,7 +4,7 @@
 
 移行の完了（design.md 10 章の手順 7）までは、Go 実装と Go 用の CI が並存する。Go 実装で使っていた技術は、この文書の末尾の「Go 実装で使っていたもの」にまとめる。
 
-本書のパスと構成は、レイヤードアーキテクチャへの移行後の採用方針を示す。PR #17 マージ後の `develop`（`195aeee`、2026-10-25）では `src/errors.ts`、`src/password/`、`src/auth/` の保存層の型・エラー、`src/store/sqlite/` とそのテストが実装済みで、`package.json`・ESLint・Vitest の設定は旧構成のままである。`src/index.ts` への起動経路、`src/providers/password` へのベンチマーク経路、静的ファイルの対象パス、層ごとの依存規則は、design.md 10 章の移行手順で実装と合わせて変更する。
+本書のパスと構成は、レイヤードアーキテクチャへの移行後の採用方針を示す。手順 2a では `models/`・`errors/`・`config/` と Repository／Provider の interface を実装し、ESLint の層ごとの依存規則とテストを更新した。既存のハッシュ計算と SQLite 実装は、新しい契約を参照して `src/password/` と `src/store/sqlite/` に残る。`package.json` の起動・ベンチマーク経路、Vitest などの静的ファイルの対象パスは、design.md 10 章の後続段階で実装と合わせて変更する。
 
 ## 言語・実行環境
 
@@ -73,7 +73,7 @@ devDependency は次の 8 つに限る。
 | スキーマ管理 | `src/repositories/sqlite/init.sql` を `open` で読み込んで実行 | テーブルが 2 つだけなのでマイグレーションツールは不要 |
 | 接続設定 | 接続を 1 つだけ持ち、コンストラクタのオプションで外部キー制約と busy timeout を、`PRAGMA` で WAL を設定する。書き込みは `BEGIN IMMEDIATE` で始める | `node:sqlite` は同期 API のため、接続を増やしても同じプロセス内で並行して実行されない |
 
-実装済みの `src/auth/store.ts` の `UserStore`・入出力型と `src/auth/errors.ts` は、手順 2a で `repositories`・`models`・`errors` に分け、既存の保存層の import も合わせる。手順 3 では `src/store/sqlite/` の `SqliteStore` を `SqliteUserRepository` へ改名し、SQLite モジュール全体と既存テストを `src/repositories/sqlite/` へ移す。SQL・トランザクション・権限検査・エラー変換の既存実装を再利用する。
+旧 `src/auth/store.ts` の `UserStore`・入出力型と `src/auth/errors.ts` は、手順 2a で `repositories`・`models`・`errors` に分け、既存の保存層の import も合わせた。手順 3 では `src/store/sqlite/` の `SqliteStore` を `SqliteUserRepository` へ改名し、SQLite モジュール全体と既存テストを `src/repositories/sqlite/` へ移す。SQL・トランザクション・権限検査・エラー変換の既存実装を再利用する。
 
 `@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、現在は `src/store/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。手順 3 では同じ宣言を `src/repositories/sqlite/node-sqlite.d.ts` へ移し、型定義が対応したら削除する。実行時は `Database` を直接使う。
 

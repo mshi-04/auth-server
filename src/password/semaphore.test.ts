@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BusyError } from "./index.ts";
+import { PasswordBusyError } from "../errors/index.ts";
 import { Semaphore } from "./semaphore.ts";
 
 const freeSignal = new AbortController().signal;
@@ -44,7 +44,7 @@ describe("semaphore waiting", () => {
     expect(failure).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1);
     await waiting;
-    expect(failure).toBeInstanceOf(BusyError);
+    expect(failure).toBeInstanceOf(PasswordBusyError);
     if (failure instanceof Error) {
       expect(failure.cause).toBeUndefined();
     }
@@ -62,7 +62,7 @@ describe("semaphore waiting", () => {
       const reason = new Error("request ended");
       controller.abort(reason);
       await expect(semaphore.acquire(controller.signal)).rejects.toMatchObject({
-        name: "BusyError",
+        name: "PasswordBusyError",
         cause: reason,
       });
       release();
@@ -81,7 +81,10 @@ describe("semaphore waiting", () => {
       .catch((error: unknown) => error);
     const next = semaphore.acquire(freeSignal);
     controller.abort(reason);
-    expect(await canceled).toMatchObject({ name: "BusyError", cause: reason });
+    expect(await canceled).toMatchObject({
+      name: "PasswordBusyError",
+      cause: reason,
+    });
     release();
     (await next)();
     expect(vi.getTimerCount()).toBe(0);
@@ -96,7 +99,7 @@ describe("semaphore waiting", () => {
       .catch((error: unknown) => error);
     vi.spyOn(performance, "now").mockReturnValue(2);
     release();
-    expect(await failure).toBeInstanceOf(BusyError);
+    expect(await failure).toBeInstanceOf(PasswordBusyError);
     (await semaphore.acquire(freeSignal))();
     expect(vi.getTimerCount()).toBe(0);
   });

@@ -1,6 +1,6 @@
-import { InvalidHashError } from "./errors.ts";
-import { inRange, validCost } from "./params.ts";
-import type { Cost } from "./params.ts";
+import { InvalidHashError } from "../../errors/index.ts";
+import { inRange, validCost } from "./hash-parameters.ts";
+import type { Cost } from "./hash-parameters.ts";
 
 export type DecodedHash = { cost: Cost; salt: Buffer; key: Buffer };
 

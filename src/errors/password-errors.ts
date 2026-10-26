@@ -25,8 +25,8 @@ export class InvalidHashError extends Error {
   }
 }
 
-export class BusyError extends Error {
-  override name = "BusyError";
+export class PasswordBusyError extends Error {
+  override name = "PasswordBusyError";
 
   constructor(message = "Password hasher busy.", options?: ErrorOptions) {
     super(message, options);

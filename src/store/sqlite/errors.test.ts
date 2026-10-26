@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BusyError } from "../../auth/index.ts";
-import { findError } from "../../errors.ts";
+import { BusyError, findError } from "../../errors/index.ts";
 import {
   isBusy,
   operationError,

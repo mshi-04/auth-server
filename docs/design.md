@@ -24,7 +24,7 @@ JWT・リフレッシュトークン、ペッパー、メール確認、パス�
 
 言語は TypeScript、実行環境は Node.js 26 系の 26.11.0 以上（2026-10-23 時点では Current。2026-10-28 に LTS へ移行する予定）。26.11.0 を下限とするのは、5.1 の `node:sqlite` の `Database` クラスがこの版で導入されたため。プロジェクトのフォルダ名は `auth-server`（旧フォルダ名 `auth-sever` から改名済み）。
 
-レイヤードアーキテクチャに DI と Provider の分離を加える。各層の責務と依存の向きは [architecture.md](architecture.md) を正本とする。以下は移行後の配置であり、現在の `develop`（PR #17 マージ後の `195aeee`）では `src/errors.ts`・`src/password/`・`src/auth/` の保存契約・`src/store/sqlite/` が実装済みである。これらの実装とテストを引き継ぎ、設計変更の段階ではコード、npm scripts、ESLint、Prettier、カバレッジの設定は変更しない。配置と設定の変更は 10 章の各実装手順で合わせて行う。
+レイヤードアーキテクチャに DI と Provider の分離を加える。各層の責務と依存の向きは [architecture.md](architecture.md) を正本とする。以下は移行後の配置である。設計変更の基点となった `develop`（PR #17 マージ後の `195aeee`）には `src/errors.ts`・`src/password/`・`src/auth/` の保存契約・`src/store/sqlite/` があり、手順 2a でモデル・エラー・保存契約を移設し、設定検証と Provider の interface を追加した。現在の実装範囲と移行中の例外は architecture.md の「現状と移行先」「import の検査」に記す。設計変更の段階ではコードや設定を変更せず、配置と設定の変更は 10 章の各実装手順で合わせて行う。
 
 ```
 auth-server/

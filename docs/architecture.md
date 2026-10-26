@@ -4,7 +4,7 @@
 
 ## 現状と移行先
 
-この文書は移行先の設計であり、実装済みの構成を表すものではない。分析対象は PR #17 マージ後の `develop` のコミット `195aeeed3524123131f991842f2eb83452a17ab3`（2026-10-25）。TS 側は `src/errors.ts`、`src/password/`、保存層の契約を定義する `src/auth/`（`UserStore`・`NewUser`・`Credential` と 3 つのエラー）、`src/store/sqlite/` および対応するテスト・ベンチマークが実装済みである。認証サービス・HTTP・設定・起動処理は Go の `cmd/authd/` と `internal/` にあり、`package.json` の起動先 `src/main.ts` はまだ存在しない。
+この文書は移行先全体の設計を定める。移行の基点は PR #17 マージ後の `develop` のコミット `195aeeed3524123131f991842f2eb83452a17ab3`（2026-10-25）。手順 2a で `models/`・`errors/`・`config/`、Repository と Provider の interface、各層の依存検査を追加した。値オブジェクトと保存契約は新配置に移し、旧 `src/auth/` と `src/errors.ts` は撤去済みである。ハッシュ計算は手順 2b まで `src/password/` の `Hasher`、SQLite 実装は手順 3 まで `src/store/sqlite/` の `SqliteStore` に残る。認証サービス・HTTP・起動処理は Go の `cmd/authd/` と `internal/` にあり、`package.json` の起動先 `src/main.ts` はまだ存在しない。
 
 実装済み TS の再配置と、残る Go の機能の移植を段階的に行う。Go 実装と Go 用 CI は design.md 10 章の手順 7 まで残す。文書を更新する段階では、実装、設定、スクリプト、静的ファイルを変更しない。各実装段階の順番とブランチは design.md 10 章を正本とする。
 
@@ -105,7 +105,7 @@ auth-server/
 ```
 
 - 必要な公開 API を各モジュールの `index.ts` から export する。import には `.ts` を付け、型だけの import は `import type` を使う。
-- 組み立ての入口 `src/index.ts` と各モジュールの公開口 `index.ts` は同じファイル名であり、`../index.ts` という指定は置き場所によって入口にも公開口にもなる。入口への import の禁止は、指定子のパターンではなく、解決後のパスで判定する（既存の `src/errors.ts` 向けの規則と同じ方式）。
+- 組み立ての入口 `src/index.ts` と各モジュールの公開口 `index.ts` は同じファイル名であり、`../index.ts` という指定は置き場所によって入口にも公開口にもなる。入口への import の禁止は、指定子のパターンではなく、解決後のパスで判定する。
 - `repositories/index.ts`・`providers/index.ts` は Service 向けの interface を公開し、具体実装は `repositories/sqlite/index.ts`・`providers/password/index.ts` などの実装用の公開口から `src/index.ts` が取得する。具体実装の生成関数も Service に公開しない。
 - 単一ファイルの実装用公開口である `providers/crypto-id-provider.ts`・`providers/json-logger-provider.ts` は、組み立てを行う `src/index.ts` だけが直接 import できる。
 - `models/index.ts` は値オブジェクトと共通型を公開し、秘密値を扱う内部関数は公開しない。Provider 専用の内部 import の例外は下記で定める。
@@ -144,7 +144,7 @@ auth-server/
 
 基盤実装段階で `eslint.config.js` の旧 `auth`・`password`・`httpapi`・`store/sqlite` 向け規則を上の表へ更新し、`.github/scripts/eslint-config.test.ts` で検証する。新ディレクトリを追加するだけで依存検査が機能したとは扱わない。Service から具体実装への型 import、実装用公開口へのアクセス、再 export や動的 import による回避も禁止する。
 
-現在の設定は旧構成用のままである。手順 2a では `src/auth/store.ts` の interface を `UserRepository` として `repositories` へ、`NewUser`・`Credential` を `models` へ、既存の認証エラーと `src/errors.ts` の探索関数を `errors` へ移す。同時に、既存の `src/store/sqlite/` とそのテストの import・実装する interface を移行先へ合わせ、旧 `src/auth/` の定義と公開口を除去する。
+手順 2a で依存規則とそのテストを更新した。`src/auth/store.ts` の interface は `repositories` の `UserRepository`、`NewUser`・`Credential` は `models`、既存の認証エラーと `src/errors.ts` の探索関数は `errors` へ移設済みである。`src/store/sqlite/` とそのテストの import・実装する interface も新しい契約に合わせ、旧 `src/auth/` の定義と公開口を除去した。
 
 移行期間中は旧 `src/password/` と `src/store/sqlite/` に必要な依存だけを暫定的に許可する。手順 2a で値クラスを先に移す際は、値オブジェクト・PHC・パラメータのテストも `models/` の実装の隣へ移し、`hasher.test.ts` の値オブジェクトの検証もこのとき分ける。旧 `src/password/` に残る `hasher.ts` と、そのテスト・ベンチマーク（`Hasher`・セマフォ・鍵導出の検証）にだけモデル内部契約へのアクセスを限定して許可し、手順 2b の Provider 移行完了時にその旧経路と暫定規則を除去する。旧 `src/store/sqlite/` には `repositories` の interface、`models`、`errors` と `node:sqlite` の利用を許可し、手順 3 で SQLite モジュール全体とテストを `repositories/sqlite/` へ移した後に旧経路と暫定規則を除去する。`src/index.ts` を唯一の組み立て経路とする。
 
@@ -167,7 +167,7 @@ Controller が HTTP の `password` を Service の `rawPassword` へ、Service �
 
 ### UserRepository
 
-`repositories/user-repository.ts` に定義する。実装済みの `src/auth/store.ts` の `UserStore` を手順 2a で改名・移動し、`NewUser`・`Credential` を Models へ移す。次の契約を維持し、既存の `SqliteStore` の import と実装する interface も同じ段階で更新する。
+`repositories/user-repository.ts` に定義する。旧 `src/auth/store.ts` の `UserStore` を手順 2a で改名・移動し、`NewUser`・`Credential` を Models へ移した。次の契約を維持し、既存の `SqliteStore` の import と実装する interface も同じ段階で更新した。
 
 ```ts
 interface UserRepository {
@@ -305,7 +305,7 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 |---|---|
 | Models・Errors | パスワード・PHC・メールの検証、伏字、`cause` の循環検出 |
 | Password Provider | 本物の Argon2id を低コストで使用。Go 生成 PHC の互換性、再ハッシュ、共有枠の保持・解放・中断・待機期限を維持 |
-| AuthService | 手書きの偽 Repository・Provider で手順・エラー変換を検証。`Password`・`EncodedHash` は `#` フィールドだけを持ち偽物から中身を読めず、`toEqual` では別の値も等しくなる。偽 `PasswordProvider` は受け取った値を記録して決めた結果を返し、渡した値は `toBe`（参照の同一性）、`EncodedHash` は `phc()` で比べる。正規化・PHC・再ハッシュの連携は、本物の低コスト Password Provider を注入するテストで検証する |
+| AuthService | 手書きの偽 Repository・Provider で手順・エラー変換を検証。`Password`・`EncodedHash` は `#` フィールドだけを持ち偽物から中身を読めず、`toEqual` では別の値も等しくなる。偽 `PasswordProvider` は受け取った値を記録して決めた結果を返し、渡した値は `toBe`（参照の同一性）、`EncodedHash` は `phc()` で比べる。正規化・PHC・再ハッシュの連携は、本物の低コスト Password Provider を注入するテストで検証する。本物の Provider を import できるのは `services/auth-service.test.ts` と `services/auth-service.integration.test.ts` だけとする |
 | SQLite Repository | 既存の TS 保存層テストを移行先へ移し、一時ディレクトリの実 DB でトランザクション・重複・対象なし・権限・BUSY の検証を維持。対象 Node の `errcode` の形も固定 |
 | Schemas | `unknown` からの構造検証。空文字を意味検査の前に拒否しない |
 | HTTP 境界 | ポート 0 の実 `http.Server` と `fetch` でステータス・ヘッダー・本文・Problem Details・HEAD・静的配信・404/405 を確認 |

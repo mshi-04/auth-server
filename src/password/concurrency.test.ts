@@ -1,14 +1,9 @@
 import type { Argon2Parameters } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PasswordBusyError } from "../errors/index.ts";
+import { EncodedHash, Password } from "../models/index.ts";
 import { replaceDerivationForTesting } from "./derive.ts";
-import {
-  BusyError,
-  defaultParams,
-  EncodedHash,
-  Hasher,
-  Password,
-} from "./index.ts";
-import { encodeBase64 } from "./phc.ts";
+import { defaultParams, Hasher } from "./index.ts";
 
 const password = Password.parse("correct horse battery staple");
 const signal = new AbortController().signal;
@@ -20,7 +15,7 @@ const params = {
   maxConcurrent: 1,
 };
 const fixture = EncodedHash.parse(
-  `$argon2id$v=19$m=64,t=1,p=1$${encodeBase64(Buffer.alloc(16))}$${encodeBase64(Buffer.alloc(32))}`,
+  "$argon2id$v=19$m=64,t=1,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 );
 type Pending = {
   parameters: Argon2Parameters;
@@ -92,7 +87,7 @@ describe("hasher slot ownership", () => {
         .hash(password, signal)
         .catch((error: unknown) => error);
       await vi.advanceTimersByTimeAsync(params.waitTimeoutMs);
-      expect(await blocked).toBeInstanceOf(BusyError);
+      expect(await blocked).toBeInstanceOf(PasswordBusyError);
       expect(pending).toHaveLength(1);
       const task = take(pending);
       task.resolve(Buffer.alloc(task.parameters.tagLength));
@@ -115,7 +110,7 @@ describe("hasher slot ownership", () => {
       controller.abort(reason);
       await expect(
         operation(Hasher.create(params), controller.signal),
-      ).rejects.toMatchObject({ name: "BusyError", cause: reason });
+      ).rejects.toMatchObject({ name: "PasswordBusyError", cause: reason });
       expect(pending).toHaveLength(0);
     },
   );
@@ -126,7 +121,7 @@ describe("hasher slot ownership", () => {
     const controller = new AbortController();
     const running = hasher.hash(password, controller.signal);
     controller.abort();
-    await expect(running).rejects.toBeInstanceOf(BusyError);
+    await expect(running).rejects.toBeInstanceOf(PasswordBusyError);
     expect(pending).toHaveLength(0);
     const next = hasher.hash(password, signal);
     await waitForPending(pending, 1);

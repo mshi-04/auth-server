@@ -1,13 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Database } from "node:sqlite";
-import { EmailTakenError, UserNotFoundError } from "../../auth/index.ts";
-import type { Credential, NewUser, UserStore } from "../../auth/index.ts";
+import { EmailTakenError, UserNotFoundError } from "../../errors/index.ts";
+import type { Credential, NewUser } from "../../models/index.ts";
+import type { UserRepository } from "../../repositories/index.ts";
 import { operationError, sqliteCode, throwIfAborted } from "./errors.ts";
 import { openDatabase } from "./initialization.ts";
 import { prepareDatabaseFile } from "./permissions.ts";
 
-export class SqliteStore implements UserStore {
+export class SqliteStore implements UserRepository {
   #db: Database;
 
   private constructor(db: Database) {

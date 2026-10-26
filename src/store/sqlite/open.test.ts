@@ -3,8 +3,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { Database } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BusyError } from "../../auth/index.ts";
-import { findError } from "../../errors.ts";
+import { BusyError, findError } from "../../errors/index.ts";
 import { SqliteStore } from "./index.ts";
 
 const directories: string[] = [];

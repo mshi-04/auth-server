@@ -1,9 +1,9 @@
-import { BusyError } from "./errors.ts";
+import { PasswordBusyError } from "../errors/index.ts";
 
 type Waiter = { grant: () => boolean };
 
-export function abortedError(signal: AbortSignal): BusyError {
-  return new BusyError(undefined, { cause: signal.reason });
+export function abortedError(signal: AbortSignal): PasswordBusyError {
+  return new PasswordBusyError(undefined, { cause: signal.reason });
 }
 
 export class Semaphore {
@@ -43,7 +43,7 @@ export class Semaphore {
       };
       const timeout = () => {
         cleanup();
-        reject(new BusyError());
+        reject(new PasswordBusyError());
       };
       const waiter: Waiter = {
         grant: () => {

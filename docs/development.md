@@ -4,7 +4,7 @@
 
 TypeScript 実装の手順を正本とする。移行の完了（design.md 10 章の手順 7）までは、Go 実装の手順と CI も残る。それらは末尾の「Go 実装（移行完了まで）」にまとめる。
 
-レイヤードアーキテクチャと DI・Provider 分離の目標構成は [architecture.md](architecture.md)、段階的な移行手順は [design.md](design.md) 10 章を正本とする。PR #17 マージ後の `develop`（`195aeee`、2026-10-25）では、`src/errors.ts`、`src/password/`、`src/auth/` の保存層の型・エラー、`src/store/sqlite/` とそのテストが実装済みで、HTTP・認証サービス・設定・起動処理は未移行である。この文書の目標パスに合わせた再配置と設定変更は、各実装段階で行う。
+レイヤードアーキテクチャと DI・Provider 分離の目標構成は [architecture.md](architecture.md)、段階的な移行手順は [design.md](design.md) 10 章を正本とする。手順 2a の基盤では `models/`・`errors/`・`config/` と Repository／Provider の interface を実装し、ESLint の依存規則を新しい層へ合わせた。旧 `src/auth/` の保存契約は撤去済みで、既存の `src/password/` と `src/store/sqlite/` は新しい型とエラーを利用する。ハッシュ計算・SQLite 実装の再配置、HTTP・認証サービス・起動処理は後続段階で行う。
 
 ## 開発環境
 
@@ -82,7 +82,7 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 ### レイヤー分離時の設定と検証
 
 - 手順 2a で、`eslint.config.js` の旧 `auth`・`password`・`httpapi`・`store/sqlite`・`log` の依存規則を、新しい `routes` → `controllers` → `services` → Repository／Provider の interface という向きへ更新する。`models`・`errors` は共通の下位モジュールとする。Service から HTTP・SQLite・暗号 API や具体的な Repository／Provider への依存を禁止する。詳細な許可先と、パスワード Provider 専用のモデル内部 import は architecture.md を参照する
-- 手順 2a では、既存の `src/auth/store.ts` の `UserStore` を `repositories` の `UserRepository` へ改名・移動し、`NewUser`・`Credential` を `models` へ、既存の認証エラーと `src/errors.ts` の探索関数を `errors` へ移す。`src/store/sqlite/` とそのテストの import・実装する interface もこの段階で更新し、旧 `src/auth/` の定義と公開口を除去する
+- 手順 2a では、旧 `src/auth/store.ts` の `UserStore` を `repositories` の `UserRepository` へ改名・移動し、`NewUser`・`Credential` を `models` へ、既存の認証エラーと旧 `src/errors.ts` の探索関数を `errors` へ移した。`src/store/sqlite/` とそのテストの import・実装する interface もこの段階で更新し、旧 `src/auth/` の定義と公開口を除去した
 - `.github/scripts/eslint-config.test.ts` も新しい規則に合わせ、許可する import と拒否する import の両方を検証する。移行中の旧 `src/password/` には必要な既存規則を残し、手順 2b で再配置を終えてから不要な規則を削除する。旧 `src/store/sqlite/` には移動済みの Repository interface・Models・Errors と `node:sqlite` の利用を限定して許可し、手順 3 で SQLite モジュールとテストを再配置してから旧経路と暫定規則を除去する。設計文書だけを更新する段階では、これらの設定やテストは変更しない
 - 手順 2a では値オブジェクト・PHC・パラメータのテストを `models/` の実装の隣へ移し、`hasher.test.ts` の値オブジェクトの検証もこのとき分ける。手順 2b では `Hasher`・セマフォ・鍵導出のテストとベンチマークを `providers/password/` へ移す。どちらも既存の検証内容を維持する。手順 4a の Service のテストでは、手書きの偽 `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、低コスト設定の本物の `Argon2PasswordProvider` と組み合わせる検証も残す
 - 手順 3 では実装済みの `src/store/sqlite/` 全体（接続・初期化・権限検査・DB エラー変換・`init.sql`・公開口・型補助宣言・テスト）を `src/repositories/sqlite/` へ移し、`SqliteStore` を `SqliteUserRepository` へ改名する。既存の SQL とトランザクション、再試行・中断・権限・エラー分類のテストを維持する
