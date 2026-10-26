@@ -4,6 +4,8 @@
 
 TypeScript 実装の手順を正本とする。移行の完了（design.md 10 章の手順 7）までは、Go 実装の手順と CI も残る。それらは末尾の「Go 実装（移行完了まで）」にまとめる。
 
+レイヤードアーキテクチャと DI・Provider 分離の目標構成は [architecture.md](architecture.md)、段階的な移行手順は [design.md](design.md) 10 章を正本とする。PR #17 マージ後の `develop`（`195aeee`、2026-10-25）では、`src/errors.ts`、`src/password/`、`src/auth/` の保存層の型・エラー、`src/store/sqlite/` とそのテストが実装済みで、HTTP・認証サービス・設定・起動処理は未移行である。この文書の目標パスに合わせた再配置と設定変更は、各実装段階で行う。
+
 ## 開発環境
 
 - このプロジェクトの Node.js 26 は、WSL（ディストリビューション名 `Ubuntu-24.04`）に nvm で入れる。Windows 側にほかの用途の Node（winget で入れた Node 24 など）が入っていても、このプロジェクトでは使わない
@@ -41,7 +43,7 @@ wsl -d Ubuntu-24.04 --exec bash -lc '. "$HOME/.nvm/nvm.sh" && nvm use --silent &
 
 ### SQLite の DB ファイル
 
-- `@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、`src/store/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。実行時は `Database` を直接使う。型定義が対応したら、この補助宣言を削除する
+- `@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、`src/store/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。実行時は `Database` を直接使う。手順 3 でモジュール全体とともに `src/repositories/sqlite/node-sqlite.d.ts` へ移し、型定義が対応したら削除する
 - DB ファイルは `/mnt/c` 配下に置かない。WSL 側（例：`~/.local/share/auth-server/auth.db`）に置く
 - 親ディレクトリは自動で作られないため、初回は `mkdir -p -m 700 ~/.local/share/auth-server` で所有者専用に作っておく
 - 既存の親ディレクトリは `chmod 700 ~/.local/share/auth-server` で権限を制限する。DB と既存の `-wal`・`-shm`・`-journal` ファイルにも所有者以外の権限があれば、該当ファイルを `chmod 600` にしてから起動する。親とファイルの所有者は実行ユーザーと一致させる。シンボリックリンクは使わない
@@ -50,7 +52,7 @@ wsl -d Ubuntu-24.04 --exec bash -lc '. "$HOME/.nvm/nvm.sh" && nvm use --silent &
 
 ## コマンド
 
-WSL 上のリポジトリのルートで実行する。`npm run` の名前は `package.json` の `scripts` に定義する。
+WSL 上のリポジトリのルートで実行する。`npm run` の名前は `package.json` の `scripts` に定義する。次の表は設計更新時点の設定であり、起動スクリプトの参照先 `src/main.ts` はまだ存在しない。TS サーバーの起動・ブラウザーでの確認は、design.md 10 章の手順 4b で起動処理を実装してから行う。
 
 | 目的 | コマンド | 中身 |
 |---|---|---|
@@ -64,10 +66,28 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 | ベンチマーク（ハッシュ 1 回の所要時間） | `npm run bench` | `vitest bench --run src/password` |
 | 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db npm start` | `node src/main.ts` |
 
+レイヤー分離に伴い、コマンド名は維持して次の参照先を変更する。文書の更新だけでは `package.json` の設定は変更されない。
+
+| 設定 | 現在の参照先 | 移行後の参照先 | 更新する段階 |
+|---|---|---|---|
+| `scripts.bench` | `vitest bench --run src/password` | `vitest bench --run src/providers/password` | 手順 2b：Provider の再配置 |
+| `scripts.start` | `node src/main.ts` | `node src/index.ts` | 手順 4b：HTTP と起動処理 |
+| 静的ファイルの除外パス | `src/httpapi/web/` | `public/` | 手順 4b：静的配信 |
+
 - `npm run bench` は既定パラメータの `hash`・`hash saturated` と飽和時のイベントループ遅延を測る。`AUTH_PASSWORD_BENCH_RUN=1 npm run bench` の番号を 1・2・3 と変えて 3 回実行すると、各回の JSON を `bench-results/password/` に残せる（`coverage/` はカバレッジの実行時に削除されるため使わない）。番号を省略した場合は `latest` として上書きする。既定値が design.md 4.7 の目標から外れた場合は、`AUTH_PASSWORD_BENCH_CANDIDATES=1 npm run bench` で候補も比較する。Vitest 5 では `*.bench.ts` 内のテストコンテキストの `bench` を使い、通常の `npm test` ではベンチマークを実行しない
-- ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイル、CI のスクリプト（`.github/scripts/`）、ルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。`actions/github-script` から `require` する `.github/scripts/*.cjs` は、`@eslint/js` の推奨規則で検査し、テスト（`*.test.ts`）から読み込んで振る舞いを確かめる。ブラウザーで動く `src/httpapi/web/` は対象から外す
+- ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイル、CI のスクリプト（`.github/scripts/`）、ルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。`actions/github-script` から `require` する `.github/scripts/*.cjs` は、`@eslint/js` の推奨規則で検査し、テスト（`*.test.ts`）から読み込んで振る舞いを確かめる。ブラウザーで動く静的ファイルは移行後の `public/` も対象から外す
 - `tsconfig.json` の `skipLibCheck` で依存パッケージの型定義は型検査しない。依存の更新で型定義どうしが食い違っても、このプロジェクトのコードと無関係に型検査が失敗しないようにするため
-- Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML、`src/httpapi/web/` は `.prettierignore` で対象から外す。`src/httpapi/web/` は Go 実装の `internal/httpapi/web/` からコピーした手書きの書式のまま保ち、移行中は 2 か所の内容を一致させる（design.md 10 章）。Go 実装のファイルは Prettier の対象外の拡張子なので、指定しなくても整形されない
+- Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML と静的ファイルは `.prettierignore` で対象から外す。手順 4b で静的ファイルをコピーするとき、旧構成を前提とする除外パスを `public/` に変更する。`public/` は Go 実装の `internal/httpapi/web/` からコピーした手書きの書式のまま保ち、移行中は 2 か所の内容を一致させる（design.md 10 章）。Go 実装のファイルは Prettier の対象外の拡張子なので、指定しなくても整形されない
+
+### レイヤー分離時の設定と検証
+
+- 手順 2a で、`eslint.config.js` の旧 `auth`・`password`・`httpapi`・`store/sqlite`・`log` の依存規則を、新しい `routes` → `controllers` → `services` → Repository／Provider の interface という向きへ更新する。`models`・`errors` は共通の下位モジュールとする。Service から HTTP・SQLite・暗号 API や具体的な Repository／Provider への依存を禁止する。詳細な許可先と、パスワード Provider 専用のモデル内部 import は architecture.md を参照する
+- 手順 2a では、既存の `src/auth/store.ts` の `UserStore` を `repositories` の `UserRepository` へ改名・移動し、`NewUser`・`Credential` を `models` へ、既存の認証エラーと `src/errors.ts` の探索関数を `errors` へ移す。`src/store/sqlite/` とそのテストの import・実装する interface もこの段階で更新し、旧 `src/auth/` の定義と公開口を除去する
+- `.github/scripts/eslint-config.test.ts` も新しい規則に合わせ、許可する import と拒否する import の両方を検証する。移行中の旧 `src/password/` には必要な既存規則を残し、手順 2b で再配置を終えてから不要な規則を削除する。旧 `src/store/sqlite/` には移動済みの Repository interface・Models・Errors と `node:sqlite` の利用を限定して許可し、手順 3 で SQLite モジュールとテストを再配置してから旧経路と暫定規則を除去する。設計文書だけを更新する段階では、これらの設定やテストは変更しない
+- 手順 2a では値オブジェクト・PHC・パラメータのテストを `models/` の実装の隣へ移し、`hasher.test.ts` の値オブジェクトの検証もこのとき分ける。手順 2b では `Hasher`・セマフォ・鍵導出のテストとベンチマークを `providers/password/` へ移す。どちらも既存の検証内容を維持する。手順 4a の Service のテストでは、手書きの偽 `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、低コスト設定の本物の `Argon2PasswordProvider` と組み合わせる検証も残す
+- 手順 3 では実装済みの `src/store/sqlite/` 全体（接続・初期化・権限検査・DB エラー変換・`init.sql`・公開口・型補助宣言・テスト）を `src/repositories/sqlite/` へ移し、`SqliteStore` を `SqliteUserRepository` へ改名する。既存の SQL とトランザクション、再試行・中断・権限・エラー分類のテストを維持する
+- 手順 4b で `public/` を作るとき、ESLint・Prettier・Vitest の除外設定を確認する。Vitest のカバレッジ対象は `src/**/*.ts` のため、`public/` は対象に入らない。旧 `src/httpapi/web/**` の除外指定もこの段階で整理する
+- コードや設定を変更する各段階で `npm run typecheck`、`npm run lint`、`npm run format:check`、`npm test`、`npm run coverage` を確認し、TS 用の CI・CodeQL と Go 用の CI も通ってから次へ進む。文書だけの変更では、文書間の構成・パス・手順・参照先の整合性と差分を確認する。Markdown は Prettier の対象外なので、`format:check` の成功を文書の検証の代わりにしない
 
 ## CI
 
@@ -79,7 +99,7 @@ CI の実行条件と出力はこの節を正本とする。GitHub Actions の `
 | Test | `npm ci` の後に `npm test` |
 | Coverage | `npm ci` の後に `npm run coverage` と、カバレッジレポートの生成・保存 |
 
-Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテストを実行する。Coverage は `src/` 配下の全ファイル（テスト、ベンチマーク、ブラウザーで動く `src/httpapi/web/` を除く）を計測対象にし、テストから読み込まれないファイルも集計に含める。
+Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテストを実行する。Coverage は `src/` 配下の TS ファイル（テストとベンチマークを除く）を計測対象にし、テストから読み込まれないファイルも集計に含める。ブラウザーで動く静的ファイルは計測せず、移行後の `public/` も対象に入らない。
 
 - 合計カバレッジは GitHub Actions の実行サマリーに表示する
 - 同じリポジトリのブランチから作った PR には、合計・ファイル別カバレッジ、計測したコミット、実行ログと artifact へのリンクをコメントする。初回だけ作成し、Coverage ジョブの再実行時は同じコメントを更新する。テストやレポート生成に失敗したときも、以前の数値を残さず失敗表示へ更新する。取り消された実行、現在の PR と異なるコミットの実行、すでにコメントした実行より古い実行は更新しない
@@ -123,7 +143,9 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 ## Web 画面と Windows からの接続
 
 - Node サーバーの起動後、Windows のブラウザーで `http://127.0.0.1:8080/` を開く。画面と API は同じサーバーが配信するため、フロントエンド用の起動コマンドや依存のインストールは不要
-- HTML・CSS・JavaScript は `src/httpapi/web/` に置き、サーバーの起動時にメモリへ読み込む。変更後はサーバーを再起動する
+- HTML・CSS・JavaScript は手順 4b で `internal/httpapi/web/` から `public/` へ内容を変えずにコピーする。Go の `go:embed` が元のファイルを使うため、移動はしない。設計更新時点では `public/` はまだ作成しない
+- TS 実装では `src/index.ts` の組み立て時に `public/` の 3 ファイルをメモリへ読み込み、Web Controller へ渡す。読み込みに失敗したら起動しない。配信するのは `/`・`/assets/app.css`・`/assets/app.js` の明示パスだけとし、ディレクトリ全体は公開しない。変更後はサーバーを再起動する
+- 手順 4b から Go 実装を削除する手順 7 まで、`diff -r internal/httpapi/web public` が差分なしで終わることを確認する。画面を変更する場合は両方に同じ変更を入れる
 - WSL 2.4.11.0 のこの開発環境では、IPv6 の全アドレスで待ち受けると Windows 側に IPv6 のループバックだけが転送され、IPv4 の `127.0.0.1` が失敗した。サーバーは `0.0.0.0` で待ち受け、この差を避ける。IPv6 の接続は対象外
 - 接続確認は通常の Windows PowerShell またはブラウザーで行う。エージェントの実行サンドボックスからの失敗だけでは、Windows ホストから到達できないとは判断しない
 - 起動直後の転送待ちと、WSL 内・Windows 側の切り分け手順は [README](../README.md#接続できない場合) を参照
@@ -139,6 +161,7 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 | `feature/*` | 作業用。`develop` から作り、`develop` へ PR を出す |
 
 - TypeScript への移行は、design.md 10 章の手順ごとに feature ブランチを分ける。ブランチ名と、前の手順のマージを待ってから次のブランチを作る決まりは design.md 10 章を正本とする
+- レイヤー分離の文書更新は `develop` から作る `feature/layered-architecture-docs` で扱い、アプリの実装や設定変更を混ぜない。文書の更新後は、手順 2a の基盤、2b の Provider、3 の Repository、4a の Service、4b の HTTP・起動処理の順に、段階ごとに別の feature ブランチで進める。利用者から指示されていないコミット・push・PR 作成は行わない
 
 ### コミット
 
