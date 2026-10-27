@@ -5,6 +5,7 @@ import {
   operationError,
   sqliteCode,
   throwIfAborted,
+  withoutSqliteMessage,
 } from "./errors.ts";
 
 describe("SQLite error classification", () => {
@@ -41,11 +42,17 @@ describe("SQLite error classification", () => {
         new AbortController().signal,
       );
       expect(wrapped).not.toBeInstanceOf(BusyError);
-      expect(wrapped.cause).toBe(original);
+      expect(wrapped.cause).toBeInstanceOf(Error);
+      expect(wrapped.cause).toMatchObject({
+        name: "SqliteError",
+        message: `SQLite error ${errcode.toString()}.`,
+        code: "ERR_SQLITE_ERROR",
+        errcode,
+      });
     },
   );
 
-  it("keeps the SQLite cause on a busy error", () => {
+  it("keeps busy SQLite metadata without its message", () => {
     const original = Object.assign(new Error("database is locked"), {
       code: "ERR_SQLITE_ERROR",
       errcode: 5,
@@ -56,7 +63,37 @@ describe("SQLite error classification", () => {
       new AbortController().signal,
     );
     expect(wrapped).toBeInstanceOf(BusyError);
-    expect(wrapped.cause).toBe(original);
+    expect(wrapped.cause).not.toBe(original);
+    expect(wrapped.cause).toMatchObject({
+      message: "SQLite error 5.",
+      code: "ERR_SQLITE_ERROR",
+      errcode: 5,
+    });
+    expect(isBusy(wrapped.cause)).toBe(true);
+  });
+
+  it("drops the SQLite message from a cancelled failure", () => {
+    const original = Object.assign(
+      new Error("UNIQUE constraint failed: users.email_normalized"),
+      { code: "ERR_SQLITE_ERROR", errcode: 2067 },
+    );
+    const wrapped = operationError(
+      original,
+      "operation failed",
+      AbortSignal.abort(new Error("cancelled")),
+    );
+    expect(wrapped.cause).toBeInstanceOf(AggregateError);
+    if (!(wrapped.cause instanceof AggregateError)) {
+      throw new Error("Expected original failure to be retained.");
+    }
+    expect(wrapped.cause.errors).toMatchObject([
+      { message: "SQLite error 2067.", errcode: 2067 },
+    ]);
+  });
+
+  it("passes non-SQLite failures through unchanged", () => {
+    const original = new Error("SQLite database must use WAL journal mode");
+    expect(withoutSqliteMessage(original)).toBe(original);
   });
 
   it("prioritizes cancellation for any failure and retains both causes", () => {

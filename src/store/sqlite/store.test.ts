@@ -220,6 +220,10 @@ describe("SqliteStore", () => {
     const failure = await rejected(store.createUser(user, signal));
     expect(failure).toBeInstanceOf(Error);
     expect(findError(failure, EmailTakenError)).toBeUndefined();
+    expect(findSqliteError(failure)?.message).toMatch(/^SQLite error \d+\.$/);
+    expect(causeMessages(failure).join("\n")).not.toContain(
+      "credential insertion rejected",
+    );
     expect(rowCount(observer, "users")).toBe(0);
     expect(rowCount(observer, "password_credentials")).toBe(0);
     observer.exec("DROP TRIGGER reject_credentials");
@@ -459,6 +463,16 @@ describe("SqliteStore", () => {
     15000,
   );
 });
+
+function causeMessages(error: unknown): string[] {
+  const messages: string[] = [];
+  let current = error;
+  while (current instanceof Error && messages.length < 32) {
+    messages.push(current.message);
+    current = current.cause;
+  }
+  return messages;
+}
 
 function findSqliteError(error: unknown): Error | undefined {
   const seen = new Set<Error>();

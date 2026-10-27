@@ -45,7 +45,6 @@ const sqliteModules = ["repositories/sqlite", "store/sqlite"];
 const cryptoFiles = [
   "providers/password/argon2-password-provider.ts",
   "providers/password/derive.ts",
-  "providers/password/derive.test.ts",
   "providers/password/concurrency.test.ts",
   "providers/crypto-id-provider.ts",
   "providers/crypto-id-provider.test.ts",
@@ -486,6 +485,11 @@ export default defineConfig(
           selector:
             "ImportDeclaration[source.value=/^vitest/], ExportNamedDeclaration[source.value=/^vitest/], ExportAllDeclaration[source.value=/^vitest/]",
           message: "Only tests and benchmarks may import Vitest.",
+        },
+        {
+          selector:
+            "ImportSpecifier[imported.name=/ForTesting$/], ExportSpecifier[local.name=/ForTesting$/], MemberExpression[property.name=/ForTesting$/], ObjectPattern > Property[key.name=/ForTesting$/]",
+          message: "Only tests and benchmarks may use testing hooks.",
         },
       ],
     },

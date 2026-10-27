@@ -12,6 +12,9 @@ function capture(): { logger: LoggerProvider; lines: string[] } {
     write(line: string) {
       lines.push(line);
     },
+    on() {
+      return undefined;
+    },
   });
   return { logger, lines };
 }
@@ -83,6 +86,14 @@ describe("JsonLoggerProvider", () => {
     output.destroy();
   });
 
+  it("writes metadata before attributes", () => {
+    const { logger, lines } = capture();
+    logger.info("ready", { requestId: "request-1" });
+    expect(lines[0]).toBe(
+      `{"time":"${time}","level":"info","msg":"ready","requestId":"request-1"}\n`,
+    );
+  });
+
   it("keeps metadata authoritative and does not read reserved attributes", () => {
     const { logger, lines } = capture();
     logger.info("ready", {
@@ -121,6 +132,19 @@ describe("JsonLoggerProvider", () => {
     });
     expect(lines[0]).not.toContain("stack");
     expect(lines[0]).not.toContain("must not be serialized");
+  });
+
+  it("omits an undefined Error cause", () => {
+    const { logger, lines } = capture();
+    logger.error("failure", {
+      failure: new Error("operation failed", { cause: undefined }),
+    });
+    expect(entry(lines)).toEqual({
+      time,
+      level: "error",
+      msg: "failure",
+      failure: { name: "Error", message: "operation failed" },
+    });
   });
 
   it("replaces object, array, and Error cause cycles while retaining repeated siblings", () => {
@@ -176,6 +200,105 @@ describe("JsonLoggerProvider", () => {
       nested: Array.from({ length: 6 }, () => "[Unserializable]"),
       json: [null, true, false, 2, "text"],
     });
+  });
+
+  it("marks binary data and objects without enumerable own fields", () => {
+    const { logger, lines } = capture();
+    class Fields {
+      value = 1;
+    }
+    const bare: unknown = Object.create(null);
+    logger.info("objects", {
+      buffer: Buffer.from("password=hunter2"),
+      bytes: new Uint8Array([1, 2, 3]),
+      arrayBuffer: new ArrayBuffer(4),
+      view: new DataView(new ArrayBuffer(4)),
+      map: new Map([["key", "value"]]),
+      set: new Set(["value"]),
+      url: new URL("http://127.0.0.1:8080/"),
+      empty: {},
+      bare,
+      fields: new Fields(),
+    });
+    expect(entry(lines)).toEqual({
+      time,
+      level: "info",
+      msg: "objects",
+      buffer: "[Unserializable]",
+      bytes: "[Unserializable]",
+      arrayBuffer: "[Unserializable]",
+      view: "[Unserializable]",
+      map: "[Unserializable]",
+      set: "[Unserializable]",
+      url: "[Unserializable]",
+      empty: {},
+      bare: {},
+      fields: { value: 1 },
+    });
+    expect(lines[0]).not.toContain("104");
+  });
+
+  it("bounds the work for shared references and large collections", () => {
+    const { logger, lines } = capture();
+    let shared: unknown = "leaf";
+    for (let depth = 0; depth < 63; depth++) {
+      shared = { left: shared, right: shared };
+    }
+    logger.info("bounded", {
+      shared,
+      large: Array.from({ length: 1001 }, (_, index) => index),
+      wide: Object.fromEntries(
+        Array.from({ length: 1001 }, (_, index) => [
+          `key${index.toString()}`,
+          1,
+        ]),
+      ),
+      sparse: new Array(2 ** 32 - 1),
+      limit: Array.from({ length: 999 }, () => 0),
+    });
+    const parsed = entry(lines);
+    expect(parsed).toMatchObject({
+      large: "[Unserializable]",
+      wide: "[Unserializable]",
+      sparse: "[Unserializable]",
+      limit: Array.from({ length: 999 }, () => 0),
+    });
+    expect(lines[0]?.length).toBeLessThan(100000);
+  });
+
+  it("redacts secret keys at any depth without reading them", () => {
+    const { logger, lines } = capture();
+    const unread = {
+      get passwordHash(): never {
+        throw new Error("Secret keys must not be read.");
+      },
+    };
+    logger.warn("secrets", {
+      password: "hunter2-password",
+      credential: {
+        userId: "user-1",
+        passwordHash: "$argon2id$v=19$m=64,t=1,p=1$c2FsdA$a2V5",
+      },
+      users: [{ rawPassword: "raw-secret", encodedHash: "encoded-secret" }],
+      unread,
+    });
+    expect(entry(lines)).toEqual({
+      time,
+      level: "warn",
+      msg: "secrets",
+      password: "[REDACTED]",
+      credential: { userId: "user-1", passwordHash: "[REDACTED]" },
+      users: [{ rawPassword: "[REDACTED]", encodedHash: "[REDACTED]" }],
+      unread: { passwordHash: "[REDACTED]" },
+    });
+    for (const secret of [
+      "hunter2-password",
+      "$argon2id",
+      "raw-secret",
+      "encoded-secret",
+    ]) {
+      expect(lines[0]).not.toContain(secret);
+    }
   });
 
   it("preserves secret model redaction at any depth", () => {
@@ -312,9 +435,33 @@ describe("JsonLoggerProvider", () => {
       write() {
         throw new Error("Output failed.");
       },
+      on() {
+        return undefined;
+      },
     });
     expect(() => {
       logger.error("original failure");
     }).not.toThrow();
+  });
+
+  it("keeps asynchronous output errors from stopping the process", async () => {
+    const output = new Writable({
+      write(_chunk: unknown, _encoding, callback) {
+        callback(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+      },
+    });
+    const logger = JsonLoggerProvider.create(output);
+    const closed = new Promise((resolve) => {
+      output.once("close", resolve);
+    });
+    logger.error("first failure");
+    await closed;
+    expect(output.destroyed).toBe(true);
+    expect(() => {
+      logger.error("after close");
+    }).not.toThrow();
+    await new Promise((resolve) => {
+      process.nextTick(resolve);
+    });
   });
 });

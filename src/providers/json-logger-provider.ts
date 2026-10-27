@@ -1,13 +1,22 @@
 import { EncodedHash, Password } from "../models/index.ts";
 import type { LoggerProvider } from "./index.ts";
 
-type LogOutput = { write(line: string): unknown };
+type LogOutput = {
+  write(line: string): unknown;
+  on(event: "error", listener: (error: unknown) => void): unknown;
+};
 type Level = "info" | "warn" | "error";
 type JsonValue =
   string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+type Budget = { ancestors: WeakSet<object>; remaining: number };
 
 const unsupported = "[Unserializable]";
 const circular = "[Circular]";
+const redacted = "[REDACTED]";
+const maxDepth = 64;
+const maxValuesPerAttribute = 1000;
+const reservedKeys = ["time", "level", "msg"];
+const secretKeys = ["password", "rawPassword", "passwordHash", "encodedHash"];
 
 function readProperty(value: object, key: string): unknown {
   try {
@@ -18,12 +27,37 @@ function readProperty(value: object, key: string): unknown {
   }
 }
 
-function serialize(
-  value: unknown,
-  ancestors: WeakSet<object>,
+function isPlainObject(value: object): boolean {
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function isBinary(value: object): boolean {
+  return (
+    ArrayBuffer.isView(value) ||
+    value instanceof ArrayBuffer ||
+    value instanceof SharedArrayBuffer
+  );
+}
+
+function serializeProperty(
+  value: object,
+  key: string,
+  budget: Budget,
   depth: number,
 ): JsonValue {
+  if (secretKeys.includes(key)) {
+    return redacted;
+  }
+  return serialize(readProperty(value, key), budget, depth);
+}
+
+function serialize(value: unknown, budget: Budget, depth: number): JsonValue {
   try {
+    if (budget.remaining <= 0) {
+      return unsupported;
+    }
+    budget.remaining--;
     if (
       value === null ||
       typeof value === "string" ||
@@ -38,33 +72,28 @@ function serialize(
       return unsupported;
     }
     if (value instanceof Password || value instanceof EncodedHash) {
-      return "[REDACTED]";
+      return redacted;
     }
-    if (ancestors.has(value)) {
+    if (budget.ancestors.has(value)) {
       return circular;
     }
-    if (depth >= 64) {
+    if (depth >= maxDepth || isBinary(value)) {
       return unsupported;
     }
 
-    ancestors.add(value);
+    budget.ancestors.add(value);
     try {
       if (value instanceof Error) {
         const entries: [string, JsonValue][] = [
-          [
-            "name",
-            serialize(readProperty(value, "name"), ancestors, depth + 1),
-          ],
+          ["name", serialize(readProperty(value, "name"), budget, depth + 1)],
           [
             "message",
-            serialize(readProperty(value, "message"), ancestors, depth + 1),
+            serialize(readProperty(value, "message"), budget, depth + 1),
           ],
         ];
-        if ("cause" in value) {
-          entries.push([
-            "cause",
-            serialize(readProperty(value, "cause"), ancestors, depth + 1),
-          ]);
+        const cause = readProperty(value, "cause");
+        if (cause !== undefined) {
+          entries.push(["cause", serialize(cause, budget, depth + 1)]);
         }
         return Object.fromEntries(entries);
       }
@@ -74,19 +103,28 @@ function serialize(
           : unsupported;
       }
       if (Array.isArray(value)) {
-        return Array.from(value, (item: unknown) =>
-          serialize(item, ancestors, depth + 1),
+        if (value.length > budget.remaining) {
+          return unsupported;
+        }
+        return Array.from({ length: value.length }, (_, index) =>
+          serialize(readProperty(value, String(index)), budget, depth + 1),
         );
       }
-      const entries: [string, JsonValue][] = Object.keys(value).map(
-        (key): [string, JsonValue] => [
+      const keys = Object.keys(value);
+      if (keys.length > budget.remaining) {
+        return unsupported;
+      }
+      if (keys.length === 0 && !isPlainObject(value)) {
+        return unsupported;
+      }
+      return Object.fromEntries(
+        keys.map((key): [string, JsonValue] => [
           key,
-          serialize(readProperty(value, key), ancestors, depth + 1),
-        ],
+          serializeProperty(value, key, budget, depth + 1),
+        ]),
       );
-      return Object.fromEntries(entries);
     } finally {
-      ancestors.delete(value);
+      budget.ancestors.delete(value);
     }
   } catch {
     return unsupported;
@@ -100,12 +138,19 @@ function attributeEntries(
     return [];
   }
   try {
-    const ancestors = new WeakSet<object>([attributes]);
     return Object.keys(attributes)
-      .filter((key) => !["time", "level", "msg"].includes(key))
+      .filter((key) => !reservedKeys.includes(key))
       .map((key): [string, JsonValue] => [
         key,
-        serialize(readProperty(attributes, key), ancestors, 0),
+        serializeProperty(
+          attributes,
+          key,
+          {
+            ancestors: new WeakSet<object>([attributes]),
+            remaining: maxValuesPerAttribute,
+          },
+          0,
+        ),
       ]);
   } catch {
     return [["attributes", unsupported]];
@@ -120,6 +165,9 @@ export class JsonLoggerProvider implements LoggerProvider {
   }
 
   static create(output: LogOutput): JsonLoggerProvider {
+    // EPIPE などの書き込み失敗は "error" イベントで届き、listener が無いと
+    // プロセスが落ちる。ログが欠けてもサーバーを止めないため、意図して捨てる。
+    output.on("error", () => undefined);
     return new JsonLoggerProvider(output);
   }
 
@@ -142,10 +190,10 @@ export class JsonLoggerProvider implements LoggerProvider {
   ): void {
     try {
       const entry = Object.fromEntries([
-        ...attributeEntries(attributes),
         ["time", new Date().toISOString()],
         ["level", level],
         ["msg", message],
+        ...attributeEntries(attributes),
       ]);
       this.#output.write(`${JSON.stringify(entry)}\n`);
     } catch {

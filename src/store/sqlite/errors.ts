@@ -15,6 +15,22 @@ export function sqliteCode(error: unknown): number | undefined {
   return error.errcode;
 }
 
+class SqliteFailure extends Error {
+  override name = "SqliteError";
+  readonly code = "ERR_SQLITE_ERROR";
+  readonly errcode: number;
+
+  constructor(errcode: number) {
+    super(`SQLite error ${errcode.toString()}.`);
+    this.errcode = errcode;
+  }
+}
+
+export function withoutSqliteMessage(error: unknown): unknown {
+  const code = sqliteCode(error);
+  return code === undefined ? error : new SqliteFailure(code);
+}
+
 export function isBusy(error: unknown): boolean {
   const code = sqliteCode(error);
   return code !== undefined && (code & 0xff) === 5;
@@ -33,15 +49,16 @@ export function operationError(
   context: string,
   signal: AbortSignal,
 ): Error {
+  const cause = withoutSqliteMessage(error);
   if (signal.aborted) {
     return new BusyError(context, {
-      cause: new AggregateError([error], "SQLite operation interrupted.", {
+      cause: new AggregateError([cause], "SQLite operation interrupted.", {
         cause: signal.reason,
       }),
     });
   }
-  if (isBusy(error)) {
-    return new BusyError(context, { cause: error });
+  if (isBusy(cause)) {
+    return new BusyError(context, { cause });
   }
-  return new Error(context, { cause: error });
+  return new Error(context, { cause });
 }

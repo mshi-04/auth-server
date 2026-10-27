@@ -467,13 +467,6 @@ describe("model secrets and targeted test exceptions", () => {
     "src/providers/password/semaphore.ts",
     "src/providers/password/unrelated.test.ts",
     "src/providers/json-logger-provider.ts",
-    "src/password/hasher.ts",
-    "src/password/hasher.test.ts",
-    "src/password/concurrency.test.ts",
-    "src/password/password.bench.ts",
-    "src/password/semaphore.ts",
-    "src/password/unrelated.test.ts",
-    "src/password/hasher.bench.ts",
     "src/store/sqlite/store.ts",
   ])("denies model secret access in %s", (filename) => {
     rejects(
@@ -571,7 +564,6 @@ describe("Node module ownership", () => {
         "src/models/user.ts",
         "src/errors/auth-errors.ts",
         "src/config/env.ts",
-        "src/password/hasher.ts",
         "src/store/sqlite/store.ts",
       ]) {
         rejects(filename, "import " + JSON.stringify(source) + ";");
@@ -602,7 +594,6 @@ describe("Node module ownership", () => {
     for (const filename of [
       "src/providers/password/argon2-password-provider.ts",
       "src/providers/password/derive.ts",
-      "src/providers/password/derive.test.ts",
       "src/providers/password/concurrency.test.ts",
       "src/providers/crypto-id-provider.ts",
       "src/providers/crypto-id-provider.test.ts",
@@ -621,11 +612,7 @@ describe("Node module ownership", () => {
       "src/providers/password/params.ts",
       "src/providers/password/unrelated.ts",
       "src/providers/password/unrelated.test.ts",
-      "src/password/hasher.ts",
-      "src/password/derive.ts",
-      "src/password/concurrency.test.ts",
-      "src/password/semaphore.ts",
-      "src/password/unrelated.test.ts",
+      "src/providers/password/derive.test.ts",
       "src/store/sqlite/store.ts",
     ]) {
       rejects(filename, namedImport("node:crypto", "randomBytes"));
@@ -677,7 +664,7 @@ describe("forbidden syntax and bypasses", () => {
 
   it.each([
     "src/providers/password/derive.ts",
-    "src/providers/password/derive.test.ts",
+    "src/providers/password/concurrency.test.ts",
   ])("retains crypto and createRequire restrictions in %s", (filename) => {
     for (const name of [
       "argon2Sync",
@@ -729,5 +716,30 @@ describe("forbidden syntax and bypasses", () => {
     );
     allows("src/services/auth-service.test.ts", 'import "vitest";');
     allows("src/providers/password/password.bench.ts", 'import "vitest";');
+  });
+
+  it.each([
+    'import { replaceDerivationForTesting } from "./derive.ts"; void replaceDerivationForTesting;',
+    'import { replaceDerivationForTesting as replace } from "./derive.ts"; void replace;',
+    'export { replaceDerivationForTesting } from "./derive.ts";',
+    'import * as derive from "./derive.ts"; void derive.replaceDerivationForTesting;',
+    'import * as derive from "./derive.ts"; const { replaceDerivationForTesting: replace } = derive; void replace;',
+  ])("keeps testing hooks out of production code: %s", (code) => {
+    rejects(
+      "src/providers/password/argon2-password-provider.ts",
+      code,
+      "no-restricted-syntax",
+    );
+    rejects("src/providers/password/index.ts", code, "no-restricted-syntax");
+  });
+
+  it.each([
+    "src/providers/password/concurrency.test.ts",
+    "src/providers/password/password.bench.ts",
+  ])("allows testing hooks in %s", (filename) => {
+    allows(
+      filename,
+      'import { replaceDerivationForTesting } from "./derive.ts"; void replaceDerivationForTesting;',
+    );
   });
 });
