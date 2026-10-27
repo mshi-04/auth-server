@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS password_credentials (
 
 - 登録時は `users` と `password_credentials` を 1 トランザクション（`BEGIN IMMEDIATE` … `COMMIT`。失敗時は `ROLLBACK`）で挿入する
 - `node:sqlite` が SQLite のエラーを投げると、`code` が `'ERR_SQLITE_ERROR'` になり、拡張結果コードが数値の `errcode` に入る。`errcode` は Node のドキュメントに記載が無いため、対象の Node 26 系（26.11.0 以上）での形を [テスト](#テスト)で固定する。Node の更新で形が変わった場合は、このテストが失敗して気づける
-- 下の UNIQUE 違反と `SQLITE_BUSY` の判定は、`code` が `'ERR_SQLITE_ERROR'` で、かつ `errcode` が数値の場合に限って行う。どちらかを満たさないエラーは、メール重複にも `BusyError` にも変換せず、予期しないエラーとして文脈を付けて投げる（エラーハンドリング Middleware で 500）。メッセージの文字列での判定はしない。説明の `errstr` やメッセージは判定にもログにも使わない
+- 下の UNIQUE 違反と `SQLITE_BUSY` の判定は、`code` が `'ERR_SQLITE_ERROR'` で、かつ `errcode` が数値の場合に限って行う。どちらかを満たさないエラーは、メール重複にも `BusyError` にも変換せず、予期しないエラーとして文脈を付けて投げる（エラーハンドリング Middleware で 500）。メッセージの文字列での判定はしない。説明の `errstr` やメッセージは判定にもログにも使わない。SQLite のエラーを `cause` に置くときは、元のエラーの代わりに `code`・`errcode` と、`errcode` だけから作るメッセージ（例：`SQLite error 2067.`）を持つエラーを置き、元のメッセージを上位へ伝えない
 - メールアドレスの重複は `users` 挿入時の UNIQUE 制約違反（`errcode` が `SQLITE_CONSTRAINT_UNIQUE`＝2067）で検出し、`EmailTakenError` に変換する。API 層がこれを 409 に変換する。ID の PRIMARY KEY 制約違反（`SQLITE_CONSTRAINT_PRIMARYKEY`＝1555）など、ほかの制約違反はメール重複として扱わない
 - ハッシュ更新では `hash` と `changed_at` を同時に更新する。時刻はスキーマと同じ UTC の ISO 8601 文字列とする。更新対象の資格情報が存在しなければ `UserNotFoundError` を投げる
 - 保存層は受け取った正規化済みメールアドレスと PHC 文字列をそのまま扱い、正規化やハッシュの解析を繰り返さない

@@ -142,7 +142,7 @@ auth-server/
 
 ### import の検査
 
-`eslint.config.js` で上の依存規則を検査し、`.github/scripts/eslint-config.test.ts` で許可・拒否の組み合わせを検証する。新ディレクトリを追加するだけで依存検査が機能したとは扱わない。Service から具体実装への型 import、実装用公開口へのアクセス、再 export や動的 import による回避も禁止する。
+`eslint.config.js` で上の依存規則を検査し、`.github/scripts/eslint-config.test.ts` で許可・拒否の組み合わせを検証する。新ディレクトリを追加するだけで依存検査が機能したとは扱わない。Service から具体実装への型 import、実装用公開口へのアクセス、再 export や動的 import による回避も禁止する。名前が `ForTesting` で終わるテスト用の差し替え口（`providers/password/derive.ts` の `replaceDerivationForTesting` など）は、テスト・ベンチマーク以外から import・再 export・プロパティ参照できない。
 
 移行期間中は `src/store/sqlite/` に `repositories` の interface、`models`、`errors` と `node:sqlite` の利用を許可し、[移行手順 3](migration.md#step-3)で SQLite モジュール全体とテストを `repositories/sqlite/` へ移した後に旧経路と暫定規則を除去する。モデルの秘密値を扱う内部 import は `providers/password/argon2-password-provider.ts` と、その内部契約を検証する `models/password/values.test.ts` に限定する。旧 `src/password/` の経路と暫定規則は撤去済みで、`src/index.ts` を唯一の組み立て経路とする。
 
@@ -183,7 +183,7 @@ interface UserRepository {
 |---|---|---|---|
 | `PasswordProvider` | `providers/password-provider.ts` | `hash(Password, signal)`・`rehash(Password, signal)` は `Promise<EncodedHash>`、`verify(Password, EncodedHash, signal)` は `Promise<boolean>`、`needsRehash(EncodedHash)` は `boolean` | `Argon2PasswordProvider` |
 | `IdProvider` | `providers/id-provider.ts` | `newUserId(): string` は UUID v4、`newDummyPassword(): string` はポリシーを満たす暗号学的なランダム文字列 | `CryptoIdProvider` |
-| `LoggerProvider` | `providers/logger-provider.ts` | `info`・`warn`・`error` はメッセージと任意の `Record<string, unknown>` 属性を受け取り `void` を返す。属性の `Error` は `name`・`message` と `cause` の連鎖を同じ形で書き、`stack` は書かない。循環参照や `bigint` など JSON にできない値は固定の文字列に置き換え、例外を投げない | `JsonLoggerProvider` |
+| `LoggerProvider` | `providers/logger-provider.ts` | `info`・`warn`・`error` はメッセージと任意の `Record<string, unknown>` 属性を受け取り `void` を返す。1 行の JSON は `time`・`level`・`msg` を先頭に置き、同名の属性は書かない。属性の `Error` は `name`・`message` と `cause` の連鎖を同じ形で書き、`stack` は書かない。`cause` が `undefined` なら書かない。循環参照、`bigint`、Buffer などのバイナリ、`Map`・`Set` のように自前の列挙可能なプロパティを持たないプレーンでないオブジェクトなど JSON にできない値と、深さ 64 以上または属性 1 つあたり 1000 個を超える値は固定の文字列に置き換える。`Password`・`EncodedHash` と、キー名が `password`・`rawPassword`・`passwordHash`・`encodedHash` の値は、深さを問わず読まずに `[REDACTED]` にする。例外を投げず、出力先の非同期エラーでもプロセスを止めない（出力先は `write` と `error` イベントを持つ） | `JsonLoggerProvider` |
 
 Interface は利用するメソッドだけに絞る。JWT・Cookie・リフレッシュトークン・認証状態の維持はスコープ外であり、将来用の Provider や認証 Middleware は先に作らない。
 
