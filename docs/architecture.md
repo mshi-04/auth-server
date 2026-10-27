@@ -142,7 +142,7 @@ auth-server/
 
 ### import の検査
 
-`eslint.config.js` で上の依存規則を検査し、`.github/scripts/eslint-config.test.ts` で許可・拒否の組み合わせを検証する。新ディレクトリを追加するだけで依存検査が機能したとは扱わない。Service から具体実装への型 import、実装用公開口へのアクセス、再 export や動的 import による回避も禁止する。名前が `ForTesting` で終わるテスト用の差し替え口（`providers/password/derive.ts` の `replaceDerivationForTesting` など）は、テスト・ベンチマーク以外から import・再 export・プロパティ参照できない。
+`eslint.config.js` で上の依存規則を検査し、`.github/scripts/eslint-config.test.ts` で許可・拒否の組み合わせを検証する。新ディレクトリを追加するだけで依存検査が機能したとは扱わない。Service から具体実装への型 import、実装用公開口へのアクセス、再 export や動的 import による回避も禁止する。名前が `ForTesting` で終わるテスト用の差し替え口（`providers/password/derive.ts` の `replaceDerivationForTesting` など）は、テスト・ベンチマーク以外から import・再 export・プロパティ参照できない。名前を検査できるよう、差し替え口を持つモジュールは本番コードから `import * as` で読み込まず、`export *` で再 export しない。対象のモジュールは `eslint.config.js` に列挙する。
 
 移行期間中は `src/store/sqlite/` に `repositories` の interface、`models`、`errors` と `node:sqlite` の利用を許可し、[移行手順 3](migration.md#step-3)で SQLite モジュール全体とテストを `repositories/sqlite/` へ移した後に旧経路と暫定規則を除去する。モデルの秘密値を扱う内部 import は `providers/password/argon2-password-provider.ts` と、その内部契約を検証する `models/password/values.test.ts` に限定する。旧 `src/password/` の経路と暫定規則は撤去済みで、`src/index.ts` を唯一の組み立て経路とする。
 
