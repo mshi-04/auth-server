@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { InvalidParamsError } from "../errors/index.ts";
-import { defaultParams, Hasher } from "./index.ts";
+import { InvalidParamsError } from "../../errors/index.ts";
+import { defaultParams, Argon2PasswordProvider } from "./index.ts";
 
 describe("password provider settings", () => {
   it("returns fresh complete defaults", () => {
@@ -19,9 +19,9 @@ describe("password provider settings", () => {
   });
 
   it("validates model parameters at creation", () => {
-    expect(() => Hasher.create({ ...defaultParams(), iterations: 0 })).toThrow(
-      InvalidParamsError,
-    );
+    expect(() =>
+      Argon2PasswordProvider.create({ ...defaultParams(), iterations: 0 }),
+    ).toThrow(InvalidParamsError);
   });
 
   it.each([
@@ -44,8 +44,8 @@ describe("password provider settings", () => {
       waitTimeoutMs: Number.MAX_SAFE_INTEGER,
     },
   ])("creates a hasher with supported bounds %j", (patch) => {
-    expect(Hasher.create({ ...defaultParams(), ...patch })).toBeInstanceOf(
-      Hasher,
-    );
+    expect(
+      Argon2PasswordProvider.create({ ...defaultParams(), ...patch }),
+    ).toBeInstanceOf(Argon2PasswordProvider);
   });
 });

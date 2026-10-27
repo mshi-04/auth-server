@@ -163,7 +163,6 @@ describe.each(declarationForms)("layer direction: %s", (_, declaration) => {
     "./providers/password/index.ts",
     "./providers/crypto-id-provider.ts",
     "./providers/json-logger-provider.ts",
-    "./password/index.ts",
     "./store/sqlite/index.ts",
   ])("allows assembly through %s", (source) => {
     allows("src/index.ts", declaration(source));
@@ -180,7 +179,13 @@ describe.each(declarationForms)("layer direction: %s", (_, declaration) => {
     ["src/controllers/auth-controller.ts", "../services/auth-service.ts"],
     ["src/index.ts", "./repositories/sqlite/initialization.ts"],
     ["src/index.ts", "./providers/password/derive.ts"],
+    ["src/index.ts", "./password/index.ts"],
     ["src/index.ts", "./password/hasher.ts"],
+    ["src/services/auth-service.test.ts", "../password/index.ts"],
+    [
+      "src/providers/password/argon2-password-provider.ts",
+      "../../password/index.ts",
+    ],
     ["src/models/user.ts", "./user.test.ts"],
     ["src/services/auth-service.ts", "../auth/index.ts"],
     ["src/services/auth-service.ts", "../errors.ts"],
@@ -343,10 +348,6 @@ describe("model secrets and targeted test exceptions", () => {
   const helpers = ["readPassword", "readHash", "createHash", "isCanonicalHash"];
   const allowed = [
     "src/models/password/values.test.ts",
-    "src/password/hasher.ts",
-    "src/password/hasher.test.ts",
-    "src/password/concurrency.test.ts",
-    "src/password/password.bench.ts",
     "src/providers/password/argon2-password-provider.ts",
   ];
 
@@ -410,7 +411,6 @@ describe("model secrets and targeted test exceptions", () => {
   });
 
   it.each([
-    ["src/password/hasher.ts", "Hasher"],
     [
       "src/providers/password/argon2-password-provider.ts",
       "Argon2PasswordProvider",
@@ -461,6 +461,16 @@ describe("model secrets and targeted test exceptions", () => {
     "src/repositories/sqlite/sqlite-user-repository.ts",
     "src/providers/crypto-id-provider.ts",
     "src/providers/password/derive.ts",
+    "src/providers/password/argon2-password-provider.test.ts",
+    "src/providers/password/concurrency.test.ts",
+    "src/providers/password/password.bench.ts",
+    "src/providers/password/semaphore.ts",
+    "src/providers/password/unrelated.test.ts",
+    "src/providers/json-logger-provider.ts",
+    "src/password/hasher.ts",
+    "src/password/hasher.test.ts",
+    "src/password/concurrency.test.ts",
+    "src/password/password.bench.ts",
     "src/password/semaphore.ts",
     "src/password/unrelated.test.ts",
     "src/password/hasher.bench.ts",
@@ -527,6 +537,19 @@ describe("model secrets and targeted test exceptions", () => {
       namedImport("../providers/password/index.ts", "Argon2PasswordProvider"),
     );
   });
+
+  it.each([
+    ["crypto-id-provider", "CryptoIdProvider"],
+    ["json-logger-provider", "JsonLoggerProvider"],
+  ])("permits only the concrete Provider's own test for %s", (module, name) => {
+    const source = "./" + module + ".ts";
+    allows("src/providers/" + module + ".test.ts", namedImport(source, name));
+    rejects("src/providers/other.test.ts", namedImport(source, name));
+    rejects(
+      "src/providers/password/argon2-password-provider.ts",
+      namedImport("../" + module + ".ts", name),
+    );
+  });
 });
 
 describe("Node module ownership", () => {
@@ -575,12 +598,12 @@ describe("Node module ownership", () => {
     }
   });
 
-  it("limits crypto to concrete Providers and required transitional files", () => {
+  it("limits crypto to the concrete implementations and their exact tests", () => {
     for (const filename of [
-      "src/password/hasher.ts",
-      "src/password/derive.ts",
-      "src/password/concurrency.test.ts",
+      "src/providers/password/argon2-password-provider.ts",
       "src/providers/password/derive.ts",
+      "src/providers/password/derive.test.ts",
+      "src/providers/password/concurrency.test.ts",
       "src/providers/crypto-id-provider.ts",
       "src/providers/crypto-id-provider.test.ts",
     ]) {
@@ -592,6 +615,15 @@ describe("Node module ownership", () => {
       "src/services/auth-service.ts",
       "src/providers/password-provider.ts",
       "src/providers/id-provider.ts",
+      "src/providers/json-logger-provider.ts",
+      "src/providers/json-logger-provider.test.ts",
+      "src/providers/password/semaphore.ts",
+      "src/providers/password/params.ts",
+      "src/providers/password/unrelated.ts",
+      "src/providers/password/unrelated.test.ts",
+      "src/password/hasher.ts",
+      "src/password/derive.ts",
+      "src/password/concurrency.test.ts",
       "src/password/semaphore.ts",
       "src/password/unrelated.test.ts",
       "src/store/sqlite/store.ts",
@@ -696,6 +728,6 @@ describe("forbidden syntax and bypasses", () => {
       "no-restricted-syntax",
     );
     allows("src/services/auth-service.test.ts", 'import "vitest";');
-    allows("src/password/password.bench.ts", 'import "vitest";');
+    allows("src/providers/password/password.bench.ts", 'import "vitest";');
   });
 });

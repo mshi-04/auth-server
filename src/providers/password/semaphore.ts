@@ -1,4 +1,4 @@
-import { PasswordBusyError } from "../errors/index.ts";
+import { PasswordBusyError } from "../../errors/index.ts";
 
 type Waiter = { grant: () => boolean };
 

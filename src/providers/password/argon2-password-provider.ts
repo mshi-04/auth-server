@@ -1,17 +1,23 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { PolicyViolationError } from "../errors/index.ts";
-import { validateParams } from "../models/index.ts";
-import type { Cost, EncodedHash, Params, Password } from "../models/index.ts";
+import { PolicyViolationError } from "../../errors/index.ts";
+import { validateParams } from "../../models/index.ts";
+import type {
+  Cost,
+  EncodedHash,
+  Params,
+  Password,
+} from "../../models/index.ts";
 import {
   createHash,
   isCanonicalHash,
   readHash,
   readPassword,
-} from "../models/password/values.ts";
+} from "../../models/password/values.ts";
+import type { PasswordProvider } from "../index.ts";
 import { deriveKey } from "./derive.ts";
 import { abortedError, Semaphore } from "./semaphore.ts";
 
-export class Hasher {
+export class Argon2PasswordProvider implements PasswordProvider {
   #params: Params;
   #slots: Semaphore;
 
@@ -20,10 +26,10 @@ export class Hasher {
     this.#slots = Semaphore.create(params.maxConcurrent, params.waitTimeoutMs);
   }
 
-  static create(params: Params): Hasher {
+  static create(params: Params): Argon2PasswordProvider {
     const copy = { ...params };
     validateParams(copy);
-    return new Hasher(copy);
+    return new Argon2PasswordProvider(copy);
   }
 
   async hash(password: Password, signal: AbortSignal): Promise<EncodedHash> {

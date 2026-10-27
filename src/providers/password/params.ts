@@ -1,4 +1,4 @@
-import type { Params } from "../models/index.ts";
+import type { Params } from "../../models/index.ts";
 
 export function defaultParams(): Params {
   return {

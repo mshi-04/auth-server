@@ -51,7 +51,7 @@
 - TypeScript の型は構造で比較されるため、同じ形の別の型と取り違えないよう、値オブジェクトは private フィールドを持つクラスにする
 - 秘密を持つ値オブジェクトは、`toString`・`toJSON`・`[util.inspect.custom]` で伏字を返す。型ごとの扱いは [パスワード仕様](specs/password.md#公開契約)に定める
 - `Password` と `EncodedHash` は `models` に置き、`#` フィールドで生パスワードとハッシュを区別する。変数名も `rawPassword`・`encodedHash` などで区別する。PHC の構文解析、`Cost`、解析済みの値はモデル内部に置き、`models` から `providers` に依存させない
-- 暗号計算のための秘密値の読み出しとハッシュ生成は、具体的な `providers/password/argon2-password-provider.ts` に限って使えるモデル内部の契約とする。公開の `models/index.ts` からは export せず、専用の内部 import の例外を依存規則に定める。移行中の旧 `src/password/hasher.ts` の暫定的な許可と撤去時期は architecture.md に従う。一般公開の生パスワード getter や変更可能な `Buffer` の getter は追加しない。保存用の PHC は従来どおり `EncodedHash.phc()` を明示的に呼ぶ
+- 暗号計算のための秘密値の読み出しとハッシュ生成は、具体的な `providers/password/argon2-password-provider.ts` に限って使えるモデル内部の契約とする。公開の `models/index.ts` からは export せず、専用の内部 import と検証用の例外は architecture.md に従う。一般公開の生パスワード getter や変更可能な `Buffer` の getter は追加しない。保存用の PHC は従来どおり `EncodedHash.phc()` を明示的に呼ぶ
 - JSON の入出力用の型、DB の行を受ける型、素通りするだけの値は、値オブジェクトにしない
 - `Params` は設定入力の型として公開プロパティを維持し、`Argon2PasswordProvider.create` で検証する。不変の値オブジェクトにはしない
 - 値オブジェクトの導入で architecture.md のインターフェース（例：`UserRepository` の引数の型）が変わる場合は、先に architecture.md を更新する
@@ -105,7 +105,7 @@
 - 書式は Prettier に任せ、手で揃えない。整形だけの変更を、ほかの変更と同じコミットに混ぜない
 - ESLint は typescript-eslint の `strictTypeChecked` を基本にする。AGENTS.md の禁止事項（乱数 API の制限など）、イベントループを止める `argon2Sync`、依存規則を回避する動的 import と `createRequire` も禁止する
 - 移行時に `eslint.config.js` とその検証テストを新しい層へ合わせる。`services` の HTTP・DB・暗号モジュールへの直接依存、`repositories/sqlite` 以外の `node:sqlite`、具体的な Provider 以外の暗号呼び出し、逆向きの import を禁止する。移行中は旧 `src/store/sqlite/` に新しい保存契約・モデル・エラーと `node:sqlite` の利用を限定して許可し、手順 3 で Repository とテストの移動を終えてから旧経路と暫定規則を撤去する。モデル内部へのアクセスは上記の秘密値契約だけを例外とし、`src/index.ts` は全体を組み立てる唯一の入口にする
-- `eslint.config.js` は層ごとの依存規則と、旧 `src/password/`・`src/store/sqlite/` に限定した移行中の例外を検査する。許可・拒否の組み合わせは `.github/scripts/eslint-config.test.ts` で検証する。禁止する名前やパターンの実際の一覧は `eslint.config.js` を正本とする
+- `eslint.config.js` は層ごとの依存規則と、旧 `src/store/sqlite/` に限定した移行中の例外を検査する。許可・拒否の組み合わせは `.github/scripts/eslint-config.test.ts` で検証する。禁止する名前やパターンの実際の一覧は `eslint.config.js` を正本とする
 - ESLint の指摘は抑制コメントで消さず、コードを直す。どうしても抑制する場合は、`eslint-disable-next-line` で規則名を明示し、理由を同じ行に書く
 
 ## 作りすぎない

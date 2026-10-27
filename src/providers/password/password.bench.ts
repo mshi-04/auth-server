@@ -3,12 +3,12 @@ import { cpus } from "node:os";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { setImmediate, setTimeout } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
-import { Password } from "../models/index.ts";
-import { defaultParams, Hasher } from "./index.ts";
+import { Password } from "../../models/index.ts";
+import { defaultParams, Argon2PasswordProvider } from "./index.ts";
 
 const password = Password.parse("correct horse battery staple");
 const signal = new AbortController().signal;
-const hasher = Hasher.create(defaultParams());
+const hasher = Argon2PasswordProvider.create(defaultParams());
 const run = process.env.AUTH_PASSWORD_BENCH_RUN ?? "latest";
 const directory = "bench-results/password";
 const resolutionMs = 10;
@@ -85,7 +85,7 @@ describe.runIf(process.env.AUTH_PASSWORD_BENCH_CANDIDATES === "1")(
     for (const memoryKiB of [65536, 131072]) {
       for (let iterations = 2; iterations <= 10; iterations++) {
         const name = `m=${memoryKiB.toString()},t=${iterations.toString()}`;
-        const candidate = Hasher.create({
+        const candidate = Argon2PasswordProvider.create({
           ...defaultParams(),
           memoryKiB,
           iterations,
