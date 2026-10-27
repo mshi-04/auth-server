@@ -4,7 +4,7 @@
 
 ## ドライバ
 
-Node 標準の `node:sqlite` の `Database` クラス（v26.11.0 で `DatabaseSync` から改名。`DatabaseSync` は非推奨の別名として残る）。外部パッケージやネイティブのビルドは不要。26.11.0 未満の Node は対象外とし（[言語・実行環境](../tech-stack.md#言語・実行環境)）、`DatabaseSync` との互換処理は持たない。
+Node 標準の `node:sqlite` の `Database` クラス（v26.11.0 で `DatabaseSync` から改名。`DatabaseSync` は非推奨の別名として残る）。外部パッケージやネイティブのビルドは不要。26.11.0 未満の Node は対象外とし（[言語・実行環境](../tech-stack.md#言語実行環境)）、`DatabaseSync` との互換処理は持たない。
 
 - `node:sqlite` の安定度は 1.2（Release candidate）である
 - `Database` の API はすべて同期で実行され、SQL の実行中とロックの待機中はイベントループが止まる

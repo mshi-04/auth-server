@@ -250,7 +250,7 @@ HTTP フレームワークは使わず、`node:http` 向けの関数として構
 
 `config/env.ts` の `loadConfig(env: NodeJS.ProcessEnv): Config` は `databasePath: string` と `port: number` を返す。環境変数、絶対パス化、`/mnt/c` とリンク解決後の検査は [横断的な要件](specs/api.md#横断的な要件) に従う。不正な値は `errors/` の設定エラーとして投げる。`databasePath` は絶対パス化しただけのパスで返し、リンク解決の結果は `/mnt/c` の検査だけに使う。Repository の検査（[初期化と接続設定](specs/database.md#初期化と接続設定)）がシンボリックリンクを拒否できるよう、渡すパスのリンクを解決しない。Config はファイルやディレクトリを作らず、Repository の所有者・権限検査を重複しない。
 
-`SqliteUserRepository.open(path, signal)` は接続を 1 つだけ所有する具体実装を返す（`Promise`）。`open`・`close` は組み立て用の API で、Service 向けの `UserRepository` には含めない。接続確認・WAL・`init.sql` 初期化の失敗時は接続を閉じる。権限検査、新規 DB の `0o600`、WAL 切り替えだけの再試行、`BEGIN IMMEDIATE`、SQLite エラーの `code` と数値 `errcode` による変換は [DB 仕様](specs/database.md#初期化と接続設定)を維持する。
+`SqliteUserRepository.open(path, signal)` は接続を 1 つだけ所有する具体実装を返す（`Promise`）。`open`・`close` は組み立て用の API で、Service 向けの `UserRepository` には含めない。接続確認・WAL・`init.sql` 初期化の失敗時は接続を閉じる。権限検査、新規 DB の `0o600`、WAL 切り替えだけの再試行は [DB 仕様の初期化と接続設定](specs/database.md#初期化と接続設定)、`BEGIN IMMEDIATE` と SQLite エラーの `code`・数値 `errcode` による変換は [DB 仕様の書き込み](specs/database.md#書き込み)を維持する。
 
 手順 3 では実装済みの `src/store/sqlite/store.ts` の `SqliteStore` を `SqliteUserRepository` へ改名・再配置する。初期化・権限検査・DB エラー変換・スキーマ・公開口・型補助宣言と既存テストをモジュール全体で移し、接続の所有と SQL の振る舞いを維持する。`@types/node` 26.6.5 にない `Database` の型だけを補う `node-sqlite.d.ts` は、型定義が改名に対応するまで保持する。実行時は `Database` を直接使う。
 
@@ -304,6 +304,6 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 | Config・Logger | 環境変数を引数で渡し、メモリ上の出力先で検証 |
 | 依存規則 | 禁止 import、具体実装へのアクセス、モデル内部 API の例外範囲、動的 import などの回避を検証 |
 
-JSON キー大小文字と孤立サロゲートは [API 仕様](specs/api.md#json-入力)、保存済み PHC のソルト長下限は [パスワード仕様](specs/password.md#パラメータ)を優先する。Go のテストをそのまま移すことで TS 仕様を戻さない。登録・ログインの応答、ダミー検証、再ハッシュ失敗時の成功、秘密値の非公開は維持する。
+JSON キー大小文字・孤立サロゲート（[API 仕様](specs/api.md#json-入力)）、保存済み PHC のソルト長下限（[パスワード仕様](specs/password.md#パラメータ)）など、TS の仕様が Go 実装と異なる項目は各仕様書を優先する。仕様書は Go 実装との差分に注記を付け、注記は [移行手順 7](migration.md#step-7) で Go 実装と一緒に削除する。Go のテストをそのまま移すことで TS 仕様を戻さない。登録・ログインの応答、ダミー検証、再ハッシュ失敗時の成功、秘密値の非公開は維持する。
 
 各実装段階で型検査・Lint・整形確認・テスト・カバレッジを確認する。ベンチマークは Provider 移行段階で既存の測定範囲を維持して確認し、性能や既定値を変える場合だけ [パスワード仕様の手順](specs/password.md#テストと性能調整)で再測定する。Windows のブラウザーからの実接続確認は [移行手順 5](migration.md#step-5) で行う。

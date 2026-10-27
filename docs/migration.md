@@ -1,6 +1,26 @@
 # TypeScript への移行手順
 
-Go 実装を動かしたまま、TS 実装を段階的に移行し、仕様をすべて満たしてから Go 実装を削除する。現在の配置と暫定 import 規則は [アーキテクチャ](architecture.md#現状と移行先)を参照する。以下は残りの手順であり、既存の参照と対応させるため識別子を維持する。
+Go 実装を動かしたまま、TS 実装を段階的に移行し、仕様をすべて満たしてから Go 実装を削除する。現在の配置は [アーキテクチャの現状と移行先](architecture.md#現状と移行先)、暫定 import 規則は [import の検査](architecture.md#import-の検査)を参照する。
+
+完了した手順も見出しとアンカーを残し、本文を「完了」の 1 行にする。ほかの文書のリンクと「手順 3」などの参照は、手順の完了後も同じ見出しを指す。
+
+<a id="step-1"></a>
+
+## 手順 1：土台
+
+完了
+
+<a id="step-2"></a>
+
+## 手順 2：password
+
+完了
+
+<a id="step-2a"></a>
+
+## 手順 2a：基盤
+
+完了
 
 <a id="step-2b"></a>
 
@@ -42,7 +62,7 @@ README を TS 実装の手順に書き換える
 
 ## 手順 7：Go 実装の削除
 
-Go 実装を削除する。対象は `cmd/`、`internal/`（`internal/httpapi/web/` を含む）、`go.mod`、`go.sum`、`.github/actions/setup-go/`、`ci.yml` の Go 用のジョブ、`codeql.yml` の `go` の解析、`dependabot.yml` の `gomod` と `/.github/actions/setup-go` の確認先、development.md の「Go 実装（移行完了まで）」の節、tech-stack.md の「Go 実装（移行完了まで）」の節
+Go 実装を削除する。対象は `cmd/`、`internal/`（`internal/httpapi/web/` を含む）、`go.mod`、`go.sum`、`.github/actions/setup-go/`、`ci.yml` の Go 用のジョブ、`codeql.yml` の `go` の解析、`dependabot.yml` の `gomod` と `/.github/actions/setup-go` の確認先、development.md の「Go 実装（移行完了まで）」の節、tech-stack.md の「Go 実装（移行完了まで）」の節、仕様書と architecture.md の Go 実装との差分の注記
 
 <a id="step-8"></a>
 

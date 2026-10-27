@@ -60,7 +60,7 @@ type Cost = Pick<Params, "memoryKiB" | "iterations" | "parallelism">;
 
 - すべての項目は `Number.isSafeInteger` を満たす整数に限る。`maxConcurrent` と `waitTimeoutMs` は正の整数に限る
 - 不正な生成設定は `Argon2PasswordProvider.create` が `InvalidParamsError` を投げる。保存済み PHC の範囲外の値は `InvalidHashError` とする
-- memory・iterations・parallelism・出力長の下限は RFC 9106 の入力条件に従う。生成設定のソルト長の下限は RFC 9106 の推奨値 16 バイトとする。保存済み PHC のソルトの下限は、Node の `argon2` が nonce に要求する 8 バイトとする
+- memory・iterations・parallelism・出力長の下限は RFC 9106 の入力条件に従う。生成設定のソルト長の下限は RFC 9106 の推奨値 16 バイトとする。保存済み PHC のソルトの下限は、Node の `argon2` が nonce に要求する 8 バイトとする（Go 実装では 1 バイト以上を受理していた）
 
 ## 保存形式
 

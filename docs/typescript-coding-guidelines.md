@@ -5,7 +5,7 @@
 
 移行中の Go 実装は、移行の完了（[移行手順 7](migration.md#step-7)）で削除するまで機能を追加しない。
 
-以下は移行先の方針を定める。現在の配置と暫定 import 規則は [アーキテクチャ](architecture.md#現状と移行先)に従う。
+以下は移行先の方針を定める。現在の配置は [アーキテクチャの現状と移行先](architecture.md#現状と移行先)、暫定 import 規則は [import の検査](architecture.md#import-の検査)に従う。
 
 ## 構成
 

@@ -78,6 +78,7 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 | `scripts.start` | `node src/main.ts` | `node src/index.ts` | 手順 4b：HTTP と起動処理 |
 | 静的ファイルの除外パス | `src/httpapi/web/` | `public/` | 手順 4b：静的配信 |
 
+- Vitest の `passWithNoTests` は使わない。テストの移動や `include` の指定の誤りでテストが 0 件になったときに、`npm test` と CI を失敗させるため
 - `npm run bench` は既定パラメータの `hash`・`hash saturated` と飽和時のイベントループ遅延を測る。`AUTH_PASSWORD_BENCH_RUN=1 npm run bench` の番号を 1・2・3 と変えて 3 回実行すると、各回の JSON を `bench-results/password/` に残せる（`coverage/` はカバレッジの実行時に削除されるため使わない）。番号を省略した場合は `latest` として上書きする。既定値が [テストと性能調整](specs/password.md#テストと性能調整) の目標から外れた場合は、`AUTH_PASSWORD_BENCH_CANDIDATES=1 npm run bench` で候補も比較する。Vitest 5 では `*.bench.ts` 内のテストコンテキストの `bench` を使い、通常の `npm test` ではベンチマークを実行しない
 - ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイル、CI のスクリプト（`.github/scripts/`）、ルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。`actions/github-script` から `require` する `.github/scripts/*.cjs` は、`@eslint/js` の推奨規則で検査し、テスト（`*.test.ts`）から読み込んで振る舞いを確かめる。ブラウザーで動く静的ファイルは移行後の `public/` も対象から外す
 - `tsconfig.json` の `skipLibCheck` で依存パッケージの型定義は型検査しない。依存の更新で型定義どうしが食い違っても、このプロジェクトのコードと無関係に型検査が失敗しないようにするため
@@ -86,7 +87,7 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 ### レイヤー分離時の設定と検証
 
 - 層ごとの依存規則と、移行中の暫定 import 規則は [アーキテクチャ](architecture.md#import-の検査)に従う。
-- `.github/scripts/eslint-config.test.ts` も新しい規則に合わせ、許可する import と拒否する import の両方を検証する。移行中の旧 `src/password/` には必要な既存規則を残し、手順 2b で再配置を終えてから不要な規則を削除する。旧 `src/store/sqlite/` には移動済みの Repository interface・Models・Errors と `node:sqlite` の利用を限定して許可し、手順 3 で SQLite モジュールとテストを再配置してから旧経路と暫定規則を除去する。設計文書だけを更新する段階では、これらの設定やテストは変更しない
+- `.github/scripts/eslint-config.test.ts` は、上の依存規則と暫定 import 規則に合わせて、許可する import と拒否する import の両方を検証する。移行中の旧 `src/password/` には必要な既存規則を残し、手順 2b で再配置を終えてから不要な規則を削除する。旧 `src/store/sqlite/` には移動済みの Repository interface・Models・Errors と `node:sqlite` の利用を限定して許可し、手順 3 で SQLite モジュールとテストを再配置してから旧経路と暫定規則を除去する
 - 手順 2b では `Hasher`・セマフォ・鍵導出のテストとベンチマークを `providers/password/` へ移し、既存の検証内容を維持する。手順 4a の Service のテストでは、手書きの偽 `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、低コスト設定の本物の `Argon2PasswordProvider` と組み合わせる検証も残す
 - 手順 3 では実装済みの `src/store/sqlite/` 全体（接続・初期化・権限検査・DB エラー変換・`init.sql`・公開口・型補助宣言・テスト）を `src/repositories/sqlite/` へ移し、`SqliteStore` を `SqliteUserRepository` へ改名する。既存の SQL とトランザクション、再試行・中断・権限・エラー分類のテストを維持する
 - 手順 4b で `public/` を作るとき、ESLint・Prettier・Vitest の除外設定を確認する。Vitest のカバレッジ対象は `src/**/*.ts` のため、`public/` は対象に入らない。旧 `src/httpapi/web/**` の除外指定もこの段階で整理する

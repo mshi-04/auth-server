@@ -39,7 +39,7 @@ Go 実装（`golang.org/x/crypto/argon2`）で採用値を決めたときの記�
 
 ## Go 実装時の記録：型付き API 移行後の再測定（2026-10-19）
 
-環境は上記と同じ WSL Ubuntu 24.04、Go 1.27.2、linux/amd64、`CGO_ENABLED=0`、Intel Core i7-12700、`GOMAXPROCS=4`。v0.10 の型付き API で、`ParsePassword` は計測外に置いた。
+環境は上記と同じ WSL Ubuntu 24.04、Go 1.27.2、linux/amd64、`CGO_ENABLED=0`、Intel Core i7-12700、`GOMAXPROCS=4`。型付き API（`Password`・`EncodedHash` の導入後）で、`ParsePassword` は計測外に置いた。
 
 - 既定値（128 MiB・反復 9・並列 2）の `BenchmarkHash`：358.733 / 399.144 / 351.600 ms、中央値 **358.733 ms**。目標の 200〜500 ms 内であり、既定パラメータは変更しない
 - 測定コマンド：`CGO_ENABLED=0 go test -run=^$ -bench=^BenchmarkHash$ -benchmem -count=3 ./internal/password`
