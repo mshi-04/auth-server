@@ -146,7 +146,7 @@ describe.each(declarationForms)("layer direction: %s", (_, declaration) => {
     ["src/models/password/phc.ts", "./hash-parameters.ts"],
     ["src/store/sqlite/store.ts", "./initialization.ts"],
     ["src/repositories/sqlite/sqlite-user-repository.ts", "./errors.ts"],
-    ["src/providers/password/semaphore.ts", "./derive.ts"],
+    ["src/providers/password/semaphore.ts", "./params.ts"],
     ["src/providers/crypto-id-provider.test.ts", "./crypto-id-provider.ts"],
     ["src/providers/json-logger-provider.test.ts", "./json-logger-provider.ts"],
   ])("allows module internals: %s -> %s", (filename, source) => {
@@ -731,6 +731,47 @@ describe("forbidden syntax and bypasses", () => {
       "no-restricted-syntax",
     );
     rejects("src/providers/password/index.ts", code, "no-restricted-syntax");
+  });
+
+  it.each([
+    'import * as derive from "./derive.ts"; void derive["replaceDerivationForTesting"];',
+    'import * as derive from "./derive.ts"; void derive[`replaceDerivationForTesting`];',
+    'import * as derive from "./derive.ts"; const name = "replaceDerivationForTesting"; void derive[name];',
+    'export * from "./derive.ts";',
+  ])("keeps whole testing-hook modules out of production code: %s", (code) => {
+    for (const filename of [
+      "src/providers/password/argon2-password-provider.ts",
+      "src/providers/password/index.ts",
+    ]) {
+      rejects(filename, code);
+    }
+  });
+
+  it("rejects bracket access to testing hooks with a string key", () => {
+    rejects(
+      "src/providers/password/argon2-password-provider.ts",
+      'declare const hooks: Record<string, unknown>; void hooks["replaceDerivationForTesting"];',
+      "no-restricted-syntax",
+    );
+  });
+
+  it("allows whole-module access in tests and named access in production", () => {
+    allows(
+      "src/providers/password/concurrency.test.ts",
+      'import * as derive from "./derive.ts"; void derive.replaceDerivationForTesting;',
+    );
+    allows(
+      "src/providers/password/concurrency.test.ts",
+      'export * from "./derive.ts";',
+    );
+    allows(
+      "src/providers/password/argon2-password-provider.ts",
+      'import { deriveKey } from "./derive.ts"; void deriveKey;',
+    );
+    allows(
+      "src/providers/password/semaphore.ts",
+      'export * from "./params.ts";',
+    );
   });
 
   it.each([

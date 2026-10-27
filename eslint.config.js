@@ -42,6 +42,7 @@ const singleFileModules = [
 ];
 const implementationModules = [...directoryModules, ...singleFileModules];
 const sqliteModules = ["repositories/sqlite", "store/sqlite"];
+const testingHookModules = ["providers/password/derive.ts"];
 const cryptoFiles = [
   "providers/password/argon2-password-provider.ts",
   "providers/password/derive.ts",
@@ -205,6 +206,18 @@ const projectPlugin = {
             target === "index.ts" ||
             targetModule === undefined ||
             (!testing && /\.(?:test|bench)\.ts$/.test(target))
+          ) {
+            reject();
+            return;
+          }
+
+          if (
+            !testing &&
+            testingHookModules.includes(target) &&
+            (node.type === "ExportAllDeclaration" ||
+              node.specifiers?.some(
+                (specifier) => specifier.type === "ImportNamespaceSpecifier",
+              ))
           ) {
             reject();
             return;
@@ -488,7 +501,7 @@ export default defineConfig(
         },
         {
           selector:
-            "ImportSpecifier[imported.name=/ForTesting$/], ExportSpecifier[local.name=/ForTesting$/], MemberExpression[property.name=/ForTesting$/], ObjectPattern > Property[key.name=/ForTesting$/]",
+            "ImportSpecifier[imported.name=/ForTesting$/], ExportSpecifier[local.name=/ForTesting$/], MemberExpression[property.name=/ForTesting$/], MemberExpression[property.value=/ForTesting$/], ObjectPattern > Property[key.name=/ForTesting$/]",
           message: "Only tests and benchmarks may use testing hooks.",
         },
       ],
