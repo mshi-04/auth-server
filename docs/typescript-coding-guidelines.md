@@ -1,11 +1,11 @@
 # TypeScript のコーディング方針
 
 このリポジトリ（TypeScript 製の学習用認証 API）でコードを書くときの方針。
-仕様は [design.md](design.md)、モジュール構成・責務・依存の向き・テスト方法は [architecture.md](architecture.md) を正本とし、この方針と食い違う場合はそちらを優先する。
+機能仕様は [design.md の文書一覧](design.md#文書の正本と読む順序)から担当領域と関連契約を参照する。モジュール構成・責務・依存の向き・テスト方法は [architecture.md](architecture.md) を正本とし、この方針と食い違う場合はそちらを優先する。
 
-移行中の Go 実装は、移行の完了（design.md 10 章の手順 7）で削除するまで機能を追加しない。
+移行中の Go 実装は、移行の完了（[移行手順 7](migration.md#step-7)）で削除するまで機能を追加しない。
 
-以下はレイヤードアーキテクチャへの移行後の方針を定める。手順 2a で値オブジェクト・保存契約・エラーを `models`・`repositories`・`errors` へ移し、`config` と Provider の interface、ESLint の依存規則を実装した。`src/password/` のハッシュ計算と `src/store/sqlite/` の保存処理は、新しい契約を使いながら後続段階まで旧配置を維持する。
+以下は移行先の方針を定める。現在の配置は [アーキテクチャの現状と移行先](architecture.md#現状と移行先)、暫定 import 規則は [import の検査](architecture.md#import-の検査)に従う。
 
 ## 構成
 
@@ -49,7 +49,7 @@
   - 同じ検証をあちこちで繰り返している
 - 値は private フィールド（`#`）に置き、コンストラクタを `private` にして、有効な値の生成経路を検証してから作る static メソッド（`parse`、`create`）に限定する。外から来た値は境界で 1 回だけ解析し、内側では型だけを扱う
 - TypeScript の型は構造で比較されるため、同じ形の別の型と取り違えないよう、値オブジェクトは private フィールドを持つクラスにする
-- 秘密を持つ値オブジェクトは、`toString`・`toJSON`・`[util.inspect.custom]` で伏字を返す。型ごとの扱いは design.md に定める
+- 秘密を持つ値オブジェクトは、`toString`・`toJSON`・`[util.inspect.custom]` で伏字を返す。型ごとの扱いは [パスワード仕様](specs/password.md#公開契約)に定める
 - `Password` と `EncodedHash` は `models` に置き、`#` フィールドで生パスワードとハッシュを区別する。変数名も `rawPassword`・`encodedHash` などで区別する。PHC の構文解析、`Cost`、解析済みの値はモデル内部に置き、`models` から `providers` に依存させない
 - 暗号計算のための秘密値の読み出しとハッシュ生成は、具体的な `providers/password/argon2-password-provider.ts` に限って使えるモデル内部の契約とする。公開の `models/index.ts` からは export せず、専用の内部 import の例外を依存規則に定める。移行中の旧 `src/password/hasher.ts` の暫定的な許可と撤去時期は architecture.md に従う。一般公開の生パスワード getter や変更可能な `Buffer` の getter は追加しない。保存用の PHC は従来どおり `EncodedHash.phc()` を明示的に呼ぶ
 - JSON の入出力用の型、DB の行を受ける型、素通りするだけの値は、値オブジェクトにしない
@@ -63,8 +63,8 @@
 - 下の層のエラーは `new XxxError('何をしていたか', { cause: err })` で包んで投げる。判定は `errors` の補助関数で `cause` をたどって行う
 - `catch` した値は `unknown` として扱い、`Error` 以外が投げられた場合も考える
 - 各層はエラーを自分の契約に変換する。`repositories` は SQLite のエラーを `EmailTakenError`・`UserNotFoundError`・`BusyError` などへ、`services` はパスワード Provider の `PasswordBusyError` を `BusyError` などへ変換する。コントローラーや Middleware が SQLite のエラーを直接判定しない
-- コントローラー・バリデーション Middleware・ルーターは、失敗時にカスタムエラーを投げる。エラーハンドリング Middleware が Problem Details と HTTP ステータスコードへ変換する。要求中断時は design.md 6.6 の応答規則を優先する
-- エラーは、伝播を止めた層で 1 回だけログに出す。投げたエラーは最上位のエラーハンドリング Middleware で記録し、握りつぶして成功や通常の失敗に変換したエラーは、変換したその場で記録する。ログに出したエラーをさらに投げて、別の層で重複して記録しない。具体的な場面は design.md 6.5 を参照する
+- コントローラー・バリデーション Middleware・ルーターは、失敗時にカスタムエラーを投げる。エラーハンドリング Middleware が Problem Details と HTTP ステータスコードへ変換する。要求中断時は [サーバータイムアウト](specs/api.md#サーバータイムアウト) の応答規則を優先する
+- エラーは、伝播を止めた層で 1 回だけログに出す。投げたエラーは最上位のエラーハンドリング Middleware で記録し、握りつぶして成功や通常の失敗に変換したエラーは、変換したその場で記録する。ログに出したエラーをさらに投げて、別の層で重複して記録しない。具体的な場面は [横断的な要件](specs/api.md#横断的な要件) を参照する
 - パスワード、ハッシュ、リクエストボディを、ログにもエラーメッセージにも含めない
 
 ## 依存と組み立て
@@ -105,7 +105,7 @@
 - 書式は Prettier に任せ、手で揃えない。整形だけの変更を、ほかの変更と同じコミットに混ぜない
 - ESLint は typescript-eslint の `strictTypeChecked` を基本にする。AGENTS.md の禁止事項（乱数 API の制限など）、イベントループを止める `argon2Sync`、依存規則を回避する動的 import と `createRequire` も禁止する
 - 移行時に `eslint.config.js` とその検証テストを新しい層へ合わせる。`services` の HTTP・DB・暗号モジュールへの直接依存、`repositories/sqlite` 以外の `node:sqlite`、具体的な Provider 以外の暗号呼び出し、逆向きの import を禁止する。移行中は旧 `src/store/sqlite/` に新しい保存契約・モデル・エラーと `node:sqlite` の利用を限定して許可し、手順 3 で Repository とテストの移動を終えてから旧経路と暫定規則を撤去する。モデル内部へのアクセスは上記の秘密値契約だけを例外とし、`src/index.ts` は全体を組み立てる唯一の入口にする
-- `eslint.config.js` は手順 2a の依存規則と、旧 `src/password/`・`src/store/sqlite/` に限定した移行中の例外を検査する。許可・拒否の組み合わせは `.github/scripts/eslint-config.test.ts` で検証する。禁止する名前やパターンの実際の一覧は `eslint.config.js` を正本とする
+- `eslint.config.js` は層ごとの依存規則と、旧 `src/password/`・`src/store/sqlite/` に限定した移行中の例外を検査する。許可・拒否の組み合わせは `.github/scripts/eslint-config.test.ts` で検証する。禁止する名前やパターンの実際の一覧は `eslint.config.js` を正本とする
 - ESLint の指摘は抑制コメントで消さず、コードを直す。どうしても抑制する場合は、`eslint-disable-next-line` で規則名を明示し、理由を同じ行に書く
 
 ## 作りすぎない
