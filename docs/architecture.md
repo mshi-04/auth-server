@@ -216,12 +216,12 @@ HTTP フレームワークは使わず、`node:http` 向けの関数として構
 
 - Routes は API・ヘルスチェック・静的ファイルの対応表を持つ。未知パスと非対応メソッドはカスタムエラーにし、エラー本文は Error Middleware だけで生成する。405 の許可メソッドもエラーの情報として渡す。
 - `index.ts` は要求ごとに、外側から `security-headers` → `request-lifecycle` → `error-handler` → ルート解決（未知パス・405 を含む）→ `read-json` → `validate-request` → Controller の順に組み立てる。共通ヘッダーと中断管理はルートの一致より外側で行い、404・405・エラー応答にも適用する。`error-handler` は `read-json` を含む内側のすべての失敗を受ける。
-- 各 Middleware と Controller は `req`・`res` と、`request-lifecycle.ts` が作る要求の文脈を受け取る。文脈は下位層へ渡す `signal`、切断と応答期限のそれぞれの signal、応答を書けるかの判定を持つ。
+- 各 Middleware と Controller は `req`・`res` と、`request-lifecycle.ts` が作る要求の文脈を受け取る。文脈は下位層へ渡す `signal`、切断と応答期限のそれぞれの signal、単調時計で表す要求の期限、応答を書けるかの判定を持つ。
 - `read-json.ts` は Content-Length と実際に読んだバイト数を確認し、16 KiB を超えたら拒否する。JSON の解析結果は `unknown` として扱い、読み込み失敗と JSON 不正を区別する。JSON の解析エラーは本文の一部を含みうるため、`BadRequestError` の `cause` に入れない。
 - `credentials-schema.ts` はオブジェクト・必須の文字列項目・未知項目の有無だけを検証する。Content-Type の必須化、空文字の拒否、メール形式、パスワード最小長の検査は追加しない。
 - `validate-request.ts` が Schema を実行し、型が確定した DTO を Controller へ渡す。Controller に入力形式の検査や業務ロジックを重複させない。
-- `request-lifecycle.ts` は要求ごとに切断と 30 秒の応答期限をまとめた `AbortSignal` を作り、Controller を通して下位層へ渡す。クライアントの切断は `res` の `close` で `res.writableFinished` が `false` の場合に判定する。`req` の `close` は本文を読み終えた時点でも発火するため、切断の判定に使わない。応答期限は [サーバータイムアウト](specs/api.md#サーバータイムアウト) に従い、`setTimeout` で中断する `AbortController` から作る。タイマー・イベント購読を後始末する。
-- Controller の成功応答と `error-handler` のエラー応答は、文脈の判定で応答を書けることを確かめてから書く。切断済みなら応答を書かず、応答期限を超えていれば接続を破棄する。この判定は文脈の signal の状態で行い、エラーの `cause` の連鎖には依存しない。
+- `index.ts` は `request` イベントのコールバックの入口（ヘッダー受信後・本文読み込み前）で `performance.now() + 30000` を要求の期限として記録し、`request-lifecycle.ts` へ渡す。`request-lifecycle.ts` は切断と応答期限をまとめた `AbortSignal` を作り、Controller を通して下位層へ渡す。クライアントの切断は `res` の `close` で `res.writableFinished` が `false` の場合に判定する。`req` の `close` は本文を読み終えた時点でも発火するため、切断の判定に使わない。応答期限は [サーバータイムアウト](specs/api.md#サーバータイムアウト) に従い、期限までの残り時間を使う `setTimeout` で中断する `AbortController` から作る。本文の受信完了で期限を延長しない。タイマー・イベント購読を後始末する。
+- Controller の成功応答と `error-handler` のエラー応答は、文脈の判定で応答を書けることを確かめてから書く。切断済みなら応答を書かず、応答期限を超えていれば接続を破棄する。この判定は文脈の signal の状態と、`performance.now()` が期限に達していないことの両方で行い、エラーの `cause` の連鎖には依存しない。同期の SQLite 処理でタイマーの発火が遅れた場合も、期限後の応答を書かない。
 - `security-headers.ts` は成功・失敗を含む共通ヘッダーを担当する。HEAD・CSP・静的ファイルの Content-Type は [Web 画面](specs/api.md#web-画面) に従う。
 - `WebController` は起動時に注入された 3 ファイルを返す。`HealthController` は DB を参照しない。
 
