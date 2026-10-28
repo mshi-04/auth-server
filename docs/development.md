@@ -87,7 +87,7 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 
 - 層ごとの依存規則は [アーキテクチャ](architecture.md#import-の検査)に従う。
 - `.github/scripts/eslint-config.test.ts` は、上の依存規則に合わせて、許可する import と拒否する import の両方を検証する。旧 `src/password/`・`src/store/sqlite/` の経路と暫定規則は撤去済みである
-- パスワード Provider・セマフォ・鍵導出のテストとベンチマークは `providers/password/` に置く。手順 4a の Service のテストでは、手書きの偽 `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、低コスト設定の本物の `Argon2PasswordProvider` と組み合わせる検証も残す
+- パスワード Provider・セマフォ・鍵導出のテストとベンチマークは `providers/password/` に置く。Service のテストでは、手書きの偽 `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、低コスト設定の本物の `Argon2PasswordProvider` と組み合わせる検証も残す
 - `src/repositories/sqlite/` のテストは、実 DB で SQL とトランザクション、再試行・中断・権限・エラー分類を検証する
 - 手順 4b で `public/` を作るとき、ESLint・Prettier・Vitest の除外設定を確認する。Vitest のカバレッジ対象は `src/**/*.ts` のため、`public/` は対象に入らない。旧 `src/httpapi/web/**` の除外指定もこの段階で整理する
 - コードや設定を変更する各段階で `npm run typecheck`、`npm run lint`、`npm run format:check`、`npm test`、`npm run coverage` を確認し、TS 用の CI・CodeQL と Go 用の CI も通ってから次へ進む。文書だけの変更では、文書間の構成・パス・手順・参照先の整合性と差分を確認する。Markdown は Prettier の対象外なので、`format:check` の成功を文書の検証の代わりにしない
