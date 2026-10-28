@@ -45,7 +45,7 @@ wsl -d Ubuntu-24.04 --exec bash -lc '. "$HOME/.nvm/nvm.sh" && nvm use --silent &
 
 SQLite はファイル 1 つで動作し、別途 DB サーバーを起動する必要はない。
 
-- `@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、`src/store/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。実行時は `Database` を直接使う。手順 3 でモジュール全体とともに `src/repositories/sqlite/node-sqlite.d.ts` へ移し、型定義が対応したら削除する
+- `@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、`src/repositories/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。実行時は `Database` を直接使い、型定義が対応したら補助宣言を削除する
 - DB ファイルは `/mnt/c` 配下に置かない。WSL 側（例：`~/.local/share/auth-server/auth.db`）に置く
 - 親ディレクトリは自動で作られないため、初回は `mkdir -p -m 700 ~/.local/share/auth-server` で所有者専用に作っておく
 - 既存の親ディレクトリは `chmod 700 ~/.local/share/auth-server` で権限を制限する。DB と既存の `-wal`・`-shm`・`-journal` ファイルにも所有者以外の権限があれば、該当ファイルを `chmod 600` にしてから起動する。親とファイルの所有者は実行ユーザーと一致させる。シンボリックリンクは使わない
@@ -85,10 +85,10 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 
 ### レイヤー分離時の設定と検証
 
-- 層ごとの依存規則と、移行中の暫定 import 規則は [アーキテクチャ](architecture.md#import-の検査)に従う。
-- `.github/scripts/eslint-config.test.ts` は、上の依存規則と暫定 import 規則に合わせて、許可する import と拒否する import の両方を検証する。旧 `src/password/` の暫定規則は撤去済みである。旧 `src/store/sqlite/` には移動済みの Repository interface・Models・Errors と `node:sqlite` の利用を限定して許可し、手順 3 で SQLite モジュールとテストを再配置してから旧経路と暫定規則を除去する
+- 層ごとの依存規則は [アーキテクチャ](architecture.md#import-の検査)に従う。
+- `.github/scripts/eslint-config.test.ts` は、上の依存規則に合わせて、許可する import と拒否する import の両方を検証する。旧 `src/password/`・`src/store/sqlite/` の経路と暫定規則は撤去済みである
 - パスワード Provider・セマフォ・鍵導出のテストとベンチマークは `providers/password/` に置く。手順 4a の Service のテストでは、手書きの偽 `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、低コスト設定の本物の `Argon2PasswordProvider` と組み合わせる検証も残す
-- 手順 3 では実装済みの `src/store/sqlite/` 全体（接続・初期化・権限検査・DB エラー変換・`init.sql`・公開口・型補助宣言・テスト）を `src/repositories/sqlite/` へ移し、`SqliteStore` を `SqliteUserRepository` へ改名する。既存の SQL とトランザクション、再試行・中断・権限・エラー分類のテストを維持する
+- `src/repositories/sqlite/` のテストは、実 DB で SQL とトランザクション、再試行・中断・権限・エラー分類を検証する
 - 手順 4b で `public/` を作るとき、ESLint・Prettier・Vitest の除外設定を確認する。Vitest のカバレッジ対象は `src/**/*.ts` のため、`public/` は対象に入らない。旧 `src/httpapi/web/**` の除外指定もこの段階で整理する
 - コードや設定を変更する各段階で `npm run typecheck`、`npm run lint`、`npm run format:check`、`npm test`、`npm run coverage` を確認し、TS 用の CI・CodeQL と Go 用の CI も通ってから次へ進む。文書だけの変更では、文書間の構成・パス・手順・参照先の整合性と差分を確認する。Markdown は Prettier の対象外なので、`format:check` の成功を文書の検証の代わりにしない
 

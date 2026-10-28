@@ -4,10 +4,10 @@ import { join, relative } from "node:path";
 import { Database } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BusyError, findError } from "../../errors/index.ts";
-import { SqliteStore } from "./index.ts";
+import { SqliteUserRepository } from "./index.ts";
 
 const directories: string[] = [];
-const stores: SqliteStore[] = [];
+const stores: SqliteUserRepository[] = [];
 const signal = new AbortController().signal;
 
 afterEach(async () => {
@@ -26,24 +26,26 @@ async function temporaryPath(name = "auth.db"): Promise<string> {
   return join(directory, name);
 }
 
-describe("SqliteStore.open", () => {
+describe("SqliteUserRepository.open", () => {
   it("rejects an empty path", async () => {
-    await expect(SqliteStore.open("", signal)).rejects.toMatchObject({
+    await expect(SqliteUserRepository.open("", signal)).rejects.toMatchObject({
       cause: { message: "Empty SQLite database path." },
     });
   });
 
   it("does not create missing parent directories", async () => {
     const path = join(await temporaryPath(), "missing", "auth.db");
-    await expect(SqliteStore.open(path, signal)).rejects.toMatchObject({
-      cause: { code: "ENOENT" },
-    });
+    await expect(SqliteUserRepository.open(path, signal)).rejects.toMatchObject(
+      {
+        cause: { code: "ENOENT" },
+      },
+    );
   });
 
   it("does not create a file for a pre-aborted open", async () => {
     const path = await temporaryPath();
     const reason = new DOMException("startup interrupted", "AbortError");
-    const failure: unknown = await SqliteStore.open(
+    const failure: unknown = await SqliteUserRepository.open(
       path,
       AbortSignal.abort(reason),
     ).catch((error: unknown) => error);
@@ -57,7 +59,7 @@ describe("SqliteStore.open", () => {
     async (name) => {
       const path = await temporaryPath(name);
       stores.push(
-        await SqliteStore.open(relative(process.cwd(), path), signal),
+        await SqliteUserRepository.open(relative(process.cwd(), path), signal),
       );
       expect((await readFile(path)).subarray(0, 16).toString("utf8")).toBe(
         "SQLite format 3\0",
@@ -68,7 +70,7 @@ describe("SqliteStore.open", () => {
   it("preserves a corrupt database instead of replacing it", async () => {
     const path = await temporaryPath();
     await writeFile(path, "invalid database contents", { mode: 0o600 });
-    await expect(SqliteStore.open(path, signal)).rejects.toThrow();
+    await expect(SqliteUserRepository.open(path, signal)).rejects.toThrow();
     expect(await readFile(path, "utf8")).toBe("invalid database contents");
   });
 
@@ -79,13 +81,14 @@ describe("SqliteStore.open", () => {
     locker.exec("PRAGMA journal_mode = WAL; BEGIN IMMEDIATE");
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
-      const failure: unknown = await SqliteStore.open(path, signal).catch(
-        (error: unknown) => error,
-      );
+      const failure: unknown = await SqliteUserRepository.open(
+        path,
+        signal,
+      ).catch((error: unknown) => error);
       expect(findError(failure, BusyError)).toBeInstanceOf(BusyError);
       expect(vi.getTimerCount()).toBe(0);
       locker.exec("ROLLBACK");
-      stores.push(await SqliteStore.open(path, signal));
+      stores.push(await SqliteUserRepository.open(path, signal));
     } finally {
       locker.close();
     }

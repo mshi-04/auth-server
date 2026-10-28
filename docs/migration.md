@@ -1,6 +1,6 @@
 # TypeScript への移行手順
 
-Go 実装を動かしたまま、TS 実装を段階的に移行し、仕様をすべて満たしてから Go 実装を削除する。現在の配置は [アーキテクチャの現状と移行先](architecture.md#現状と移行先)、暫定 import 規則は [import の検査](architecture.md#import-の検査)を参照する。
+Go 実装を動かしたまま、TS 実装を段階的に移行し、仕様をすべて満たしてから Go 実装を削除する。現在の配置は [アーキテクチャの現状と移行先](architecture.md#現状と移行先)、import 規則は [import の検査](architecture.md#import-の検査)を参照する。
 
 完了した手順も見出しとアンカーを残し、本文を「完了」の 1 行にする。ほかの文書のリンクと「手順 3」などの参照は、手順の完了後も同じ見出しを指す。
 
@@ -32,7 +32,7 @@ Go 実装を動かしたまま、TS 実装を段階的に移行し、仕様を�
 
 ## 手順 3：Repository
 
-既存の TS 保存層を Repository へ移す：`src/store/sqlite/` の `SqliteStore` を `repositories/sqlite/` の `SqliteUserRepository implements UserRepository` とし、`init.sql`、接続初期化、権限検査、エラー変換、型補助宣言 `node-sqlite.d.ts`、テストを移す。`NewUser`・`Credential` の文字列の契約、既存スキーマ、トランザクション、WAL・権限・再試行・中断の振る舞いを維持し、既存の制約違反・原子性・永続化・ロック・権限検査のテストを新配置で通す。Go 実装からの新規作成や TS 保存層の重複実装は行わず、旧 `src/store/sqlite/` と ESLint の暫定規則を撤去する。型補助宣言は `@types/node` が対応済みなら削除し、開発ガイドの参照先も更新する
+完了
 
 <a id="step-4a"></a>
 

@@ -73,7 +73,7 @@ devDependency は次の 8 つに限る。
 | スキーマ管理 | `src/repositories/sqlite/init.sql` を `open` で読み込んで実行 | テーブルが 2 つだけなのでマイグレーションツールは不要 |
 | 接続設定 | 接続を 1 つだけ持ち、コンストラクタのオプションで外部キー制約と busy timeout を、`PRAGMA` で WAL を設定する。書き込みは `BEGIN IMMEDIATE` で始める | `node:sqlite` は同期 API のため、接続を増やしても同じプロセス内で並行して実行されない |
 
-`@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、現在は `src/store/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。手順 3 では同じ宣言を `src/repositories/sqlite/node-sqlite.d.ts` へ移し、型定義が対応したら削除する。実行時は `Database` を直接使う。
+`@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、`src/repositories/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。型定義が対応したら削除する。実行時は `Database` を直接使う。
 
 ## テスト
 
@@ -81,7 +81,7 @@ devDependency は次の 8 つに限る。
 |---|---|
 | `models`・パスワード Provider | Vitest。値の解析・伏字と本物の `Argon2PasswordProvider` を小さいパラメータで検証する。ベンチマークは `vitest bench --run src/providers/password` |
 | `services` | 手書きの偽 `UserRepository`・各 Provider で分岐とエラー変換を検証する。小さいパラメータの本物のパスワード Provider を使う結合テストも残す |
-| DB Repository | 既存の TS 保存層テストを移し、一時ディレクトリに毎回まっさらな SQLite ファイルを作って検証する |
+| DB Repository | 一時ディレクトリに毎回まっさらな SQLite ファイルを作って検証する |
 | HTTP | ポート 0 で起動した `http.Server` と `fetch`、本物の `AuthService`（メモリ上の偽 `UserRepository`）。ルート、Middleware、コントローラーをつないだ入力・応答と静的ファイルを検証する |
 
 ## 使わないもの

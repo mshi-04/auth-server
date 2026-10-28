@@ -10,11 +10,11 @@ import {
   findError,
 } from "../../errors/index.ts";
 import type { NewUser } from "../../models/index.ts";
-import type { UserRepository } from "../../repositories/index.ts";
-import { SqliteStore } from "./index.ts";
+import type { UserRepository } from "../index.ts";
+import { SqliteUserRepository } from "./index.ts";
 
 const signal = new AbortController().signal;
-const stores = new Set<SqliteStore>();
+const stores = new Set<SqliteUserRepository>();
 const observers = new Set<Database>();
 const directories: string[] = [];
 const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -37,7 +37,7 @@ async function openTestStore() {
   const directory = await mkdtemp(join(tmpdir(), "auth-store-"));
   directories.push(directory);
   const path = join(directory, "auth.db");
-  const store = await SqliteStore.open(path, signal);
+  const store = await SqliteUserRepository.open(path, signal);
   stores.add(store);
   const observer = new Database(path);
   observers.add(observer);
@@ -85,7 +85,7 @@ function requireTimestamp(value: unknown, before: number, after: number) {
   expect(Date.parse(value)).toBeLessThanOrEqual(after);
 }
 
-describe("SqliteStore", () => {
+describe("SqliteUserRepository", () => {
   it("initializes empty strict tables in WAL mode and preserves data after reopening", async () => {
     const { store, observer, path } = await openTestStore();
     expect(rowCount(observer, "users")).toBe(0);
@@ -108,7 +108,7 @@ describe("SqliteStore", () => {
     await contract.createUser(user, signal);
     store.close();
     stores.delete(store);
-    const reopened = await SqliteStore.open(path, signal);
+    const reopened = await SqliteUserRepository.open(path, signal);
     stores.add(reopened);
     await expect(
       reopened.findCredentialByEmail(user.emailNormalized, signal),

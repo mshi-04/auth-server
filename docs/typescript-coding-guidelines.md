@@ -5,7 +5,7 @@
 
 移行中の Go 実装は、移行の完了（[移行手順 7](migration.md#step-7)）で削除するまで機能を追加しない。
 
-以下は移行先の方針を定める。現在の配置は [アーキテクチャの現状と移行先](architecture.md#現状と移行先)、暫定 import 規則は [import の検査](architecture.md#import-の検査)に従う。
+以下は移行先の方針を定める。現在の配置は [アーキテクチャの現状と移行先](architecture.md#現状と移行先)、import 規則は [import の検査](architecture.md#import-の検査)に従う。
 
 ## 構成
 
@@ -104,8 +104,8 @@
 
 - 書式は Prettier に任せ、手で揃えない。整形だけの変更を、ほかの変更と同じコミットに混ぜない
 - ESLint は typescript-eslint の `strictTypeChecked` を基本にする。AGENTS.md の禁止事項（乱数 API の制限など）、イベントループを止める `argon2Sync`、依存規則を回避する動的 import と `createRequire` も禁止する
-- 移行時に `eslint.config.js` とその検証テストを新しい層へ合わせる。`services` の HTTP・DB・暗号モジュールへの直接依存、`repositories/sqlite` 以外の `node:sqlite`、具体的な Provider 以外の暗号呼び出し、逆向きの import を禁止する。移行中は旧 `src/store/sqlite/` に新しい保存契約・モデル・エラーと `node:sqlite` の利用を限定して許可し、手順 3 で Repository とテストの移動を終えてから旧経路と暫定規則を撤去する。モデル内部へのアクセスは上記の秘密値契約だけを例外とし、`src/index.ts` は全体を組み立てる唯一の入口にする
-- `eslint.config.js` は層ごとの依存規則と、旧 `src/store/sqlite/` に限定した移行中の例外を検査する。許可・拒否の組み合わせは `.github/scripts/eslint-config.test.ts` で検証する。禁止する名前やパターンの実際の一覧は `eslint.config.js` を正本とする
+- 移行時に `eslint.config.js` とその検証テストを新しい層へ合わせる。`services` の HTTP・DB・暗号モジュールへの直接依存、`repositories/sqlite` 以外の `node:sqlite`、具体的な Provider 以外の暗号呼び出し、逆向きの import を禁止する。旧 `src/store/sqlite/` の経路と暫定規則は撤去済みである。モデル内部へのアクセスは上記の秘密値契約だけを例外とし、`src/index.ts` は全体を組み立てる唯一の入口にする
+- `eslint.config.js` は層ごとの依存規則を検査する。許可・拒否の組み合わせは `.github/scripts/eslint-config.test.ts` で検証する。禁止する名前やパターンの実際の一覧は `eslint.config.js` を正本とする
 - ESLint の指摘は抑制コメントで消さず、コードを直す。どうしても抑制する場合は、`eslint-disable-next-line` で規則名を明示し、理由を同じ行に書く
 
 ## 作りすぎない

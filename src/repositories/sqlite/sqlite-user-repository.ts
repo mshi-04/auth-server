@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { Database } from "node:sqlite";
 import { EmailTakenError, UserNotFoundError } from "../../errors/index.ts";
 import type { Credential, NewUser } from "../../models/index.ts";
-import type { UserRepository } from "../../repositories/index.ts";
+import type { UserRepository } from "../index.ts";
 import {
   operationError,
   sqliteCode,
@@ -13,14 +13,17 @@ import {
 import { openDatabase } from "./initialization.ts";
 import { prepareDatabaseFile } from "./permissions.ts";
 
-export class SqliteStore implements UserRepository {
+export class SqliteUserRepository implements UserRepository {
   #db: Database;
 
   private constructor(db: Database) {
     this.#db = db;
   }
 
-  static async open(path: string, signal: AbortSignal): Promise<SqliteStore> {
+  static async open(
+    path: string,
+    signal: AbortSignal,
+  ): Promise<SqliteUserRepository> {
     let db: Database | undefined;
     try {
       throwIfAborted(signal);
@@ -37,7 +40,7 @@ export class SqliteStore implements UserRepository {
       db = await openDatabase(absolutePath, signal);
       throwIfAborted(signal);
       db.exec(schema);
-      return new SqliteStore(db);
+      return new SqliteUserRepository(db);
     } catch (error) {
       db?.close();
       throw operationError(error, "Open SQLite database failed.", signal);
