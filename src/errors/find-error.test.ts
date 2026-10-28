@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { findError } from "./find-error.ts";
+import { findError, isCausedBy } from "./find-error.ts";
 
 class ExpectedError extends Error {
   override name = "ExpectedError";
@@ -91,5 +91,76 @@ describe("findError", () => {
     error.cause = cause;
 
     expect(findError(error, ExpectedError)).toBe(cause);
+  });
+});
+
+describe("isCausedBy", () => {
+  it("matches the root value itself", () => {
+    const reason = new Error("aborted");
+
+    expect(isCausedBy(reason, reason)).toBe(true);
+  });
+
+  it("matches a reason through nested causes", () => {
+    const reason = new Error("aborted");
+    const error = new Error("outer", {
+      cause: new Error("inner", { cause: reason }),
+    });
+
+    expect(isCausedBy(error, reason)).toBe(true);
+  });
+
+  it.each([
+    { name: "string", value: "client disconnected" },
+    { name: "number", value: 0 },
+    { name: "null", value: null },
+    { name: "plain object", value: { reason: "timeout" } },
+  ])(
+    "matches a non-Error reason at the end of the chain: $name",
+    ({ value }) => {
+      expect(isCausedBy(new Error("outer", { cause: value }), value)).toBe(
+        true,
+      );
+    },
+  );
+
+  it("matches NaN by identity", () => {
+    expect(
+      isCausedBy(new Error("outer", { cause: Number.NaN }), Number.NaN),
+    ).toBe(true);
+  });
+
+  it("does not match an equal but different error", () => {
+    const reason = new Error("aborted");
+    const error = new Error("outer", { cause: new Error("aborted") });
+
+    expect(isCausedBy(error, reason)).toBe(false);
+  });
+
+  it("does not look inside non-Error causes", () => {
+    const reason = new Error("aborted");
+    const error = new Error("outer", { cause: { cause: reason } });
+
+    expect(isCausedBy(error, reason)).toBe(false);
+  });
+
+  it("does not look inside AggregateError members", () => {
+    const reason = new Error("aborted");
+    const error = new AggregateError([reason], "many");
+
+    expect(isCausedBy(error, reason)).toBe(false);
+  });
+
+  it("never matches undefined", () => {
+    expect(isCausedBy(new Error("outer"), undefined)).toBe(false);
+    expect(isCausedBy(undefined, undefined)).toBe(false);
+  });
+
+  it("terminates on a cycle that does not contain the reason", () => {
+    const first = new Error("first");
+    const second = new Error("second", { cause: first });
+    first.cause = second;
+
+    expect(isCausedBy(first, new Error("reason"))).toBe(false);
   });
 });
