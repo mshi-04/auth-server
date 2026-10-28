@@ -721,7 +721,9 @@ describe("forbidden syntax and bypasses", () => {
   it.each([
     'import { replaceDerivationForTesting } from "./derive.ts"; void replaceDerivationForTesting;',
     'import { replaceDerivationForTesting as replace } from "./derive.ts"; void replace;',
+    'import { "replaceDerivationForTesting" as replace } from "./derive.ts"; void replace;',
     'export { replaceDerivationForTesting } from "./derive.ts";',
+    'export { "replaceDerivationForTesting" as replace } from "./derive.ts";',
     'import * as derive from "./derive.ts"; void derive.replaceDerivationForTesting;',
     'import * as derive from "./derive.ts"; const { replaceDerivationForTesting: replace } = derive; void replace;',
   ])("keeps testing hooks out of production code: %s", (code) => {
@@ -769,8 +771,16 @@ describe("forbidden syntax and bypasses", () => {
       'import { deriveKey } from "./derive.ts"; void deriveKey;',
     );
     allows(
+      "src/providers/password/argon2-password-provider.ts",
+      'import { "deriveKey" as derive } from "./derive.ts"; void derive;',
+    );
+    allows(
       "src/providers/password/semaphore.ts",
       'export * from "./params.ts";',
+    );
+    allows(
+      "src/providers/password/semaphore.ts",
+      'export { "defaultParams" as defaults } from "./params.ts";',
     );
   });
 
@@ -778,9 +788,12 @@ describe("forbidden syntax and bypasses", () => {
     "src/providers/password/concurrency.test.ts",
     "src/providers/password/password.bench.ts",
   ])("allows testing hooks in %s", (filename) => {
-    allows(
-      filename,
+    for (const code of [
       'import { replaceDerivationForTesting } from "./derive.ts"; void replaceDerivationForTesting;',
-    );
+      'import { "replaceDerivationForTesting" as replace } from "./derive.ts"; void replace;',
+      'export { "replaceDerivationForTesting" as replace } from "./derive.ts";',
+    ]) {
+      allows(filename, code);
+    }
   });
 });

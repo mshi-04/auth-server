@@ -501,7 +501,7 @@ export default defineConfig(
         },
         {
           selector:
-            "ImportSpecifier[imported.name=/ForTesting$/], ExportSpecifier[local.name=/ForTesting$/], MemberExpression[property.name=/ForTesting$/], MemberExpression[property.value=/ForTesting$/], ObjectPattern > Property[key.name=/ForTesting$/]",
+            "ImportSpecifier[imported.name=/ForTesting$/], ImportSpecifier[imported.value=/ForTesting$/], ExportSpecifier[local.name=/ForTesting$/], ExportSpecifier[local.value=/ForTesting$/], MemberExpression[property.name=/ForTesting$/], MemberExpression[property.value=/ForTesting$/], ObjectPattern > Property[key.name=/ForTesting$/]",
           message: "Only tests and benchmarks may use testing hooks.",
         },
       ],
