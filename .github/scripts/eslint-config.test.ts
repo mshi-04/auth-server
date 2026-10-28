@@ -168,6 +168,47 @@ describe.each(declarationForms)("layer direction: %s", (_, declaration) => {
     "./providers/json-logger-provider.ts",
   ])("allows assembly through %s", (source) => {
     allows("src/index.ts", declaration(source));
+    allows("src/index.test.ts", declaration(source));
+  });
+
+  it("allows only the entry point test to import the composition root", () => {
+    allows("src/index.test.ts", declaration("./index.ts"));
+    rejects("src/routes/index.test.ts", declaration("../index.ts"));
+    rejects(
+      "src/controllers/auth-controller.test.ts",
+      declaration("../index.ts"),
+    );
+  });
+
+  it("allows the HTTP integration test to inject service dependencies through their interfaces", () => {
+    allows(
+      "src/routes/index.test.ts",
+      namedImport("../services/index.ts", "AuthService"),
+    );
+    allows(
+      "src/routes/index.test.ts",
+      namedImport("../repositories/index.ts", "UserRepository", true),
+    );
+    allows(
+      "src/routes/index.test.ts",
+      namedImport("../providers/index.ts", "PasswordProvider", true),
+    );
+    rejects(
+      "src/routes/auth-routes.ts",
+      namedImport("../services/index.ts", "AuthService"),
+    );
+    rejects(
+      "src/routes/other.test.ts",
+      namedImport("../services/index.ts", "AuthService"),
+    );
+    rejects(
+      "src/routes/index.test.ts",
+      namedImport("../providers/password/index.ts", "Argon2PasswordProvider"),
+    );
+    rejects(
+      "src/routes/index.test.ts",
+      namedImport("../repositories/sqlite/index.ts", "SqliteUserRepository"),
+    );
   });
 
   it.each([
@@ -559,6 +600,7 @@ describe("Node module ownership", () => {
     (source) => {
       for (const filename of [
         "src/index.ts",
+        "src/index.test.ts",
         "src/routes/auth-routes.ts",
         "src/controllers/auth-controller.ts",
         "src/middlewares/read-json.ts",

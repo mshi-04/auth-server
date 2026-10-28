@@ -44,7 +44,7 @@ Go 実装を動かしたまま、TS 実装を段階的に移行し、仕様を�
 
 ## 手順 4b：HTTP と起動
 
-`schemas`・`middlewares`・`controllers`・`routes` と、要求のエラー（`errors/request-errors.ts`）を実装し、`src/index.ts` で依存の注入とサーバーの起動・終了を組み立てる。最初に `internal/httpapi/web/` の 3 ファイルを内容を変えずに `public/` へコピーし、配信のテストも書く。Go の `internal/httpapi/static.go` が `go:embed` で元のファイルを参照するため、移動はしない。既存の `start` を `node src/index.ts` へ変更し、Prettier・ESLint の静的ファイルの除外を `public/` に変え、旧 `src/httpapi/web/` の除外指定もこの段階で整理する
+完了
 
 <a id="step-5"></a>
 
