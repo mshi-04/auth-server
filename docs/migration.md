@@ -76,7 +76,6 @@ Go 実装を削除する。対象は `cmd/`、`internal/`（`internal/httpapi/we
 
 | 手順 | ブランチ |
 |---|---|
-| 3 | `feature/ts-repositories` |
 | 4a | `feature/ts-services` |
 | 4b | `feature/ts-http-api` |
 | 6 | `feature/ts-readme` |
