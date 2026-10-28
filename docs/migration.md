@@ -79,6 +79,7 @@ Go 実装を削除する。対象は `cmd/`、`internal/`（`internal/httpapi/we
 - 実装のブランチは `develop` から作り、`develop` へ PR を出す
 - テストのブランチは実装のブランチから作り、実装のブランチへ PR を出す（スタック）
 - 実装の PR を `develop` へマージした後、テストの PR の base を `develop` へ切り替えてマージする
+- PR は通常のマージ（merge commit）だけで取り込み、squash merge・rebase merge は使わない。実装のコミットが `develop` 上で別の SHA になると、テストの PR に実装の差分が再び表示されるため
 - 表のテストのブランチが「—」の手順は、1 つのブランチで `develop` へ PR を出す
 
 前の段階の PR がすべて `develop` にマージされてから、次の段階のブランチを作る。
