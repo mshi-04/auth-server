@@ -144,7 +144,10 @@ describe.each(declarationForms)("layer direction: %s", (_, declaration) => {
     ["src/config/env.ts", "./helper.ts"],
     ["src/config/nested/env.ts", "../helper.ts"],
     ["src/models/password/phc.ts", "./hash-parameters.ts"],
-    ["src/store/sqlite/store.ts", "./initialization.ts"],
+    [
+      "src/repositories/sqlite/sqlite-user-repository.ts",
+      "./initialization.ts",
+    ],
     ["src/repositories/sqlite/sqlite-user-repository.ts", "./errors.ts"],
     ["src/providers/password/semaphore.ts", "./params.ts"],
     ["src/providers/crypto-id-provider.test.ts", "./crypto-id-provider.ts"],
@@ -163,7 +166,6 @@ describe.each(declarationForms)("layer direction: %s", (_, declaration) => {
     "./providers/password/index.ts",
     "./providers/crypto-id-provider.ts",
     "./providers/json-logger-provider.ts",
-    "./store/sqlite/index.ts",
   ])("allows assembly through %s", (source) => {
     allows("src/index.ts", declaration(source));
   });
@@ -181,6 +183,13 @@ describe.each(declarationForms)("layer direction: %s", (_, declaration) => {
     ["src/index.ts", "./providers/password/derive.ts"],
     ["src/index.ts", "./password/index.ts"],
     ["src/index.ts", "./password/hasher.ts"],
+    ["src/index.ts", "./store/sqlite/index.ts"],
+    ["src/index.ts", "./store/sqlite/store.ts"],
+    ["src/services/auth-service.test.ts", "../store/sqlite/index.ts"],
+    [
+      "src/repositories/sqlite/sqlite-user-repository.ts",
+      "../../store/sqlite/index.ts",
+    ],
     ["src/services/auth-service.test.ts", "../password/index.ts"],
     [
       "src/providers/password/argon2-password-provider.ts",
@@ -256,16 +265,16 @@ describe("interface-only public APIs", () => {
     },
   );
 
-  it.each(["src/services/auth-service.ts", "src/store/sqlite/store.ts"])(
-    "allows only the repository interface in %s",
-    (filename) => {
-      const source = sourcePath(filename, "src/repositories/index.ts");
-      allows(filename, namedImport(source, "UserRepository", true));
-      rejects(filename, namedImport(source, "UserRepository"));
-      rejects(filename, namedImport(source, "SqliteUserRepository", true));
-      rejects(filename, "export * from " + JSON.stringify(source) + ";");
-    },
-  );
+  it.each([
+    "src/services/auth-service.ts",
+    "src/repositories/sqlite/sqlite-user-repository.ts",
+  ])("allows only the repository interface in %s", (filename) => {
+    const source = sourcePath(filename, "src/repositories/index.ts");
+    allows(filename, namedImport(source, "UserRepository", true));
+    rejects(filename, namedImport(source, "UserRepository"));
+    rejects(filename, namedImport(source, "SqliteUserRepository", true));
+    rejects(filename, "export * from " + JSON.stringify(source) + ";");
+  });
 
   it("limits Middleware access to the LoggerProvider type", () => {
     const filename = "src/middlewares/error-handler.ts";
@@ -467,7 +476,6 @@ describe("model secrets and targeted test exceptions", () => {
     "src/providers/password/semaphore.ts",
     "src/providers/password/unrelated.test.ts",
     "src/providers/json-logger-provider.ts",
-    "src/store/sqlite/store.ts",
   ])("denies model secret access in %s", (filename) => {
     rejects(
       filename,
@@ -564,7 +572,7 @@ describe("Node module ownership", () => {
         "src/models/user.ts",
         "src/errors/auth-errors.ts",
         "src/config/env.ts",
-        "src/store/sqlite/store.ts",
+        "src/repositories/sqlite/sqlite-user-repository.ts",
       ]) {
         rejects(filename, "import " + JSON.stringify(source) + ";");
       }
@@ -573,8 +581,8 @@ describe("Node module ownership", () => {
 
   it("limits SQLite to implementation modules, including type-only imports", () => {
     for (const filename of [
-      "src/store/sqlite/initialization.ts",
-      "src/store/sqlite/store.test.ts",
+      "src/repositories/sqlite/initialization.ts",
+      "src/repositories/sqlite/sqlite-user-repository.test.ts",
       "src/repositories/sqlite/sqlite-user-repository.ts",
     ]) {
       allows(filename, namedImport("node:sqlite", "Database", true));
@@ -585,6 +593,9 @@ describe("Node module ownership", () => {
       "src/repositories/user-repository.ts",
       "src/config/env.ts",
       "src/providers/password/argon2-password-provider.ts",
+      "src/store/sqlite/store.ts",
+      "src/store/sqlite/initialization.ts",
+      "src/store/sqlite/store.test.ts",
     ]) {
       rejects(filename, namedImport("node:sqlite", "Database", true));
     }
@@ -613,7 +624,7 @@ describe("Node module ownership", () => {
       "src/providers/password/unrelated.ts",
       "src/providers/password/unrelated.test.ts",
       "src/providers/password/derive.test.ts",
-      "src/store/sqlite/store.ts",
+      "src/repositories/sqlite/sqlite-user-repository.ts",
     ]) {
       rejects(filename, namedImport("node:crypto", "randomBytes"));
     }

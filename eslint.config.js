@@ -15,7 +15,6 @@ const layerDependencies = {
   providers: ["models", "errors"],
   models: ["errors"],
   errors: [],
-  "store/sqlite": ["models", "errors", "repositories"],
 };
 const providerInterfaces = ["PasswordProvider", "IdProvider", "LoggerProvider"];
 const modelSecretFunctions = [
@@ -31,17 +30,12 @@ const serviceIntegrationTests = [
   "services/auth-service.test.ts",
   "services/auth-service.integration.test.ts",
 ];
-const directoryModules = [
-  "repositories/sqlite",
-  "providers/password",
-  "store/sqlite",
-];
+const directoryModules = ["repositories/sqlite", "providers/password"];
 const singleFileModules = [
   "providers/crypto-id-provider",
   "providers/json-logger-provider",
 ];
 const implementationModules = [...directoryModules, ...singleFileModules];
-const sqliteModules = ["repositories/sqlite", "store/sqlite"];
 const testingHookModules = ["providers/password/derive.ts"];
 const cryptoFiles = [
   "providers/password/argon2-password-provider.ts",
@@ -74,7 +68,7 @@ function moduleName(filename) {
 }
 
 function layerName(module) {
-  return module === "store/sqlite" ? module : module?.split("/")[0];
+  return module?.split("/")[0];
 }
 
 function importedName(specifier) {
@@ -184,7 +178,7 @@ const projectPlugin = {
               (["node:http", "node:https", "node:http2"].includes(source) &&
                 filename !== "index.ts" &&
                 !["routes", "controllers", "middlewares"].includes(layer)) ||
-              (source === "node:sqlite" && !sqliteModules.includes(module)) ||
+              (source === "node:sqlite" && module !== "repositories/sqlite") ||
               (source === "node:crypto" && !cryptoFiles.includes(filename))
             ) {
               reject();
