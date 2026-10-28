@@ -7,13 +7,13 @@ import { BusyError, findError } from "../../errors/index.ts";
 import { SqliteUserRepository } from "./index.ts";
 
 const directories: string[] = [];
-const stores: SqliteUserRepository[] = [];
+const repositories: SqliteUserRepository[] = [];
 const signal = new AbortController().signal;
 
 afterEach(async () => {
   vi.useRealTimers();
-  for (const store of stores.splice(0)) {
-    store.close();
+  for (const repository of repositories.splice(0)) {
+    repository.close();
   }
   for (const directory of directories.splice(0)) {
     await rm(directory, { recursive: true, force: true });
@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 async function temporaryPath(name = "auth.db"): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), "auth-store-open-"));
+  const directory = await mkdtemp(join(tmpdir(), "auth-repository-open-"));
   directories.push(directory);
   return join(directory, name);
 }
@@ -58,7 +58,7 @@ describe("SqliteUserRepository.open", () => {
     "resolves %s as a filesystem path before connecting",
     async (name) => {
       const path = await temporaryPath(name);
-      stores.push(
+      repositories.push(
         await SqliteUserRepository.open(relative(process.cwd(), path), signal),
       );
       expect((await readFile(path)).subarray(0, 16).toString("utf8")).toBe(
@@ -88,7 +88,7 @@ describe("SqliteUserRepository.open", () => {
       expect(findError(failure, BusyError)).toBeInstanceOf(BusyError);
       expect(vi.getTimerCount()).toBe(0);
       locker.exec("ROLLBACK");
-      stores.push(await SqliteUserRepository.open(path, signal));
+      repositories.push(await SqliteUserRepository.open(path, signal));
     } finally {
       locker.close();
     }

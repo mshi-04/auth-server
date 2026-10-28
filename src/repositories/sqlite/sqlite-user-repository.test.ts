@@ -14,7 +14,7 @@ import type { UserRepository } from "../index.ts";
 import { SqliteUserRepository } from "./index.ts";
 
 const signal = new AbortController().signal;
-const stores = new Set<SqliteUserRepository>();
+const repositories = new Set<SqliteUserRepository>();
 const observers = new Set<Database>();
 const directories: string[] = [];
 const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -24,24 +24,24 @@ afterEach(async () => {
     observer.close();
   }
   observers.clear();
-  for (const store of stores) {
-    store.close();
+  for (const repository of repositories) {
+    repository.close();
   }
-  stores.clear();
+  repositories.clear();
   for (const directory of directories.splice(0)) {
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-async function openTestStore() {
-  const directory = await mkdtemp(join(tmpdir(), "auth-store-"));
+async function openTestRepository() {
+  const directory = await mkdtemp(join(tmpdir(), "auth-repository-"));
   directories.push(directory);
   const path = join(directory, "auth.db");
-  const store = await SqliteUserRepository.open(path, signal);
-  stores.add(store);
+  const repository = await SqliteUserRepository.open(path, signal);
+  repositories.add(repository);
   const observer = new Database(path);
   observers.add(observer);
-  return { store, observer, path };
+  return { repository, observer, path };
 }
 
 function testUser(): NewUser {
@@ -87,7 +87,7 @@ function requireTimestamp(value: unknown, before: number, after: number) {
 
 describe("SqliteUserRepository", () => {
   it("initializes empty strict tables in WAL mode and preserves data after reopening", async () => {
-    const { store, observer, path } = await openTestStore();
+    const { repository, observer, path } = await openTestRepository();
     expect(rowCount(observer, "users")).toBe(0);
     expect(rowCount(observer, "password_credentials")).toBe(0);
     expect(observer.prepare("PRAGMA journal_mode").get()).toEqual({
@@ -104,12 +104,12 @@ describe("SqliteUserRepository", () => {
       { name: "users", strict: 1 },
     ]);
     const user = testUser();
-    const contract: UserRepository = store;
+    const contract: UserRepository = repository;
     await contract.createUser(user, signal);
-    store.close();
-    stores.delete(store);
+    repository.close();
+    repositories.delete(repository);
     const reopened = await SqliteUserRepository.open(path, signal);
-    stores.add(reopened);
+    repositories.add(reopened);
     await expect(
       reopened.findCredentialByEmail(user.emailNormalized, signal),
     ).resolves.toEqual({ userId: user.id, passwordHash: user.passwordHash });
@@ -118,10 +118,10 @@ describe("SqliteUserRepository", () => {
   });
 
   it("stores exact email and PHC text and initializes UTC timestamps", async () => {
-    const { store, observer } = await openTestStore();
+    const { repository, observer } = await openTestRepository();
     const user = testUser();
     const before = Date.now();
-    await store.createUser(user, signal);
+    await repository.createUser(user, signal);
     const after = Date.now();
     const row = observer
       .prepare(
@@ -137,7 +137,7 @@ describe("SqliteUserRepository", () => {
     requireTimestamp(row?.created_at, before, after);
     requireTimestamp(row?.changed_at, before, after);
     await expect(
-      store.findCredentialByEmail(user.emailNormalized, signal),
+      repository.findCredentialByEmail(user.emailNormalized, signal),
     ).resolves.toEqual({ userId: user.id, passwordHash: user.passwordHash });
     for (const email of [
       "missing@example.test",
@@ -146,7 +146,7 @@ describe("SqliteUserRepository", () => {
     ]) {
       expect(
         findError(
-          await rejected(store.findCredentialByEmail(email, signal)),
+          await rejected(repository.findCredentialByEmail(email, signal)),
           UserNotFoundError,
         ),
       ).toBeInstanceOf(UserNotFoundError);
@@ -154,16 +154,16 @@ describe("SqliteUserRepository", () => {
   });
 
   it("preserves SQL metacharacters through bound parameters", async () => {
-    const { store, observer } = await openTestStore();
+    const { repository, observer } = await openTestRepository();
     const user = {
       id: "id'; DROP TABLE users; --",
       email: "original'@Example.test",
       emailNormalized: "normalized'@Example.test",
       passwordHash: "unparsed ' hash; DROP TABLE users; --",
     };
-    await store.createUser(user, signal);
+    await repository.createUser(user, signal);
     await expect(
-      store.findCredentialByEmail(user.emailNormalized, signal),
+      repository.findCredentialByEmail(user.emailNormalized, signal),
     ).resolves.toEqual({ userId: user.id, passwordHash: user.passwordHash });
     expect(rowCount(observer, "users")).toBe(1);
   });
@@ -186,13 +186,13 @@ describe("SqliteUserRepository", () => {
   ])(
     "distinguishes duplicate $name constraints",
     async ({ id, email, taken, errcode }) => {
-      const { store, observer } = await openTestStore();
+      const { repository, observer } = await openTestRepository();
       const original = testUser();
-      await store.createUser(original, signal);
+      await repository.createUser(original, signal);
       const duplicate = { ...original, id, emailNormalized: email };
       let failure: unknown;
       try {
-        await store.createUser(duplicate, signal);
+        await repository.createUser(duplicate, signal);
       } catch (error) {
         failure = error;
       }
@@ -213,11 +213,11 @@ describe("SqliteUserRepository", () => {
   );
 
   it("rolls back both inserts when credential insertion fails and remains usable", async () => {
-    const { store, observer } = await openTestStore();
+    const { repository, observer } = await openTestRepository();
     observer.exec(`CREATE TRIGGER reject_credentials BEFORE INSERT ON password_credentials
       BEGIN SELECT RAISE(ABORT, 'credential insertion rejected'); END`);
     const user = testUser();
-    const failure = await rejected(store.createUser(user, signal));
+    const failure = await rejected(repository.createUser(user, signal));
     expect(failure).toBeInstanceOf(Error);
     expect(findError(failure, EmailTakenError)).toBeUndefined();
     expect(findSqliteError(failure)?.message).toMatch(/^SQLite error \d+\.$/);
@@ -227,18 +227,18 @@ describe("SqliteUserRepository", () => {
     expect(rowCount(observer, "users")).toBe(0);
     expect(rowCount(observer, "password_credentials")).toBe(0);
     observer.exec("DROP TRIGGER reject_credentials");
-    await expect(store.createUser(user, signal)).resolves.toBeUndefined();
+    await expect(repository.createUser(user, signal)).resolves.toBeUndefined();
   });
 
   it("does not classify a UNIQUE violation during credential insertion as an email conflict", async () => {
-    const { store, observer } = await openTestStore();
+    const { repository, observer } = await openTestRepository();
     const user = testUser();
-    await store.createUser(user, signal);
+    await repository.createUser(user, signal);
     observer.exec(
       "CREATE UNIQUE INDEX credential_hash ON password_credentials (hash)",
     );
     const failure = await rejected(
-      store.createUser(
+      repository.createUser(
         {
           ...user,
           id: "another-user",
@@ -256,22 +256,22 @@ describe("SqliteUserRepository", () => {
     expect(rowCount(observer, "password_credentials")).toBe(1);
   });
 
-  it("enforces foreign keys on the store connection and rolls back failures", async () => {
-    const { store, observer } = await openTestStore();
+  it("enforces foreign keys on the repository connection and rolls back failures", async () => {
+    const { repository, observer } = await openTestRepository();
     observer.exec(`CREATE TABLE references_users (id TEXT REFERENCES users(id)) STRICT;
       CREATE TRIGGER require_existing_user AFTER INSERT ON password_credentials
       BEGIN INSERT INTO references_users (id) VALUES ('missing-user'); END`);
-    await expect(store.createUser(testUser(), signal)).rejects.toBeInstanceOf(
-      Error,
-    );
+    await expect(
+      repository.createUser(testUser(), signal),
+    ).rejects.toBeInstanceOf(Error);
     expect(rowCount(observer, "users")).toBe(0);
     expect(rowCount(observer, "password_credentials")).toBe(0);
   });
 
   it("rejects values with incompatible SQLite types and cascades user deletion", async () => {
-    const { store, observer } = await openTestStore();
+    const { repository, observer } = await openTestRepository();
     const user = testUser();
-    await store.createUser(user, signal);
+    await repository.createUser(user, signal);
     expect(() =>
       observer
         .prepare(
@@ -288,7 +288,7 @@ describe("SqliteUserRepository", () => {
     expect(
       findError(
         await rejected(
-          store.findCredentialByEmail(user.emailNormalized, signal),
+          repository.findCredentialByEmail(user.emailNormalized, signal),
         ),
         UserNotFoundError,
       ),
@@ -296,9 +296,9 @@ describe("SqliteUserRepository", () => {
   });
 
   it("updates hash and changed_at together without modifying created_at", async () => {
-    const { store, observer } = await openTestStore();
+    const { repository, observer } = await openTestRepository();
     const user = testUser();
-    await store.createUser(user, signal);
+    await repository.createUser(user, signal);
     const createdAt = observer
       .prepare("SELECT created_at FROM users WHERE id = ?")
       .get(user.id)?.created_at;
@@ -309,7 +309,7 @@ describe("SqliteUserRepository", () => {
       .run("2000-01-01T00:00:00.000Z", user.id);
     const nextHash = "replacement ' PHC left unparsed";
     const before = Date.now();
-    await store.updatePasswordHash(user.id, nextHash, signal);
+    await repository.updatePasswordHash(user.id, nextHash, signal);
     const after = Date.now();
     const updated = observer
       .prepare(
@@ -323,15 +323,15 @@ describe("SqliteUserRepository", () => {
         ?.created_at,
     ).toBe(createdAt);
     await expect(
-      store.findCredentialByEmail(user.emailNormalized, signal),
+      repository.findCredentialByEmail(user.emailNormalized, signal),
     ).resolves.toEqual({ userId: user.id, passwordHash: nextHash });
   });
 
   it("reports missing credentials for both lookup and update", async () => {
-    const { store } = await openTestStore();
+    const { repository } = await openTestRepository();
     for (const operation of [
-      store.findCredentialByEmail("missing@example.test", signal),
-      store.updatePasswordHash("missing", "new hash", signal),
+      repository.findCredentialByEmail("missing@example.test", signal),
+      repository.updatePasswordHash("missing", "new hash", signal),
     ]) {
       expect(
         findError(await rejected(operation), UserNotFoundError),
@@ -340,9 +340,9 @@ describe("SqliteUserRepository", () => {
   });
 
   it("does not overwrite credentials when an update fails", async () => {
-    const { store, observer } = await openTestStore();
+    const { repository, observer } = await openTestRepository();
     const user = testUser();
-    await store.createUser(user, signal);
+    await repository.createUser(user, signal);
     const previous = observer
       .prepare(
         "SELECT hash, changed_at FROM password_credentials WHERE user_id = ?",
@@ -351,7 +351,7 @@ describe("SqliteUserRepository", () => {
     observer.exec(`CREATE TRIGGER reject_update BEFORE UPDATE ON password_credentials
       BEGIN SELECT RAISE(ABORT, 'credential update rejected'); END`);
     await expect(
-      store.updatePasswordHash(user.id, "replacement", signal),
+      repository.updatePasswordHash(user.id, "replacement", signal),
     ).rejects.toBeInstanceOf(Error);
     expect(
       observer
@@ -363,19 +363,19 @@ describe("SqliteUserRepository", () => {
   });
 
   it("checks an aborted signal before reading or changing data and keeps its reason", async () => {
-    const { store, observer } = await openTestStore();
+    const { repository, observer } = await openTestRepository();
     const user = testUser();
-    await store.createUser(user, signal);
+    await repository.createUser(user, signal);
     const reason = new DOMException("request cancelled", "AbortError");
     const aborted = AbortSignal.abort(reason);
     const calls = [
       () =>
-        store.createUser(
+        repository.createUser(
           { ...user, id: "another", emailNormalized: "another@example.test" },
           aborted,
         ),
-      () => store.findCredentialByEmail(user.emailNormalized, aborted),
-      () => store.updatePasswordHash(user.id, "changed", aborted),
+      () => repository.findCredentialByEmail(user.emailNormalized, aborted),
+      () => repository.updatePasswordHash(user.id, "changed", aborted),
     ];
     for (const call of calls) {
       let promise: Promise<unknown> | undefined;
@@ -391,30 +391,34 @@ describe("SqliteUserRepository", () => {
     }
     expect(rowCount(observer, "users")).toBe(1);
     await expect(
-      store.findCredentialByEmail(user.emailNormalized, signal),
+      repository.findCredentialByEmail(user.emailNormalized, signal),
     ).resolves.toEqual({ userId: user.id, passwordHash: user.passwordHash });
   });
 
   it.each(["create", "find", "update"])(
-    "rejects rather than throws synchronously for %s on a closed store",
+    "rejects rather than throws synchronously for %s on a closed repository",
     async (operation) => {
-      const { store } = await openTestStore();
-      store.close();
-      stores.delete(store);
+      const { repository } = await openTestRepository();
+      repository.close();
+      repositories.delete(repository);
       let promise: Promise<unknown> | undefined;
       expect(() => {
         switch (operation) {
           case "create":
-            promise = store.createUser(testUser(), signal);
+            promise = repository.createUser(testUser(), signal);
             return;
           case "find":
-            promise = store.findCredentialByEmail(
+            promise = repository.findCredentialByEmail(
               "missing@example.test",
               signal,
             );
             return;
           case "update":
-            promise = store.updatePasswordHash("missing", "new hash", signal);
+            promise = repository.updatePasswordHash(
+              "missing",
+              "new hash",
+              signal,
+            );
             return;
         }
       }).not.toThrow();
@@ -425,15 +429,15 @@ describe("SqliteUserRepository", () => {
   it.each(["create", "update"])(
     "maps write-lock timeout in %s to BusyError with the original SQLite code",
     async (operation) => {
-      const { store, observer } = await openTestStore();
+      const { repository, observer } = await openTestRepository();
       const user = testUser();
-      await store.createUser(user, signal);
+      await repository.createUser(user, signal);
       observer.exec("BEGIN IMMEDIATE");
       try {
         let failure: unknown;
         try {
           if (operation === "create") {
-            await store.createUser(
+            await repository.createUser(
               {
                 ...user,
                 id: "another",
@@ -442,7 +446,7 @@ describe("SqliteUserRepository", () => {
               signal,
             );
           } else {
-            await store.updatePasswordHash(user.id, "replacement", signal);
+            await repository.updatePasswordHash(user.id, "replacement", signal);
           }
         } catch (error) {
           failure = error;
@@ -457,7 +461,7 @@ describe("SqliteUserRepository", () => {
       }
       expect(rowCount(observer, "users")).toBe(1);
       await expect(
-        store.findCredentialByEmail(user.emailNormalized, signal),
+        repository.findCredentialByEmail(user.emailNormalized, signal),
       ).resolves.toEqual({ userId: user.id, passwordHash: user.passwordHash });
     },
     15000,
@@ -489,7 +493,7 @@ function findSqliteError(error: unknown): Error | undefined {
 
 describe("node:sqlite error contract", () => {
   it("exposes numeric extended UNIQUE and PRIMARY KEY error codes", async () => {
-    const { observer } = await openTestStore();
+    const { observer } = await openTestRepository();
     observer
       .prepare(
         "INSERT INTO users (id, email, email_normalized) VALUES (?, ?, ?)",
@@ -507,7 +511,7 @@ describe("node:sqlite error contract", () => {
   });
 
   it("exposes numeric SQLITE_BUSY rather than a constraint error", async () => {
-    const { observer, path } = await openTestStore();
+    const { observer, path } = await openTestRepository();
     const waiter = new Database(path, { timeout: 0 });
     observers.add(waiter);
     observer.exec("BEGIN IMMEDIATE");
