@@ -38,7 +38,7 @@ Go 実装を動かしたまま、TS 実装を段階的に移行し、仕様を�
 
 ## 手順 4a：サービス
 
-`services/AuthService` に `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、登録・ログイン・ダミー検証・再ハッシュ・エラー統一を実装する。この段階で `models/email.ts`（[メールアドレスの検証](specs/api.md#メールアドレスの検証)に従う解析）、`models/auth.ts`（`AuthInput`・`AuthResult`）と、未移植の認証エラー（`InvalidEmailError`・`WeakPasswordError`・`InvalidCredentialsError`）を `errors/auth-errors.ts` に追加する。サービスは HTTP・DB・暗号 API を直接参照しない。偽実装による単体テストと本物の Provider を使う結合テストを通す
+完了
 
 <a id="step-4b"></a>
 
@@ -86,7 +86,6 @@ Go 実装を削除する。対象は `cmd/`、`internal/`（`internal/httpapi/we
 
 | 手順 | 実装のブランチ | テストのブランチ |
 |---|---|---|
-| 4a | `feature/ts-services` | `feature/ts-services-tests` |
 | 4b | `feature/ts-http-api` | `feature/ts-http-api-tests` |
 | 6 | `feature/ts-readme` | — |
 | 7 | `feature/remove-go` | — |
