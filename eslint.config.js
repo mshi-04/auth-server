@@ -116,6 +116,8 @@ const projectPlugin = {
         const module = moduleName(filename);
         const layer = layerName(module);
         const testing = /\.(?:test|bench)\.ts$/.test(filename);
+        const composition =
+          filename === "index.ts" || filename === "index.test.ts";
         const exportedClass = Object.hasOwn(privilegedClasses, filename)
           ? privilegedClasses[filename]
           : undefined;
@@ -176,7 +178,7 @@ const projectPlugin = {
           if (source.startsWith("node:")) {
             if (
               (["node:http", "node:https", "node:http2"].includes(source) &&
-                filename !== "index.ts" &&
+                !composition &&
                 !["routes", "controllers", "middlewares"].includes(layer)) ||
               (source === "node:sqlite" && module !== "repositories/sqlite") ||
               (source === "node:crypto" && !cryptoFiles.includes(filename))
@@ -196,6 +198,9 @@ const projectPlugin = {
           const target = sourcePath(resolve(dirname(context.filename), source));
           const targetModule = moduleName(target);
           const targetLayer = layerName(targetModule);
+          if (filename === "index.test.ts" && target === "index.ts") {
+            return;
+          }
           if (
             target === "index.ts" ||
             targetModule === undefined ||
@@ -260,7 +265,7 @@ const projectPlugin = {
             targetModule === "providers/password";
           if (
             implementationModule(targetModule) &&
-            filename !== "index.ts" &&
+            !composition &&
             module !== targetModule &&
             !serviceIntegration
           ) {
@@ -293,8 +298,12 @@ const projectPlugin = {
             return;
           }
           if (
-            filename !== "index.ts" &&
+            !composition &&
             targetLayer !== layer &&
+            !(
+              filename === "routes/index.test.ts" &&
+              ["services", "repositories", "providers"].includes(targetLayer)
+            ) &&
             !(layerDependencies[layer] ?? []).includes(targetLayer)
           ) {
             reject();
@@ -436,7 +445,7 @@ export default defineConfig(
       ".codex/**",
       ".github/*",
       "!.github/scripts/",
-      "src/httpapi/web/**",
+      "public/**",
     ],
   },
   {

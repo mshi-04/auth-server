@@ -7,7 +7,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],
-      exclude: ["src/**/*.test.ts", "src/**/*.bench.ts", "src/httpapi/web/**"],
+      exclude: ["src/**/*.test.ts", "src/**/*.bench.ts"],
       reportsDirectory: "coverage",
       reporter: ["text", "html", "json-summary", "json"],
     },

@@ -56,7 +56,7 @@ SQLite はファイル 1 つで動作し、別途 DB サーバーを起動する
 
 ## コマンド
 
-WSL 上のリポジトリのルートで実行する。`npm run` の名前は `package.json` の `scripts` に定義する。次の表は現在の設定であり、起動スクリプトの参照先 `src/main.ts` はまだ存在しない。TS サーバーの起動・ブラウザーでの確認は、[移行手順 4b](migration.md#step-4b) で起動処理を実装してから行う。
+WSL 上のリポジトリのルートで実行する。`npm run` の名前は `package.json` の `scripts` に定義する。Windows のブラウザーからの実接続は[移行手順 5](migration.md#step-5)で確認する。
 
 | 目的 | コマンド | 中身 |
 |---|---|---|
@@ -68,20 +68,13 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 | テスト | `npm test` | `vitest run` |
 | カバレッジ | `npm run coverage` | `vitest run --coverage` |
 | ベンチマーク（ハッシュ 1 回の所要時間） | `npm run bench` | `vitest bench --run src/providers/password` |
-| 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db npm start` | `node src/main.ts` |
-
-レイヤー分離に伴い、コマンド名は維持して次の参照先を変更する。文書の更新だけでは `package.json` の設定は変更されない。
-
-| 設定 | 現在の参照先 | 移行後の参照先 | 更新する段階 |
-|---|---|---|---|
-| `scripts.start` | `node src/main.ts` | `node src/index.ts` | 手順 4b：HTTP と起動処理 |
-| 静的ファイルの除外パス | `src/httpapi/web/` | `public/` | 手順 4b：静的配信 |
+| 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db npm start` | `node src/index.ts` |
 
 - Vitest の `passWithNoTests` は使わない。テストの移動や `include` の指定の誤りでテストが 0 件になったときに、`npm test` と CI を失敗させるため
 - `npm run bench` は既定パラメータの `hash`・`hash saturated` と飽和時のイベントループ遅延を測る。`AUTH_PASSWORD_BENCH_RUN=1 npm run bench` の番号を 1・2・3 と変えて 3 回実行すると、各回の JSON を `bench-results/password/` に残せる（`coverage/` はカバレッジの実行時に削除されるため使わない）。番号を省略した場合は `latest` として上書きする。既定値が [テストと性能調整](specs/password.md#テストと性能調整) の目標から外れた場合は、`AUTH_PASSWORD_BENCH_CANDIDATES=1 npm run bench` で候補も比較する。Vitest 5 では `*.bench.ts` 内のテストコンテキストの `bench` を使い、通常の `npm test` ではベンチマークを実行しない
 - ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイル、CI のスクリプト（`.github/scripts/`）、ルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。`actions/github-script` から `require` する `.github/scripts/*.cjs` は、`@eslint/js` の推奨規則で検査し、テスト（`*.test.ts`）から読み込んで振る舞いを確かめる。ブラウザーで動く静的ファイルは移行後の `public/` も対象から外す
 - `tsconfig.json` の `skipLibCheck` で依存パッケージの型定義は型検査しない。依存の更新で型定義どうしが食い違っても、このプロジェクトのコードと無関係に型検査が失敗しないようにするため
-- Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML と静的ファイルは `.prettierignore` で対象から外す。手順 4b で静的ファイルをコピーするとき、旧構成を前提とする除外パスを `public/` に変更する。`public/` は Go 実装の `internal/httpapi/web/` からコピーした手書きの書式のまま保ち、移行中は 2 か所の内容を一致させる（[移行手順](migration.md)）。Go 実装のファイルは Prettier の対象外の拡張子なので、指定しなくても整形されない
+- Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML と静的ファイルは `.prettierignore` で対象から外す。`public/` は Go 実装の `internal/httpapi/web/` からコピーした手書きの書式のまま保ち、移行中は 2 か所の内容を一致させる（[移行手順](migration.md)）。Go 実装のファイルは Prettier の対象外の拡張子なので、指定しなくても整形されない
 
 ### レイヤー分離時の設定と検証
 
@@ -89,7 +82,7 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 - `.github/scripts/eslint-config.test.ts` は、上の依存規則に合わせて、許可する import と拒否する import の両方を検証する。旧 `src/password/`・`src/store/sqlite/` の経路と暫定規則は撤去済みである
 - パスワード Provider・セマフォ・鍵導出のテストとベンチマークは `providers/password/` に置く。Service のテストでは、手書きの偽 `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、低コスト設定の本物の `Argon2PasswordProvider` と組み合わせる検証も残す
 - `src/repositories/sqlite/` のテストは、実 DB で SQL とトランザクション、再試行・中断・権限・エラー分類を検証する
-- 手順 4b で `public/` を作るとき、ESLint・Prettier・Vitest の除外設定を確認する。Vitest のカバレッジ対象は `src/**/*.ts` のため、`public/` は対象に入らない。旧 `src/httpapi/web/**` の除外指定もこの段階で整理する
+- `public/` は ESLint・Prettier の対象から外す。Vitest のカバレッジ対象は `src/**/*.ts` のため、`public/` は対象に入らない
 - コードや設定を変更する各段階で `npm run typecheck`、`npm run lint`、`npm run format:check`、`npm test`、`npm run coverage` を確認し、TS 用の CI・CodeQL と Go 用の CI も通ってから次へ進む。文書だけの変更では、文書間の構成・パス・手順・参照先の整合性と差分を確認する。Markdown は Prettier の対象外なので、`format:check` の成功を文書の検証の代わりにしない
 
 ## CI

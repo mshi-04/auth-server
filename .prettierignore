@@ -7,4 +7,4 @@
 bench-results/
 coverage/
 internal/
-src/httpapi/web/
+public/
