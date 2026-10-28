@@ -15,7 +15,6 @@ const layerDependencies = {
   providers: ["models", "errors"],
   models: ["errors"],
   errors: [],
-  password: ["models", "errors"],
   "store/sqlite": ["models", "errors", "repositories"],
 };
 const providerInterfaces = ["PasswordProvider", "IdProvider", "LoggerProvider"];
@@ -26,14 +25,8 @@ const modelSecretFunctions = [
   "isCanonicalHash",
 ];
 const privilegedClasses = {
-  "password/hasher.ts": "Hasher",
   "providers/password/argon2-password-provider.ts": "Argon2PasswordProvider",
 };
-const transitionalSecretCallers = [
-  "password/hasher.test.ts",
-  "password/concurrency.test.ts",
-  "password/password.bench.ts",
-];
 const serviceIntegrationTests = [
   "services/auth-service.test.ts",
   "services/auth-service.integration.test.ts",
@@ -47,17 +40,15 @@ const singleFileModules = [
   "providers/crypto-id-provider",
   "providers/json-logger-provider",
 ];
-const implementationModules = [
-  ...directoryModules,
-  ...singleFileModules,
-  "password",
-];
+const implementationModules = [...directoryModules, ...singleFileModules];
 const sqliteModules = ["repositories/sqlite", "store/sqlite"];
-const cryptoModules = ["providers/password", ...singleFileModules];
-const transitionalCryptoFiles = [
-  "password/hasher.ts",
-  "password/derive.ts",
-  "password/concurrency.test.ts",
+const testingHookModules = ["providers/password/derive.ts"];
+const cryptoFiles = [
+  "providers/password/argon2-password-provider.ts",
+  "providers/password/derive.ts",
+  "providers/password/concurrency.test.ts",
+  "providers/crypto-id-provider.ts",
+  "providers/crypto-id-provider.test.ts",
 ];
 
 function sourcePath(filename) {
@@ -136,8 +127,7 @@ const projectPlugin = {
           : undefined;
         const secretCaller =
           exportedClass !== undefined ||
-          filename === "models/password/values.test.ts" ||
-          transitionalSecretCallers.includes(filename);
+          filename === "models/password/values.test.ts";
 
         function rejectNonCallReferences(node) {
           for (const variable of context.sourceCode.getDeclaredVariables(
@@ -195,9 +185,7 @@ const projectPlugin = {
                 filename !== "index.ts" &&
                 !["routes", "controllers", "middlewares"].includes(layer)) ||
               (source === "node:sqlite" && !sqliteModules.includes(module)) ||
-              (source === "node:crypto" &&
-                !cryptoModules.includes(module) &&
-                !transitionalCryptoFiles.includes(filename))
+              (source === "node:crypto" && !cryptoFiles.includes(filename))
             ) {
               reject();
             }
@@ -218,6 +206,18 @@ const projectPlugin = {
             target === "index.ts" ||
             targetModule === undefined ||
             (!testing && /\.(?:test|bench)\.ts$/.test(target))
+          ) {
+            reject();
+            return;
+          }
+
+          if (
+            !testing &&
+            testingHookModules.includes(target) &&
+            (node.type === "ExportAllDeclaration" ||
+              node.specifiers?.some(
+                (specifier) => specifier.type === "ImportNamespaceSpecifier",
+              ))
           ) {
             reject();
             return;
@@ -498,6 +498,11 @@ export default defineConfig(
           selector:
             "ImportDeclaration[source.value=/^vitest/], ExportNamedDeclaration[source.value=/^vitest/], ExportAllDeclaration[source.value=/^vitest/]",
           message: "Only tests and benchmarks may import Vitest.",
+        },
+        {
+          selector:
+            "ImportSpecifier[imported.name=/ForTesting$/], ImportSpecifier[imported.value=/ForTesting$/], ExportSpecifier[local.name=/ForTesting$/], ExportSpecifier[local.value=/ForTesting$/], MemberExpression[property.name=/ForTesting$/], MemberExpression[property.value=/ForTesting$/], ObjectPattern > Property[key.name=/ForTesting$/]",
+          message: "Only tests and benchmarks may use testing hooks.",
         },
       ],
     },

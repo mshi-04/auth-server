@@ -26,7 +26,7 @@ Go 実装を動かしたまま、TS 実装を段階的に移行し、仕様を�
 
 ## 手順 2b：Provider
 
-既存 `Hasher` を `Argon2PasswordProvider implements PasswordProvider` として `providers/password/` へ移し、鍵導出・セマフォと、`Hasher`・セマフォ・鍵導出のテスト・ベンチマークも移す。`IdProvider` と `LoggerProvider` の実装を追加する。旧 `src/password/` の公開口を削除し、ESLint の暫定規則と `package.json` の `bench` を新配置へ合わせる。既定パラメータや認証の振る舞いは変えない
+完了
 
 <a id="step-3"></a>
 
@@ -76,7 +76,6 @@ Go 実装を削除する。対象は `cmd/`、`internal/`（`internal/httpapi/we
 
 | 手順 | ブランチ |
 |---|---|
-| 2b | `feature/ts-providers` |
 | 3 | `feature/ts-repositories` |
 | 4a | `feature/ts-services` |
 | 4b | `feature/ts-http-api` |

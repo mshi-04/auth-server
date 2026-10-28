@@ -1,9 +1,9 @@
 import type { Argon2Parameters } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PasswordBusyError } from "../errors/index.ts";
-import { EncodedHash, Password } from "../models/index.ts";
+import { PasswordBusyError } from "../../errors/index.ts";
+import { EncodedHash, Password } from "../../models/index.ts";
 import { replaceDerivationForTesting } from "./derive.ts";
-import { defaultParams, Hasher } from "./index.ts";
+import { defaultParams, Argon2PasswordProvider } from "./index.ts";
 
 const password = Password.parse("correct horse battery staple");
 const signal = new AbortController().signal;
@@ -61,7 +61,10 @@ async function waitForPending(
 describe("hasher slot ownership", () => {
   const operations: [
     string,
-    (hasher: Hasher, abortSignal: AbortSignal) => Promise<unknown>,
+    (
+      hasher: Argon2PasswordProvider,
+      abortSignal: AbortSignal,
+    ) => Promise<unknown>,
   ][] = [
     ["hash", (hasher, abortSignal) => hasher.hash(password, abortSignal)],
     ["rehash", (hasher, abortSignal) => hasher.rehash(password, abortSignal)],
@@ -78,7 +81,7 @@ describe("hasher slot ownership", () => {
         toFake: ["setTimeout", "clearTimeout", "performance"],
       });
       const pending = holdDerivations();
-      const hasher = Hasher.create(params);
+      const hasher = Argon2PasswordProvider.create(params);
       const controller = new AbortController();
       const running = operation(hasher, controller.signal);
       await waitForPending(pending, 1);
@@ -109,7 +112,7 @@ describe("hasher slot ownership", () => {
       const reason = new Error("closed");
       controller.abort(reason);
       await expect(
-        operation(Hasher.create(params), controller.signal),
+        operation(Argon2PasswordProvider.create(params), controller.signal),
       ).rejects.toMatchObject({ name: "PasswordBusyError", cause: reason });
       expect(pending).toHaveLength(0);
     },
@@ -117,7 +120,7 @@ describe("hasher slot ownership", () => {
 
   it("handles abort between immediate acquisition and continuation", async () => {
     const pending = holdDerivations();
-    const hasher = Hasher.create(params);
+    const hasher = Argon2PasswordProvider.create(params);
     const controller = new AbortController();
     const running = hasher.hash(password, controller.signal);
     controller.abort();
@@ -134,7 +137,7 @@ describe("hasher slot ownership", () => {
     "%s releases the slot after a derivation failure",
     async (_, operation) => {
       const pending = holdDerivations();
-      const hasher = Hasher.create(params);
+      const hasher = Argon2PasswordProvider.create(params);
       const failure = new Error("derivation failed");
       const running = operation(hasher, signal).catch(
         (error: unknown) => error,

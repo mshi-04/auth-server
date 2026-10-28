@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { PolicyViolationError } from "../errors/index.ts";
-import { EncodedHash, Password } from "../models/index.ts";
-import type { Params } from "../models/index.ts";
-import { defaultParams, Hasher } from "./index.ts";
+import { PolicyViolationError } from "../../errors/index.ts";
+import { EncodedHash, Password } from "../../models/index.ts";
+import type { Params } from "../../models/index.ts";
+import { defaultParams, Argon2PasswordProvider } from "./index.ts";
 
 const signal = new AbortController().signal;
 const valid = "correct horse battery staple";
@@ -25,7 +25,7 @@ describe("password hashing", () => {
   ])(
     "applies minimum to normalized codepoints: %j accepted = %s",
     async (raw, accepted) => {
-      const hasher = Hasher.create(smallParams());
+      const hasher = Argon2PasswordProvider.create(smallParams());
       const password = Password.parse(raw);
       if (!accepted) {
         await expect(hasher.hash(password, signal)).rejects.toBeInstanceOf(
@@ -39,11 +39,11 @@ describe("password hashing", () => {
   );
 
   it("round trips using saved parameters, rejects wrong input and uses fresh salts", async () => {
-    const hasher = Hasher.create(smallParams());
+    const hasher = Argon2PasswordProvider.create(smallParams());
     const password = Password.parse(valid);
     const encoded = await hasher.hash(password, signal);
     const parsed = EncodedHash.parse(encoded.phc());
-    const changed = Hasher.create({
+    const changed = Argon2PasswordProvider.create({
       ...smallParams(),
       memoryKiB: 128,
       iterations: 2,
@@ -72,7 +72,7 @@ describe("password hashing", () => {
       "$argon2id$v=19$m=16,t=1,p=2$AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+Pw$H2hhzIpYf2BIF3S7ngpyWg2vNLH42OshViTR1heWycAPZCGOmE3pG4qTRCmKbP+HUDcbz+o9Ntm8ahHL3lmzOQ",
     ],
   ])("verifies Go-generated PHC: %s", async (_, phc) => {
-    const hasher = Hasher.create(smallParams());
+    const hasher = Argon2PasswordProvider.create(smallParams());
     const encoded = EncodedHash.parse(phc);
     expect(
       await hasher.verify(
@@ -91,7 +91,7 @@ describe("password hashing", () => {
   });
 
   it("hashes and verifies at the lowest generation settings", async () => {
-    const hasher = Hasher.create({
+    const hasher = Argon2PasswordProvider.create({
       ...smallParams(),
       memoryKiB: 8,
       keyLength: 4,
@@ -106,7 +106,7 @@ describe("password hashing", () => {
     ["ABC123abc456", "ＡＢＣ１２３ａｂｃ４５６"],
     ["e\u0301".repeat(12), "é".repeat(12)],
   ])("normalizes consistently: stored %j, login %j", async (stored, raw) => {
-    const hasher = Hasher.create(smallParams());
+    const hasher = Argon2PasswordProvider.create(smallParams());
     const encoded = await hasher.hash(Password.parse(stored), signal);
     expect(await hasher.verify(Password.parse(raw), encoded, signal)).toBe(
       true,
@@ -116,8 +116,11 @@ describe("password hashing", () => {
   it.each(["", "old"])(
     "verifies and rehashes legacy short value %j",
     async (raw) => {
-      const old = Hasher.create({ ...smallParams(), iterations: 2 });
-      const current = Hasher.create(smallParams());
+      const old = Argon2PasswordProvider.create({
+        ...smallParams(),
+        iterations: 2,
+      });
+      const current = Argon2PasswordProvider.create(smallParams());
       const password = Password.parse(raw);
       const encoded = await old.rehash(password, signal);
       expect(await current.verify(password, encoded, signal)).toBe(true);
@@ -140,14 +143,16 @@ describe("password hashing", () => {
   ])(
     "compares only hash parameters: %j needs rehash = %s",
     async (patch, expected) => {
-      const old = Hasher.create({ ...smallParams(), ...patch });
+      const old = Argon2PasswordProvider.create({ ...smallParams(), ...patch });
       const encoded = await old.hash(Password.parse(valid), signal);
-      expect(Hasher.create(smallParams()).needsRehash(encoded)).toBe(expected);
+      expect(
+        Argon2PasswordProvider.create(smallParams()).needsRehash(encoded),
+      ).toBe(expected);
     },
   );
 
   it("requests canonical order without re-parsing or changing stored text", async () => {
-    const hasher = Hasher.create(smallParams());
+    const hasher = Argon2PasswordProvider.create(smallParams());
     const password = Password.parse(valid);
     const phc = (await hasher.hash(password, signal)).phc();
     const reordered = phc.replace("m=64,t=1,p=1", "p=1,t=1,m=64");
@@ -159,7 +164,7 @@ describe("password hashing", () => {
 
   it("copies settings at creation", async () => {
     const params = smallParams();
-    const hasher = Hasher.create(params);
+    const hasher = Argon2PasswordProvider.create(params);
     params.memoryKiB = 128;
     params.maxConcurrent = 0;
     const encoded = await hasher.hash(Password.parse(valid), signal);

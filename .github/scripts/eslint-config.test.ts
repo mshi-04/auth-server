@@ -146,7 +146,7 @@ describe.each(declarationForms)("layer direction: %s", (_, declaration) => {
     ["src/models/password/phc.ts", "./hash-parameters.ts"],
     ["src/store/sqlite/store.ts", "./initialization.ts"],
     ["src/repositories/sqlite/sqlite-user-repository.ts", "./errors.ts"],
-    ["src/providers/password/semaphore.ts", "./derive.ts"],
+    ["src/providers/password/semaphore.ts", "./params.ts"],
     ["src/providers/crypto-id-provider.test.ts", "./crypto-id-provider.ts"],
     ["src/providers/json-logger-provider.test.ts", "./json-logger-provider.ts"],
   ])("allows module internals: %s -> %s", (filename, source) => {
@@ -163,7 +163,6 @@ describe.each(declarationForms)("layer direction: %s", (_, declaration) => {
     "./providers/password/index.ts",
     "./providers/crypto-id-provider.ts",
     "./providers/json-logger-provider.ts",
-    "./password/index.ts",
     "./store/sqlite/index.ts",
   ])("allows assembly through %s", (source) => {
     allows("src/index.ts", declaration(source));
@@ -180,7 +179,13 @@ describe.each(declarationForms)("layer direction: %s", (_, declaration) => {
     ["src/controllers/auth-controller.ts", "../services/auth-service.ts"],
     ["src/index.ts", "./repositories/sqlite/initialization.ts"],
     ["src/index.ts", "./providers/password/derive.ts"],
+    ["src/index.ts", "./password/index.ts"],
     ["src/index.ts", "./password/hasher.ts"],
+    ["src/services/auth-service.test.ts", "../password/index.ts"],
+    [
+      "src/providers/password/argon2-password-provider.ts",
+      "../../password/index.ts",
+    ],
     ["src/models/user.ts", "./user.test.ts"],
     ["src/services/auth-service.ts", "../auth/index.ts"],
     ["src/services/auth-service.ts", "../errors.ts"],
@@ -343,10 +348,6 @@ describe("model secrets and targeted test exceptions", () => {
   const helpers = ["readPassword", "readHash", "createHash", "isCanonicalHash"];
   const allowed = [
     "src/models/password/values.test.ts",
-    "src/password/hasher.ts",
-    "src/password/hasher.test.ts",
-    "src/password/concurrency.test.ts",
-    "src/password/password.bench.ts",
     "src/providers/password/argon2-password-provider.ts",
   ];
 
@@ -410,7 +411,6 @@ describe("model secrets and targeted test exceptions", () => {
   });
 
   it.each([
-    ["src/password/hasher.ts", "Hasher"],
     [
       "src/providers/password/argon2-password-provider.ts",
       "Argon2PasswordProvider",
@@ -461,9 +461,12 @@ describe("model secrets and targeted test exceptions", () => {
     "src/repositories/sqlite/sqlite-user-repository.ts",
     "src/providers/crypto-id-provider.ts",
     "src/providers/password/derive.ts",
-    "src/password/semaphore.ts",
-    "src/password/unrelated.test.ts",
-    "src/password/hasher.bench.ts",
+    "src/providers/password/argon2-password-provider.test.ts",
+    "src/providers/password/concurrency.test.ts",
+    "src/providers/password/password.bench.ts",
+    "src/providers/password/semaphore.ts",
+    "src/providers/password/unrelated.test.ts",
+    "src/providers/json-logger-provider.ts",
     "src/store/sqlite/store.ts",
   ])("denies model secret access in %s", (filename) => {
     rejects(
@@ -527,6 +530,19 @@ describe("model secrets and targeted test exceptions", () => {
       namedImport("../providers/password/index.ts", "Argon2PasswordProvider"),
     );
   });
+
+  it.each([
+    ["crypto-id-provider", "CryptoIdProvider"],
+    ["json-logger-provider", "JsonLoggerProvider"],
+  ])("permits only the concrete Provider's own test for %s", (module, name) => {
+    const source = "./" + module + ".ts";
+    allows("src/providers/" + module + ".test.ts", namedImport(source, name));
+    rejects("src/providers/other.test.ts", namedImport(source, name));
+    rejects(
+      "src/providers/password/argon2-password-provider.ts",
+      namedImport("../" + module + ".ts", name),
+    );
+  });
 });
 
 describe("Node module ownership", () => {
@@ -548,7 +564,6 @@ describe("Node module ownership", () => {
         "src/models/user.ts",
         "src/errors/auth-errors.ts",
         "src/config/env.ts",
-        "src/password/hasher.ts",
         "src/store/sqlite/store.ts",
       ]) {
         rejects(filename, "import " + JSON.stringify(source) + ";");
@@ -575,12 +590,11 @@ describe("Node module ownership", () => {
     }
   });
 
-  it("limits crypto to concrete Providers and required transitional files", () => {
+  it("limits crypto to the concrete implementations and their exact tests", () => {
     for (const filename of [
-      "src/password/hasher.ts",
-      "src/password/derive.ts",
-      "src/password/concurrency.test.ts",
+      "src/providers/password/argon2-password-provider.ts",
       "src/providers/password/derive.ts",
+      "src/providers/password/concurrency.test.ts",
       "src/providers/crypto-id-provider.ts",
       "src/providers/crypto-id-provider.test.ts",
     ]) {
@@ -592,8 +606,13 @@ describe("Node module ownership", () => {
       "src/services/auth-service.ts",
       "src/providers/password-provider.ts",
       "src/providers/id-provider.ts",
-      "src/password/semaphore.ts",
-      "src/password/unrelated.test.ts",
+      "src/providers/json-logger-provider.ts",
+      "src/providers/json-logger-provider.test.ts",
+      "src/providers/password/semaphore.ts",
+      "src/providers/password/params.ts",
+      "src/providers/password/unrelated.ts",
+      "src/providers/password/unrelated.test.ts",
+      "src/providers/password/derive.test.ts",
       "src/store/sqlite/store.ts",
     ]) {
       rejects(filename, namedImport("node:crypto", "randomBytes"));
@@ -645,7 +664,7 @@ describe("forbidden syntax and bypasses", () => {
 
   it.each([
     "src/providers/password/derive.ts",
-    "src/providers/password/derive.test.ts",
+    "src/providers/password/concurrency.test.ts",
   ])("retains crypto and createRequire restrictions in %s", (filename) => {
     for (const name of [
       "argon2Sync",
@@ -696,6 +715,85 @@ describe("forbidden syntax and bypasses", () => {
       "no-restricted-syntax",
     );
     allows("src/services/auth-service.test.ts", 'import "vitest";');
-    allows("src/password/password.bench.ts", 'import "vitest";');
+    allows("src/providers/password/password.bench.ts", 'import "vitest";');
+  });
+
+  it.each([
+    'import { replaceDerivationForTesting } from "./derive.ts"; void replaceDerivationForTesting;',
+    'import { replaceDerivationForTesting as replace } from "./derive.ts"; void replace;',
+    'import { "replaceDerivationForTesting" as replace } from "./derive.ts"; void replace;',
+    'export { replaceDerivationForTesting } from "./derive.ts";',
+    'export { "replaceDerivationForTesting" as replace } from "./derive.ts";',
+    'import * as derive from "./derive.ts"; void derive.replaceDerivationForTesting;',
+    'import * as derive from "./derive.ts"; const { replaceDerivationForTesting: replace } = derive; void replace;',
+  ])("keeps testing hooks out of production code: %s", (code) => {
+    rejects(
+      "src/providers/password/argon2-password-provider.ts",
+      code,
+      "no-restricted-syntax",
+    );
+    rejects("src/providers/password/index.ts", code, "no-restricted-syntax");
+  });
+
+  it.each([
+    'import * as derive from "./derive.ts"; void derive["replaceDerivationForTesting"];',
+    'import * as derive from "./derive.ts"; void derive[`replaceDerivationForTesting`];',
+    'import * as derive from "./derive.ts"; const name = "replaceDerivationForTesting"; void derive[name];',
+    'export * from "./derive.ts";',
+  ])("keeps whole testing-hook modules out of production code: %s", (code) => {
+    for (const filename of [
+      "src/providers/password/argon2-password-provider.ts",
+      "src/providers/password/index.ts",
+    ]) {
+      rejects(filename, code);
+    }
+  });
+
+  it("rejects bracket access to testing hooks with a string key", () => {
+    rejects(
+      "src/providers/password/argon2-password-provider.ts",
+      'declare const hooks: Record<string, unknown>; void hooks["replaceDerivationForTesting"];',
+      "no-restricted-syntax",
+    );
+  });
+
+  it("allows whole-module access in tests and named access in production", () => {
+    allows(
+      "src/providers/password/concurrency.test.ts",
+      'import * as derive from "./derive.ts"; void derive.replaceDerivationForTesting;',
+    );
+    allows(
+      "src/providers/password/concurrency.test.ts",
+      'export * from "./derive.ts";',
+    );
+    allows(
+      "src/providers/password/argon2-password-provider.ts",
+      'import { deriveKey } from "./derive.ts"; void deriveKey;',
+    );
+    allows(
+      "src/providers/password/argon2-password-provider.ts",
+      'import { "deriveKey" as derive } from "./derive.ts"; void derive;',
+    );
+    allows(
+      "src/providers/password/semaphore.ts",
+      'export * from "./params.ts";',
+    );
+    allows(
+      "src/providers/password/semaphore.ts",
+      'export { "defaultParams" as defaults } from "./params.ts";',
+    );
+  });
+
+  it.each([
+    "src/providers/password/concurrency.test.ts",
+    "src/providers/password/password.bench.ts",
+  ])("allows testing hooks in %s", (filename) => {
+    for (const code of [
+      'import { replaceDerivationForTesting } from "./derive.ts"; void replaceDerivationForTesting;',
+      'import { "replaceDerivationForTesting" as replace } from "./derive.ts"; void replace;',
+      'export { "replaceDerivationForTesting" as replace } from "./derive.ts";',
+    ]) {
+      allows(filename, code);
+    }
   });
 });

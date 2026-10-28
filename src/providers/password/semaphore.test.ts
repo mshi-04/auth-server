@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PasswordBusyError } from "../errors/index.ts";
+import { PasswordBusyError } from "../../errors/index.ts";
 import { Semaphore } from "./semaphore.ts";
 
 const freeSignal = new AbortController().signal;

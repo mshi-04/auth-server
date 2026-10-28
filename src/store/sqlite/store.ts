@@ -4,7 +4,12 @@ import type { Database } from "node:sqlite";
 import { EmailTakenError, UserNotFoundError } from "../../errors/index.ts";
 import type { Credential, NewUser } from "../../models/index.ts";
 import type { UserRepository } from "../../repositories/index.ts";
-import { operationError, sqliteCode, throwIfAborted } from "./errors.ts";
+import {
+  operationError,
+  sqliteCode,
+  throwIfAborted,
+  withoutSqliteMessage,
+} from "./errors.ts";
 import { openDatabase } from "./initialization.ts";
 import { prepareDatabaseFile } from "./permissions.ts";
 
@@ -57,7 +62,9 @@ export class SqliteStore implements UserRepository {
             .run(user.id, user.email, user.emailNormalized);
         } catch (error) {
           if (sqliteCode(error) === 2067) {
-            throw new EmailTakenError(undefined, { cause: error });
+            throw new EmailTakenError(undefined, {
+              cause: withoutSqliteMessage(error),
+            });
           }
           throw error;
         }

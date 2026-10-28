@@ -4,9 +4,9 @@
 
 ## 現状と移行先
 
-この文書は移行先全体の設計を定める。ハッシュ計算は `src/password/` の `Hasher`、SQLite 実装は `src/store/sqlite/` の `SqliteStore` にあり、認証サービス・HTTP・起動処理は Go の `cmd/authd/` と `internal/` にある。`package.json` の起動先 `src/main.ts` はまだ存在しない。
+この文書は移行先全体の設計を定める。ハッシュ計算は `src/providers/password/` の `Argon2PasswordProvider` にあり、ID 生成と JSON ログは `src/providers/` の `CryptoIdProvider`・`JsonLoggerProvider` が担当する。SQLite 実装は `src/store/sqlite/` の `SqliteStore`、認証サービス・HTTP・起動処理は Go の `cmd/authd/` と `internal/` にある。`package.json` の起動先 `src/main.ts` はまだ存在しない。
 
-ハッシュ計算は [移行手順 2b](migration.md#step-2b)で `providers/password/`、SQLite 実装は [手順 3](migration.md#step-3)で `repositories/sqlite/` へ移す。Go 実装と Go 用 CI は [手順 7](migration.md#step-7)まで残す。各実装段階の順番とブランチは [移行手順](migration.md)を正本とする。
+SQLite 実装は [移行手順 3](migration.md#step-3)で `repositories/sqlite/` へ移す。Go 実装と Go 用 CI は [手順 7](migration.md#step-7)まで残す。各実装段階の順番とブランチは [移行手順](migration.md)を正本とする。
 
 ## 構成と依存の向き
 
@@ -142,9 +142,9 @@ auth-server/
 
 ### import の検査
 
-`eslint.config.js` で上の依存規則を検査し、`.github/scripts/eslint-config.test.ts` で許可・拒否の組み合わせを検証する。新ディレクトリを追加するだけで依存検査が機能したとは扱わない。Service から具体実装への型 import、実装用公開口へのアクセス、再 export や動的 import による回避も禁止する。
+`eslint.config.js` で上の依存規則を検査し、`.github/scripts/eslint-config.test.ts` で許可・拒否の組み合わせを検証する。新ディレクトリを追加するだけで依存検査が機能したとは扱わない。Service から具体実装への型 import、実装用公開口へのアクセス、再 export や動的 import による回避も禁止する。名前が `ForTesting` で終わるテスト用の差し替え口（`providers/password/derive.ts` の `replaceDerivationForTesting` など）は、テスト・ベンチマーク以外から import・再 export・プロパティ参照できない。名前を検査できるよう、差し替え口を持つモジュールは本番コードから `import * as` で読み込まず、`export *` で再 export しない。対象のモジュールは `eslint.config.js` に列挙する。
 
-移行期間中は `src/password/` と `src/store/sqlite/` に必要な依存だけを暫定的に許可する。`src/password/hasher.ts` と、そのテスト・ベンチマーク（`Hasher`・セマフォ・鍵導出の検証）にだけモデル内部契約へのアクセスを限定して許可し、[移行手順 2b](migration.md#step-2b)の Provider 移行完了時にその旧経路と暫定規則を除去する。`src/store/sqlite/` には `repositories` の interface、`models`、`errors` と `node:sqlite` の利用を許可し、[手順 3](migration.md#step-3)で SQLite モジュール全体とテストを `repositories/sqlite/` へ移した後に旧経路と暫定規則を除去する。`src/index.ts` を唯一の組み立て経路とする。
+移行期間中は `src/store/sqlite/` に `repositories` の interface、`models`、`errors` と `node:sqlite` の利用を許可し、[移行手順 3](migration.md#step-3)で SQLite モジュール全体とテストを `repositories/sqlite/` へ移した後に旧経路と暫定規則を除去する。モデルの秘密値を扱う内部 import は `providers/password/argon2-password-provider.ts` と、その内部契約を検証する `models/password/values.test.ts` に限定する。旧 `src/password/` の経路と暫定規則は撤去済みで、`src/index.ts` を唯一の組み立て経路とする。
 
 ## 型と Interface の契約
 
@@ -183,7 +183,7 @@ interface UserRepository {
 |---|---|---|---|
 | `PasswordProvider` | `providers/password-provider.ts` | `hash(Password, signal)`・`rehash(Password, signal)` は `Promise<EncodedHash>`、`verify(Password, EncodedHash, signal)` は `Promise<boolean>`、`needsRehash(EncodedHash)` は `boolean` | `Argon2PasswordProvider` |
 | `IdProvider` | `providers/id-provider.ts` | `newUserId(): string` は UUID v4、`newDummyPassword(): string` はポリシーを満たす暗号学的なランダム文字列 | `CryptoIdProvider` |
-| `LoggerProvider` | `providers/logger-provider.ts` | `info`・`warn`・`error` はメッセージと任意の `Record<string, unknown>` 属性を受け取り `void` を返す。属性の `Error` は `name`・`message` と `cause` の連鎖を同じ形で書き、`stack` は書かない。循環参照や `bigint` など JSON にできない値は固定の文字列に置き換え、例外を投げない | `JsonLoggerProvider` |
+| `LoggerProvider` | `providers/logger-provider.ts` | `info`・`warn`・`error` はメッセージと任意の `Record<string, unknown>` 属性を受け取り `void` を返す。1 行の JSON は `time`・`level`・`msg` を先頭に置き、同名の属性は書かない。属性の `Error` は `name`・`message` と `cause` の連鎖を同じ形で書き、`stack` は書かない。`cause` が `undefined` なら書かない。循環参照、`bigint`、Buffer などのバイナリ、`Map`・`Set` のように自前の列挙可能なプロパティを持たないプレーンでないオブジェクトなど JSON にできない値と、深さ 64 以上または属性 1 つあたり 1000 個を超える値は固定の文字列に置き換える。`Password`・`EncodedHash` と、キー名が `password`・`rawPassword`・`passwordHash`・`encodedHash` の値は、深さを問わず読まずに `[REDACTED]` にする。例外を投げず、出力先の非同期エラーでもプロセスを止めない（出力先は `write` と `error` イベントを持つ） | `JsonLoggerProvider` |
 
 Interface は利用するメソッドだけに絞る。JWT・Cookie・リフレッシュトークン・認証状態の維持はスコープ外であり、将来用の Provider や認証 Middleware は先に作らない。
 
@@ -272,11 +272,6 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 
 | 既存 | 移行先・分割内容 |
 |---|---|
-| TS `src/password/hasher.ts` の `Hasher` | `providers/password/argon2-password-provider.ts` |
-| TS `src/password/params.ts` | 既定値を `providers/password/params.ts` へ移す |
-| TS `src/password/derive.ts`・`semaphore.ts` | `providers/password/` |
-| TS `src/password/index.ts` | 旧公開口を削除し、Providers の実装用公開口から取得する |
-| TS password テスト・ベンチマーク | 対応する実装の隣へ移す。`Hasher`・セマフォ・鍵導出のテストとベンチマークは手順 2b で `providers/password/` へ移す。ベンチマークは `providers/password/password.bench.ts` |
 | Go `internal/auth/service.go` | 手順 4a：`services/auth-service.ts`。メール解析は `models/email.ts`、入出力型は `models/auth.ts`、UUID・乱数・ログ・暗号は Provider へ分割 |
 | Go `internal/auth/errors.go` | 手順 4a：未移植の認証エラーを `errors/auth-errors.ts` に追加。TS に存在する `EmailTakenError`・`UserNotFoundError`・`BusyError` は再利用する |
 | Go `internal/httpapi/handler.go` | 手順 4b：Routes、Controllers、本文・検証・エラー応答の Middlewares、DTO の Schemas へ分割。要求のエラーは `errors/request-errors.ts` に追加 |
