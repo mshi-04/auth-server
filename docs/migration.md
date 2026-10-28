@@ -72,14 +72,24 @@ Go 実装を削除する。対象は `cmd/`、`internal/`（`internal/httpapi/we
 
 ## ブランチと確認
 
-コードや README を変更する手順は、下表の段階ごとに `develop` から feature ブランチを作り、`develop` へ PR を出す。前の段階の PR が `develop` にマージされてから次のブランチを作り、複数の段階を 1 つのブランチにまとめない。
+コードや README を変更する手順は、下表の段階ごとに feature ブランチを作る。複数の段階を 1 つのブランチにまとめない。
 
-| 手順 | ブランチ |
-|---|---|
-| 4a | `feature/ts-services` |
-| 4b | `feature/ts-http-api` |
-| 6 | `feature/ts-readme` |
-| 7 | `feature/remove-go` |
+コードを変更する手順は、レビューの量を抑えるため、実装とテストでブランチを分ける。
+
+- 実装のブランチは `develop` から作り、`develop` へ PR を出す
+- テストのブランチは実装のブランチから作り、実装のブランチへ PR を出す（スタック）
+- 実装の PR を `develop` へマージした後、テストの PR の base を `develop` へ切り替えてマージする
+- PR は通常のマージ（merge commit）だけで取り込み、squash merge・rebase merge は使わない。実装のコミットが `develop` 上で別の SHA になると、テストの PR に実装の差分が再び表示されるため
+- 表のテストのブランチが「—」の手順は、1 つのブランチで `develop` へ PR を出す
+
+前の段階の PR がすべて `develop` にマージされてから、次の段階のブランチを作る。
+
+| 手順 | 実装のブランチ | テストのブランチ |
+|---|---|---|
+| 4a | `feature/ts-services` | `feature/ts-services-tests` |
+| 4b | `feature/ts-http-api` | `feature/ts-http-api-tests` |
+| 6 | `feature/ts-readme` | — |
+| 7 | `feature/remove-go` | — |
 
 確認だけの手順 5 と 8 にはブランチを作らない。確認で直す点が見つかったら、その修正のための feature ブランチを `develop` から作る。
 

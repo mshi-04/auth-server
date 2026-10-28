@@ -1,10 +1,13 @@
 export {
   BusyError,
   EmailTakenError,
+  InvalidCredentialsError,
+  InvalidEmailError,
   UserNotFoundError,
+  WeakPasswordError,
 } from "./auth-errors.ts";
 export { ConfigError } from "./config-errors.ts";
-export { findError } from "./find-error.ts";
+export { findError, isCausedBy } from "./find-error.ts";
 export {
   InvalidHashError,
   InvalidParamsError,

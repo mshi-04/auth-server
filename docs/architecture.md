@@ -4,7 +4,7 @@
 
 ## 現状と移行先
 
-この文書は移行先全体の設計を定める。ハッシュ計算は `src/providers/password/` の `Argon2PasswordProvider` にあり、ID 生成と JSON ログは `src/providers/` の `CryptoIdProvider`・`JsonLoggerProvider` が担当する。SQLite 実装は `src/repositories/sqlite/` の `SqliteUserRepository`、認証サービス・HTTP・起動処理は Go の `cmd/authd/` と `internal/` にある。`package.json` の起動先 `src/main.ts` はまだ存在しない。
+この文書は移行先全体の設計を定める。ハッシュ計算は `src/providers/password/` の `Argon2PasswordProvider` にあり、ID 生成と JSON ログは `src/providers/` の `CryptoIdProvider`・`JsonLoggerProvider` が担当する。SQLite 実装は `src/repositories/sqlite/` の `SqliteUserRepository`、認証サービスは `src/services/auth-service.ts` の `AuthService` にあり、HTTP・起動処理は Go の `cmd/authd/` と `internal/httpapi/` にある。`package.json` の起動先 `src/main.ts` はまだ存在しない。
 
 Go 実装と Go 用 CI は [移行手順 7](migration.md#step-7)まで残す。各実装段階の順番とブランチは [移行手順](migration.md)を正本とする。
 
@@ -272,8 +272,6 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 
 | 既存 | 移行先・分割内容 |
 |---|---|
-| Go `internal/auth/service.go` | 手順 4a：`services/auth-service.ts`。メール解析は `models/email.ts`、入出力型は `models/auth.ts`、UUID・乱数・ログ・暗号は Provider へ分割 |
-| Go `internal/auth/errors.go` | 手順 4a：未移植の認証エラーを `errors/auth-errors.ts` に追加。TS に存在する `EmailTakenError`・`UserNotFoundError`・`BusyError` は再利用する |
 | Go `internal/httpapi/handler.go` | 手順 4b：Routes、Controllers、本文・検証・エラー応答の Middlewares、DTO の Schemas へ分割。要求のエラーは `errors/request-errors.ts` に追加 |
 | Go `internal/httpapi/static.go` | Web の Route・Controller と `index.ts` の起動時読み込み |
 | Go `internal/httpapi/web/*` | `public/*` へコピー |
