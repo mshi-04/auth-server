@@ -10,12 +10,12 @@ AI エージェントがこのリポジトリで作業するときの指示書�
 
 | 文書 | 内容 |
 |---|---|
-| [docs/design.md](docs/design.md) | 目的・スコープ・既知の制限・完了条件と文書の入口。実装前に必ず読む |
+| [README.md](README.md) | 目的・スコープ・既知の制限と文書の入口。実装前に必ず読む |
 | [docs/architecture.md](docs/architecture.md) | モジュール構成、責務、依存の向き、テスト方法の正本。実装前に必ず読む |
-| [docs/typescript-coding-guidelines.md](docs/typescript-coding-guidelines.md) | TypeScript のコーディング方針。実装前に必ず読む。仕様と構成は各仕様書・architecture.md を優先する |
-| [docs/specs/password.md](docs/specs/password.md) | パスワード仕様の正本。担当領域と関連契約を読む |
-| [docs/specs/database.md](docs/specs/database.md) | DB 仕様の正本。担当領域と関連契約を読む |
-| [docs/specs/api.md](docs/specs/api.md) | API・認証・サーバー仕様の正本。担当領域と関連契約を読む |
+| [docs/coding-guidelines.md](docs/coding-guidelines.md) | TypeScript のコーディング方針。実装前に必ず読む。仕様と構成は各仕様書・architecture.md を優先する |
+| [docs/password.md](docs/password.md) | パスワード仕様の正本。担当領域と関連契約を読む |
+| [docs/database.md](docs/database.md) | DB 仕様の正本。担当領域と関連契約を読む |
+| [docs/api.md](docs/api.md) | API・認証・サーバー仕様の正本。担当領域と関連契約を読む |
 | [docs/password-benchmarks.md](docs/password-benchmarks.md) | 性能測定と実行経路の根拠。性能・既定値・並行性に触れる作業で読む |
 | [docs/tech-stack.md](docs/tech-stack.md) | 採用技術と、使わない技術 |
 | [docs/development.md](docs/development.md) | 開発環境（WSL）、コマンド、Git の運用 |
@@ -23,8 +23,8 @@ AI エージェントがこのリポジトリで作業するときの指示書�
 ## 進め方
 
 - 実装は、利用者から明示的に指示されたときだけ行う。設計の相談中にコードやファイルを作り始めない
-- スコープは design.md の「実装するもの」に限る。スコープ外の機能は、頼まれても先に design.md を更新してから着手する
-- 仕様を変えるときは、コードより先に担当仕様書を更新し、design.md の版数も更新する。スコープ変更は design.md に反映する。読む範囲は design.md の「文書の正本と読む順序」に従う
+- スコープは [README のスコープ](README.md#スコープ)に限る。スコープ外の機能は、頼まれても先に README を更新してから着手する
+- 仕様を変えるときは、コードより先に担当仕様書を更新する。スコープ・既知の制限の変更は README に反映する。読む範囲は [README の文書一覧](README.md#文書の正本と読む順序)に従う
 - 仕様が曖昧な点や仕様書と矛盾する点は、推測で進めずに質問する
 - [開発ガイド](docs/development.md#レイヤー分離時の設定と検証)に従って、実装後に必要な検証を行う
 

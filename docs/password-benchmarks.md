@@ -1,12 +1,12 @@
 # パスワードの性能測定と調査記録
 
-現行の採用パラメータと性能調整の判定手順は [パスワード仕様](specs/password.md#テストと性能調整)、コマンドは [開発ガイド](development.md#コマンド)を正本とする。以下の結果は各測定条件での観測であり、現在のコードや別の環境での性能を保証しない。
+現行の採用パラメータと性能調整の判定手順は [パスワード仕様](password.md#テストと性能調整)、コマンドは [開発ガイド](development.md#コマンド)を正本とする。以下の結果は各測定条件での観測であり、現在のコードや別の環境での性能を保証しない。
 
 ## Node の実行経路
 
-- Node 26.11.0 と 26.12.1 の非同期 `crypto.argon2` は、`Argon2Job(kCryptoJobAsync)` の `run()` から `ScheduleWork()`、`uv_queue_work()` を経て libuv のスレッドプールに計算を投入する（[26.11.0 の入口](https://github.com/nodejs/node/blob/v26.11.0/lib/internal/crypto/argon2.js#L68-L87)、[26.12.1 の入口](https://github.com/nodejs/node/blob/v26.12.1/lib/internal/crypto/argon2.js#L68-L87)、[ジョブの実行](https://github.com/nodejs/node/blob/v26.12.1/src/crypto/crypto_util.h#L458-L477)、[libuv への投入](https://github.com/nodejs/node/blob/v26.12.1/src/threadpoolwork-inl.h#L33-L44)）。実行経路の確認と、[テストと性能調整](specs/password.md#テストと性能調整) の並行実行・イベントループ遅延・別処理の待ち時間の測定を区別する
+- Node 26.11.0 と 26.12.1 の非同期 `crypto.argon2` は、`Argon2Job(kCryptoJobAsync)` の `run()` から `ScheduleWork()`、`uv_queue_work()` を経て libuv のスレッドプールに計算を投入する（[26.11.0 の入口](https://github.com/nodejs/node/blob/v26.11.0/lib/internal/crypto/argon2.js#L68-L87)、[26.12.1 の入口](https://github.com/nodejs/node/blob/v26.12.1/lib/internal/crypto/argon2.js#L68-L87)、[ジョブの実行](https://github.com/nodejs/node/blob/v26.12.1/src/crypto/crypto_util.h#L458-L477)、[libuv への投入](https://github.com/nodejs/node/blob/v26.12.1/src/threadpoolwork-inl.h#L33-L44)）。実行経路の確認と、[テストと性能調整](password.md#テストと性能調整) の並行実行・イベントループ遅延・別処理の待ち時間の測定を区別する
 - 26.11.0 のリリースノートにある「derive Argon2 without worker threads」は、OpenSSL の内部スレッドが利用できない場合に Argon2 の lane を順次計算する変更であり、Node の libuv への投入を廃止する変更ではない（[変更本体](https://github.com/nodejs/node/commit/5e04680036a5ae35a94952f73d620bd7cc88b923)）
-- 非同期版がメインのイベントループで鍵導出を行っていた不具合（nodejs/node#62861）は、2026-04 に nodejs/node#62863 で修正され、v24 系にもバックポートされている。対象の 26.11.0 以上は修正を含む想定だが、[テストと性能調整](specs/password.md#テストと性能調整) でイベントループの遅延を測って確かめる
+- 非同期版がメインのイベントループで鍵導出を行っていた不具合（nodejs/node#62861）は、2026-04 に nodejs/node#62863 で修正され、v24 系にもバックポートされている。対象の 26.11.0 以上は修正を含む想定だが、[テストと性能調整](password.md#テストと性能調整) でイベントループの遅延を測って確かめる
 
 <a id="go-tuning-2026-10-18"></a>
 
@@ -102,4 +102,4 @@ Go 実装（`golang.org/x/crypto/argon2`）で採用値を決めたときの記�
 | `hash` | 368.301 | 372.509 | 386.376 | **372.509** |
 | `hash saturated` | 906.270 | 876.678 | 948.552 | **906.270** |
 
-イベントループの超過遅延は、各回の最大が 0.445 / 0.617 / 1.100ms、平均が 0.090 / 0.102 / 0.319ms だった。同じコードで中央値が 372.509ms と 430.791ms に分かれるため、上の差は WSL・ホストの状態による測定のぶれと判断する。3 回の記録を通じた `hash saturated` の最大の中央値は 1113.306ms で、[応答期限の予算](specs/api.md#サーバータイムアウト)の「競合時のハッシュ 1 回を約 1 秒」とした見積もりに当てはめても、`verify` と再ハッシュの合計は約 22.2 秒であり、約 22 秒・本文受信を含めて約 32 秒という結論は変わらない。
+イベントループの超過遅延は、各回の最大が 0.445 / 0.617 / 1.100ms、平均が 0.090 / 0.102 / 0.319ms だった。同じコードで中央値が 372.509ms と 430.791ms に分かれるため、上の差は WSL・ホストの状態による測定のぶれと判断する。3 回の記録を通じた `hash saturated` の最大の中央値は 1113.306ms で、[応答期限の予算](api.md#サーバータイムアウト)の「競合時のハッシュ 1 回を約 1 秒」とした見積もりに当てはめても、`verify` と再ハッシュの合計は約 22.2 秒であり、約 22 秒・本文受信を含めて約 32 秒という結論は変わらない。

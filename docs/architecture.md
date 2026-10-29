@@ -1,6 +1,6 @@
 # アーキテクチャ
 
-レイヤードアーキテクチャ、依存関係の注入（DI）、Provider 分離を定める。設計全体の入口は [design.md](design.md)、機能の振る舞いは [パスワード](specs/password.md)・[DB](specs/database.md)・[API・認証・サーバー](specs/api.md)の各仕様書、採用技術は [tech-stack.md](tech-stack.md)、型と実装の規則は [typescript-coding-guidelines.md](typescript-coding-guidelines.md) を参照。
+レイヤードアーキテクチャ、依存関係の注入（DI）、Provider 分離を定める。目的・スコープと文書の入口は [README](../README.md)、機能の振る舞いは [パスワード](password.md)・[DB](database.md)・[API・認証・サーバー](api.md)の各仕様書、採用技術は [tech-stack.md](tech-stack.md)、型と実装の規則は [coding-guidelines.md](coding-guidelines.md) を参照。
 
 ## 現状と移行先
 
@@ -20,87 +20,6 @@ models / errors: 共通の型・値オブジェクト・エラー（上位層に
 ```
 
 Interface の定義は `repositories/` と `providers/` に置く。具体実装もそれぞれの配下に置くが、Service は interface だけを import する。実装クラスの選択と注入は `index.ts` に限定する。DI コンテナ、デコレーター、サービスロケーターは使わない。
-
-## ディレクトリ
-
-```text
-auth-server/
-├── src/
-│   ├── config/
-│   │   ├── index.ts
-│   │   └── env.ts
-│   ├── routes/
-│   │   ├── index.ts
-│   │   ├── auth-routes.ts
-│   │   ├── health-routes.ts
-│   │   └── web-routes.ts
-│   ├── controllers/
-│   │   ├── index.ts
-│   │   ├── auth-controller.ts
-│   │   ├── health-controller.ts
-│   │   └── web-controller.ts
-│   ├── middlewares/
-│   │   ├── index.ts
-│   │   ├── read-json.ts
-│   │   ├── validate-request.ts
-│   │   ├── request-lifecycle.ts
-│   │   ├── security-headers.ts
-│   │   └── error-handler.ts
-│   ├── schemas/
-│   │   ├── index.ts
-│   │   ├── credentials-schema.ts
-│   │   └── auth-response.ts
-│   ├── services/
-│   │   ├── index.ts
-│   │   └── auth-service.ts
-│   ├── repositories/
-│   │   ├── index.ts
-│   │   ├── user-repository.ts
-│   │   └── sqlite/
-│   │       ├── index.ts
-│   │       ├── sqlite-user-repository.ts
-│   │       ├── initialization.ts
-│   │       ├── permissions.ts
-│   │       ├── errors.ts
-│   │       ├── node-sqlite.d.ts
-│   │       └── init.sql
-│   ├── providers/
-│   │   ├── index.ts
-│   │   ├── password-provider.ts
-│   │   ├── id-provider.ts
-│   │   ├── logger-provider.ts
-│   │   ├── crypto-id-provider.ts
-│   │   ├── json-logger-provider.ts
-│   │   └── password/
-│   │       ├── index.ts
-│   │       ├── argon2-password-provider.ts
-│   │       ├── derive.ts
-│   │       ├── params.ts
-│   │       └── semaphore.ts
-│   ├── models/
-│   │   ├── index.ts
-│   │   ├── user.ts
-│   │   ├── credential.ts
-│   │   ├── auth.ts
-│   │   ├── email.ts
-│   │   └── password/
-│   │       ├── values.ts
-│   │       ├── phc.ts
-│   │       └── hash-parameters.ts
-│   ├── errors/
-│   │   ├── index.ts
-│   │   ├── auth-errors.ts
-│   │   ├── password-errors.ts
-│   │   ├── request-errors.ts
-│   │   ├── config-errors.ts
-│   │   └── find-error.ts
-│   └── index.ts
-├── public/
-│   ├── index.html
-│   ├── app.css
-│   └── app.js
-└── docs/
-```
 
 - 必要な公開 API を各モジュールの `index.ts` から export する。import には `.ts` を付け、型だけの import は `import type` を使う。
 - 組み立ての入口 `src/index.ts` と各モジュールの公開口 `index.ts` は同じファイル名であり、`../index.ts` という指定は置き場所によって入口にも公開口にもなる。入口への import の禁止は、指定子のパターンではなく、解決後のパスで判定する。
@@ -189,7 +108,7 @@ Interface は利用するメソッドだけに絞る。JWT・Cookie・リフレ�
 
 ## Password Model と Provider の分離
 
-`Password.parse` と `EncodedHash.parse`、伏字、PHC 構文解析は Models、非同期 Argon2id・ソルト生成・定数時間比較・セマフォは Provider に置く。`Argon2PasswordProvider.create(params)` が検証済み設定のコピーとセマフォを保持し、公開コンストラクタは設けない。`defaultParams()` は Provider の `params.ts` で現行の採用値を返す。詳細は [パスワード仕様](specs/password.md#公開契約)に従う。
+`Password.parse` と `EncodedHash.parse`、伏字、PHC 構文解析は Models、非同期 Argon2id・ソルト生成・定数時間比較・セマフォは Provider に置く。`Argon2PasswordProvider.create(params)` が検証済み設定のコピーとセマフォを保持し、公開コンストラクタは設けない。`defaultParams()` は Provider の `params.ts` で現行の採用値を返す。詳細は [パスワード仕様](password.md#公開契約)に従う。
 
 `Password`・`EncodedHash` の秘密フィールドを公開せずに暗号計算へ渡すため、値の読み取り・生成に必要な内部関数を `models/password/values.ts` 内にまとめ、具体的な `providers/password/argon2-password-provider.ts` だけに内部 import を許可する。Provider が使う PHC の内部（解析済みのコスト・ソルト・鍵の読み取り、正規の PHC 文字列の生成、保存済みの表記が正規かの判定）も `values.ts` の内部関数として提供し、Provider は `models/password/phc.ts` を直接 import しない。例外の対象は `values.ts` の 1 ファイルだけとし、ESLint とそのテストで固定する。
 
@@ -201,7 +120,7 @@ Interface は利用するメソッドだけに絞る。JWT・Cookie・リフレ�
 
 `AuthService.create(repository, passwordProvider, idProvider, logger, signal)` が各 interface を受け取り、起動時のダミーハッシュを生成して `Promise<AuthService>` を返す。生成に失敗したら起動しない。依存はフィールドに保持し、呼び出しごとの `signal` は保存しない。
 
-`register(input: AuthInput, signal)`・`login(input: AuthInput, signal)` は `Promise<AuthResult>` を返す。順序と失敗時の方針は [API・認証・サーバー仕様](specs/api.md#ログインの振る舞い)に従い、特に次を保持する。
+`register(input: AuthInput, signal)`・`login(input: AuthInput, signal)` は `Promise<AuthResult>` を返す。順序と失敗時の方針は [API・認証・サーバー仕様](api.md#ログインの振る舞い)に従い、特に次を保持する。
 
 - 入口で `Password.parse` を 1 回呼ぶ。登録の解析失敗・最小長違反は `WeakPasswordError`、ログインの解析失敗は `InvalidCredentialsError`。ログインのパスワード解析失敗では検索・暗号計算を行わない。
 - メール解析・正規化は `models/email.ts` を使う。登録では不正形式を拒否し、ログインの不正メールは不在ユーザーと同じダミー検証へ進める。
@@ -220,9 +139,9 @@ HTTP フレームワークは使わず、`node:http` 向けの関数として構
 - `read-json.ts` は Content-Length と実際に読んだバイト数を確認し、16 KiB を超えたら拒否する。JSON の解析結果は `unknown` として扱い、読み込み失敗と JSON 不正を区別する。JSON の解析エラーは本文の一部を含みうるため、`BadRequestError` の `cause` に入れない。
 - `credentials-schema.ts` はオブジェクト・必須の文字列項目・未知項目の有無だけを検証する。Content-Type の必須化、空文字の拒否、メール形式、パスワード最小長の検査は追加しない。
 - `validate-request.ts` が Schema を実行し、型が確定した DTO を Controller へ渡す。Controller に入力形式の検査や業務ロジックを重複させない。
-- `index.ts` は `request` イベントのコールバックの入口（ヘッダー受信後・本文読み込み前）で `performance.now() + 30000` を要求の期限として記録し、`request-lifecycle.ts` へ渡す。`request-lifecycle.ts` は切断と応答期限をまとめた `AbortSignal` を作り、Controller を通して下位層へ渡す。クライアントの切断は `res` の `close` で `res.writableFinished` が `false` の場合に判定する。`req` の `close` は本文を読み終えた時点でも発火するため、切断の判定に使わない。応答期限は [サーバータイムアウト](specs/api.md#サーバータイムアウト) に従い、期限までの残り時間を使う `setTimeout` で中断する `AbortController` から作る。本文の受信完了で期限を延長しない。タイマー・イベント購読を後始末する。
+- `index.ts` は `request` イベントのコールバックの入口（ヘッダー受信後・本文読み込み前）で `performance.now() + 30000` を要求の期限として記録し、`request-lifecycle.ts` へ渡す。`request-lifecycle.ts` は切断と応答期限をまとめた `AbortSignal` を作り、Controller を通して下位層へ渡す。クライアントの切断は `res` の `close` で `res.writableFinished` が `false` の場合に判定する。`req` の `close` は本文を読み終えた時点でも発火するため、切断の判定に使わない。応答期限は [サーバータイムアウト](api.md#サーバータイムアウト) に従い、期限までの残り時間を使う `setTimeout` で中断する `AbortController` から作る。本文の受信完了で期限を延長しない。タイマー・イベント購読を後始末する。
 - Controller の成功応答と `error-handler` のエラー応答は、文脈の判定で応答を書けることを確かめてから書く。切断済みなら応答を書かず、応答期限を超えていれば接続を破棄する。この判定は文脈の signal の状態と、`performance.now()` が期限に達していないことの両方で行い、エラーの `cause` の連鎖には依存しない。同期の SQLite 処理でタイマーの発火が遅れた場合も、期限後の応答を書かない。
-- `security-headers.ts` は成功・失敗を含む共通ヘッダーを担当する。HEAD・CSP・静的ファイルの Content-Type は [Web 画面](specs/api.md#web-画面) に従う。
+- `security-headers.ts` は成功・失敗を含む共通ヘッダーを担当する。HEAD・CSP・静的ファイルの Content-Type は [Web 画面](api.md#web-画面) に従う。
 - `WebController` は起動時に注入された 3 ファイルを返す。`HealthController` は DB を参照しない。
 
 ### エラーの一元化
@@ -244,13 +163,13 @@ HTTP フレームワークは使わず、`node:http` 向けの関数として構
 
 `cause` は元の原因を保持するために使い、上位で変換したエラーの意味を優先する。例えば `InvalidCredentialsError` の内側の `InvalidHashError` を HTTP 境界で再分類しない。切断時は応答を書かず、応答期限時は接続を破棄する。この判定はエラーの包み方を問わず、ステータス変換・成功応答・ログ記録より優先する。
 
-エラー本文は RFC 9457 の `application/problem+json` とし、[エンドポイント](specs/api.md#エンドポイント) に従う。Node がハンドラへ渡す前に返す 400・408 は既存の例外として残る。再ハッシュ失敗と保存済み PHC 異常は Service で記録する例外であり、Middleware で重複記録しない。パスワード・ハッシュ・リクエスト本文はログに含めない。
+エラー本文は RFC 9457 の `application/problem+json` とし、[エンドポイント](api.md#エンドポイント) に従う。Node がハンドラへ渡す前に返す 400・408 は既存の例外として残る。再ハッシュ失敗と保存済み PHC 異常は Service で記録する例外であり、Middleware で重複記録しない。パスワード・ハッシュ・リクエスト本文はログに含めない。
 
 ## Config・Repository・起動処理
 
-`config/env.ts` の `loadConfig(env: NodeJS.ProcessEnv): Config` は `databasePath: string` と `port: number` を返す。環境変数、絶対パス化、`/mnt/c` とリンク解決後の検査は [横断的な要件](specs/api.md#横断的な要件) に従う。不正な値は `errors/` の設定エラーとして投げる。`databasePath` は絶対パス化しただけのパスで返し、リンク解決の結果は `/mnt/c` の検査だけに使う。Repository の検査（[初期化と接続設定](specs/database.md#初期化と接続設定)）がシンボリックリンクを拒否できるよう、渡すパスのリンクを解決しない。Config はファイルやディレクトリを作らず、Repository の所有者・権限検査を重複しない。
+`config/env.ts` の `loadConfig(env: NodeJS.ProcessEnv): Config` は `databasePath: string` と `port: number` を返す。環境変数、絶対パス化、`/mnt/c` とリンク解決後の検査は [横断的な要件](api.md#横断的な要件) に従う。不正な値は `errors/` の設定エラーとして投げる。`databasePath` は絶対パス化しただけのパスで返し、リンク解決の結果は `/mnt/c` の検査だけに使う。Repository の検査（[初期化と接続設定](database.md#初期化と接続設定)）がシンボリックリンクを拒否できるよう、渡すパスのリンクを解決しない。Config はファイルやディレクトリを作らず、Repository の所有者・権限検査を重複しない。
 
-`SqliteUserRepository.open(path, signal)` は接続を 1 つだけ所有する具体実装を返す（`Promise`）。`open`・`close` は組み立て用の API で、Service 向けの `UserRepository` には含めない。接続確認・WAL・`init.sql` 初期化の失敗時は接続を閉じる。権限検査、新規 DB の `0o600`、WAL 切り替えだけの再試行は [DB 仕様の初期化と接続設定](specs/database.md#初期化と接続設定)、`BEGIN IMMEDIATE` と SQLite エラーの `code`・数値 `errcode` による変換は [DB 仕様の書き込み](specs/database.md#書き込み)を維持する。
+`SqliteUserRepository.open(path, signal)` は接続を 1 つだけ所有する具体実装を返す（`Promise`）。`open`・`close` は組み立て用の API で、Service 向けの `UserRepository` には含めない。接続確認・WAL・`init.sql` 初期化の失敗時は接続を閉じる。権限検査、新規 DB の `0o600`、WAL 切り替えだけの再試行は [DB 仕様の初期化と接続設定](database.md#初期化と接続設定)、`BEGIN IMMEDIATE` と SQLite エラーの `code`・数値 `errcode` による変換は [DB 仕様の書き込み](database.md#書き込み)を維持する。
 
 `src/repositories/sqlite/sqlite-user-repository.ts` の `SqliteUserRepository` が接続を所有する。初期化・権限検査・DB エラー変換・スキーマ・公開口・型補助宣言とテストは同じモジュールに置く。`@types/node` 26.6.5 にない `Database` の型だけを補う `node-sqlite.d.ts` は、型定義が改名に対応するまで保持する。実行時は `Database` を直接使う。
 
@@ -262,7 +181,7 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 2. SQLite Repository を開き、Password・ID Provider を生成する。Password Provider はプロセス内で共用する。
 3. `AuthService.create` へ各 interface を注入し、ダミーハッシュの初期化を完了する。
 4. `public/` の 3 ファイルを読み込み、Controller・Routes・Middleware を組み立てる。
-5. `http.Server` を生成し、[横断的な要件](specs/api.md#横断的な要件)・[サーバータイムアウト](specs/api.md#サーバータイムアウト) の待ち受け・タイムアウト・終了処理を設定して起動する。
+5. `http.Server` を生成し、[横断的な要件](api.md#横断的な要件)・[サーバータイムアウト](api.md#サーバータイムアウト) の待ち受け・タイムアウト・終了処理を設定して起動する。
 
 初期化失敗時は起動せず、開いた DB を閉じる。SIGINT・SIGTERM と起動後の終了でも DB を解放する。DB や Logger をグローバル変数へ置かない。
 
@@ -282,4 +201,4 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 
 登録・ログインの応答、ダミー検証、再ハッシュ失敗時の成功、秘密値の非公開は維持する。
 
-各実装段階で型検査・Lint・整形確認・テスト・カバレッジを確認する。ベンチマークは Provider 移行段階で既存の測定範囲を維持して確認し、性能や既定値を変える場合だけ [パスワード仕様の手順](specs/password.md#テストと性能調整)で再測定する。Windows のブラウザーからの実接続確認は [README](../README.md#web-画面を使う) に従う。
+各実装段階で型検査・Lint・整形確認・テスト・カバレッジを確認する。ベンチマークは Provider 移行段階で既存の測定範囲を維持して確認し、性能や既定値を変える場合だけ [パスワード仕様の手順](password.md#テストと性能調整)で再測定する。Windows のブラウザーからの実接続確認は [README](../README.md#web-画面を使う) に従う。

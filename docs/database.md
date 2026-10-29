@@ -1,10 +1,10 @@
 # データベース
 
-機能仕様の正本とする。設計全体の入口は [design.md](../design.md)、配置と依存は [architecture.md](../architecture.md)を参照する。
+機能仕様の正本とする。目的・スコープと文書の入口は [README](../README.md)、配置と依存は [architecture.md](architecture.md)を参照する。
 
 ## ドライバ
 
-Node 標準の `node:sqlite` の `Database` クラス（v26.11.0 で `DatabaseSync` から改名。`DatabaseSync` は非推奨の別名として残る）。外部パッケージやネイティブのビルドは不要。26.11.0 未満の Node は対象外とし（[言語・実行環境](../tech-stack.md#言語実行環境)）、`DatabaseSync` との互換処理は持たない。
+Node 標準の `node:sqlite` の `Database` クラス（v26.11.0 で `DatabaseSync` から改名。`DatabaseSync` は非推奨の別名として残る）。外部パッケージやネイティブのビルドは不要。26.11.0 未満の Node は対象外とし（[言語・実行環境](tech-stack.md#言語実行環境)）、`DatabaseSync` との互換処理は持たない。
 
 - `node:sqlite` の安定度は 1.2（Release candidate）である
 - `Database` の API はすべて同期で実行され、SQL の実行中とロックの待機中はイベントループが止まる
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS password_credentials (
 - 接続は 1 つだけなので、接続ごとの設定は開いた直後に一度だけ行う。外部キー制約と busy timeout はコンストラクタのオプションで、WAL は `PRAGMA journal_mode = WAL` で設定する
 - SQLite は `journal_mode` を変更できない保存先（共有メモリを使えない VFS など）でエラーにせず元のモードのまま続けるため、`open` は `PRAGMA journal_mode = WAL` の結果を読み、`wal` でなければエラーにする
 - WAL への切り替えが `SQLITE_BUSY` になった場合（他のプロセスが DB を使っている場合）は、接続を閉じ、残り時間を上限として最大 10ms 待ってから、新しい接続による切り替えを再試行する。再試行の開始は最初の試行から 5 秒以内に限り、`signal` の中断でも終了する。5 秒経過時は直近の DB エラーを投げ、`signal` が中断された場合はその理由も `cause` に含める。再試行は `open` の WAL 切り替えだけに限定し、スキーマ初期化・通常の読み書き・`SQLITE_BUSY` 以外のエラーには適用しない
-- 10ms は `SQLITE_BUSY` が返った後の再試行までの待機時間であり、SQLite 内部のロック待ちを含む試行間隔ではない。busy timeout は WAL 切り替え中も `5000` のままとする。最初の試行で 5 秒以上を使った場合は再試行を開始せず、そのエラーを返す。5 秒は再試行の開始期限であり、`open` 全体の完了期限でも、一定回数の再試行を保証する時間でもない。同期の PRAGMA 実行中のロック待ちは中断できず、期限前に開始した試行は期限を超えて続く場合がある（[既知の制限](../design.md#既知の制限)）
+- 10ms は `SQLITE_BUSY` が返った後の再試行までの待機時間であり、SQLite 内部のロック待ちを含む試行間隔ではない。busy timeout は WAL 切り替え中も `5000` のままとする。最初の試行で 5 秒以上を使った場合は再試行を開始せず、そのエラーを返す。5 秒は再試行の開始期限であり、`open` 全体の完了期限でも、一定回数の再試行を保証する時間でもない。同期の PRAGMA 実行中のロック待ちは中断できず、期限前に開始した試行は期限を超えて続く場合がある（[既知の制限](../README.md#既知の制限)）
 
 | 設定 | 指定方法 | 値 | 理由 |
 |---|---|---|---|

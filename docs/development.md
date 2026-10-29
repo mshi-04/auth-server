@@ -71,10 +71,14 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 | 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db npm start` | `node src/index.ts` |
 
 - Vitest の `passWithNoTests` は使わない。テストの移動や `include` の指定の誤りでテストが 0 件になったときに、`npm test` と CI を失敗させるため
-- `npm run bench` は既定パラメータの `hash`・`hash saturated` と飽和時のイベントループ遅延を測る。`AUTH_PASSWORD_BENCH_RUN=1 npm run bench` の番号を 1・2・3 と変えて 3 回実行すると、各回の JSON を `bench-results/password/` に残せる（`coverage/` はカバレッジの実行時に削除されるため使わない）。番号を省略した場合は `latest` として上書きする。既定値が [テストと性能調整](specs/password.md#テストと性能調整) の目標から外れた場合は、`AUTH_PASSWORD_BENCH_CANDIDATES=1 npm run bench` で候補も比較する。Vitest 5 では `*.bench.ts` 内のテストコンテキストの `bench` を使い、通常の `npm test` ではベンチマークを実行しない
+- `npm run bench` は既定パラメータの `hash`・`hash saturated` と飽和時のイベントループ遅延を測る。`AUTH_PASSWORD_BENCH_RUN=1 npm run bench` の番号を 1・2・3 と変えて 3 回実行すると、各回の JSON を `bench-results/password/` に残せる（`coverage/` はカバレッジの実行時に削除されるため使わない）。番号を省略した場合は `latest` として上書きする。既定値が [テストと性能調整](password.md#テストと性能調整) の目標から外れた場合は、`AUTH_PASSWORD_BENCH_CANDIDATES=1 npm run bench` で候補も比較する。Vitest 5 では `*.bench.ts` 内のテストコンテキストの `bench` を使い、通常の `npm test` ではベンチマークを実行しない
 - ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイル、CI のスクリプト（`.github/scripts/`）、ルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。`actions/github-script` から `require` する `.github/scripts/*.cjs` は、`@eslint/js` の推奨規則で検査し、テスト（`*.test.ts`）から読み込んで振る舞いを確かめる。ブラウザーで動く静的ファイルは移行後の `public/` も対象から外す
 - `tsconfig.json` の `skipLibCheck` で依存パッケージの型定義は型検査しない。依存の更新で型定義どうしが食い違っても、このプロジェクトのコードと無関係に型検査が失敗しないようにするため
 - Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML と静的ファイル（`public/`）は `.prettierignore` で対象から外す
+
+コーディング規約の必須条件・適用範囲・例外と、現在有効な検査・導入予定の一覧は、[コーディング方針](coding-guidelines.md#現在の検査と導入予定)を正本とする。今回の文書更新では、検査設定・既存コード・公開契約は変更していない。追加規約は今後の新規・変更コードに適用し、未導入の検査で確認できない事項はレビューで確認する。既存コードの一括改修と検査設定の追加は別作業とする。
+
+追加規則の導入時は、上記の対象と例外に合わせて設定し、ESLint の重大度は `error` とする。同じ変更で一覧の検査状態も更新する。現在の検査コマンドが成功しても、未導入の規則や、自動検査できない値オブジェクトの条件・参照の所有権などまで確認できたとは扱わない。
 
 ### レイヤー分離時の設定と検証
 
@@ -83,7 +87,7 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 - パスワード Provider・セマフォ・鍵導出のテストとベンチマークは `providers/password/` に置く。Service のテストでは、手書きの偽 `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、低コスト設定の本物の `Argon2PasswordProvider` と組み合わせる検証も残す
 - `src/repositories/sqlite/` のテストは、実 DB で SQL とトランザクション、再試行・中断・権限・エラー分類を検証する
 - `public/` は ESLint・Prettier の対象から外す。Vitest のカバレッジ対象は `src/**/*.ts` のため、`public/` は対象に入らない
-- コードや設定を変更する各段階で `npm run typecheck`、`npm run lint`、`npm run format:check`、`npm test`、`npm run coverage` を確認し、CI・CodeQL も通ってから次へ進む。文書だけの変更では、文書間の構成・パス・手順・参照先の整合性と差分を確認する。Markdown は Prettier の対象外なので、`format:check` の成功を文書の検証の代わりにしない
+- コードや設定を変更する各段階で `npm run typecheck`、`npm run lint`、`npm run format:check`、`npm test`、`npm run coverage` を確認し、CI・CodeQL も通ってから次へ進む。文書だけの変更では、文書間の構成・パス・手順・見出し参照の整合性、記載した検査状態と実設定の対応を確認し、`git diff --check` と最終差分で変更範囲を確認する。アプリのテスト・カバレッジは実行しない。Markdown は Prettier の対象外なので、`format:check` の成功を文書の検証の代わりにしない
 
 ## CI
 
@@ -139,10 +143,11 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 ## Web 画面と Windows からの接続
 
 - Node サーバーの起動後、Windows のブラウザーで `http://127.0.0.1:8080/` を開く。画面と API は同じサーバーが配信するため、フロントエンド用の起動コマンドや依存のインストールは不要
-- `src/index.ts` の組み立て時に `public/` の 3 ファイルをメモリへ読み込み、Web Controller へ渡す。読み込みに失敗したら起動しない。配信するのは `/`・`/assets/app.css`・`/assets/app.js` の明示パスだけとし、ディレクトリ全体は公開しない。配信の振る舞いは [API 仕様](specs/api.md#web-画面)を参照する。変更後はサーバーを再起動する
+- `src/index.ts` の組み立て時に `public/` の 3 ファイルをメモリへ読み込み、Web Controller へ渡す。読み込みに失敗したら起動しない。配信するのは `/`・`/assets/app.css`・`/assets/app.js` の明示パスだけとし、ディレクトリ全体は公開しない。配信の振る舞いは [API 仕様](api.md#web-画面)を参照する。変更後はサーバーを再起動する
 - WSL 2.4.11.0 のこの開発環境では、IPv6 の全アドレスで待ち受けると Windows 側に IPv6 のループバックだけが転送され、IPv4 の `127.0.0.1` が失敗した。サーバーは `0.0.0.0` で待ち受け、この差を避ける。IPv6 の接続は対象外
 - 接続確認は通常の Windows PowerShell またはブラウザーで行う。エージェントの実行サンドボックスからの失敗だけでは、Windows ホストから到達できないとは判断しない
 - 起動直後の転送待ちと、WSL 内・Windows 側の切り分け手順は [README](../README.md#接続できない場合) を参照
+- Windows のブラウザーから WSL 上のサーバーへ接続し、Web 画面で登録・ログイン・重複登録・誤パスワードの応答を確認する。操作は [README](../README.md#web-画面を使う)に従う
 
 ## Git
 
@@ -164,8 +169,7 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 
 ### 並行するブランチの統合
 
-- design.md の版数は、`develop` へマージする順に付ける
-- 並行するブランチが同じ版数や同じファイル（`.gitignore` など）を変えている場合は、先にマージするブランチを決める。後のブランチは `develop` を取り込んで衝突を解消する。そのとき版数を繰り上げ、`.gitignore` は両方の行を残す
+- 並行するブランチが同じファイル（`.gitignore` など）を変えている場合は、先にマージするブランチを決める。後のブランチは `develop` を取り込んで衝突を解消し、必要な変更を両方残す
 
 ### リモート
 
