@@ -2,9 +2,9 @@
 
 開発環境、コマンド、Git の運用をまとめる。
 
-TypeScript 実装の手順を正本とする。移行の完了（[移行手順 7](migration.md#step-7)）までは、Go 実装の手順と CI も残る。それらは末尾の「Go 実装（移行完了まで）」にまとめる。
+TypeScript 実装の手順を正本とする。
 
-目標構成と現在の配置は [アーキテクチャ](architecture.md#現状と移行先)、段階的な作業順序は [移行手順](migration.md)を正本とする。
+構成と現在の配置は [アーキテクチャ](architecture.md#現状と移行先)を正本とする。
 
 ## 開発環境
 
@@ -56,7 +56,7 @@ SQLite はファイル 1 つで動作し、別途 DB サーバーを起動する
 
 ## コマンド
 
-WSL 上のリポジトリのルートで実行する。`npm run` の名前は `package.json` の `scripts` に定義する。Windows のブラウザーからの実接続は[移行手順 5](migration.md#step-5)で確認する。
+WSL 上のリポジトリのルートで実行する。`npm run` の名前は `package.json` の `scripts` に定義する。Windows のブラウザーからの実接続は [README](../README.md#web-画面を使う) に従って確認する。
 
 | 目的 | コマンド | 中身 |
 |---|---|---|
@@ -74,7 +74,7 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 - `npm run bench` は既定パラメータの `hash`・`hash saturated` と飽和時のイベントループ遅延を測る。`AUTH_PASSWORD_BENCH_RUN=1 npm run bench` の番号を 1・2・3 と変えて 3 回実行すると、各回の JSON を `bench-results/password/` に残せる（`coverage/` はカバレッジの実行時に削除されるため使わない）。番号を省略した場合は `latest` として上書きする。既定値が [テストと性能調整](specs/password.md#テストと性能調整) の目標から外れた場合は、`AUTH_PASSWORD_BENCH_CANDIDATES=1 npm run bench` で候補も比較する。Vitest 5 では `*.bench.ts` 内のテストコンテキストの `bench` を使い、通常の `npm test` ではベンチマークを実行しない
 - ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイル、CI のスクリプト（`.github/scripts/`）、ルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。`actions/github-script` から `require` する `.github/scripts/*.cjs` は、`@eslint/js` の推奨規則で検査し、テスト（`*.test.ts`）から読み込んで振る舞いを確かめる。ブラウザーで動く静的ファイルは移行後の `public/` も対象から外す
 - `tsconfig.json` の `skipLibCheck` で依存パッケージの型定義は型検査しない。依存の更新で型定義どうしが食い違っても、このプロジェクトのコードと無関係に型検査が失敗しないようにするため
-- Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML と静的ファイルは `.prettierignore` で対象から外す。`public/` は Go 実装の `internal/httpapi/web/` からコピーした手書きの書式のまま保ち、移行中は 2 か所の内容を一致させる（[移行手順](migration.md)）。Go 実装のファイルは Prettier の対象外の拡張子なので、指定しなくても整形されない
+- Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML と静的ファイル（`public/`）は `.prettierignore` で対象から外す
 
 ### レイヤー分離時の設定と検証
 
@@ -83,7 +83,7 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 - パスワード Provider・セマフォ・鍵導出のテストとベンチマークは `providers/password/` に置く。Service のテストでは、手書きの偽 `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、低コスト設定の本物の `Argon2PasswordProvider` と組み合わせる検証も残す
 - `src/repositories/sqlite/` のテストは、実 DB で SQL とトランザクション、再試行・中断・権限・エラー分類を検証する
 - `public/` は ESLint・Prettier の対象から外す。Vitest のカバレッジ対象は `src/**/*.ts` のため、`public/` は対象に入らない
-- コードや設定を変更する各段階で `npm run typecheck`、`npm run lint`、`npm run format:check`、`npm test`、`npm run coverage` を確認し、TS 用の CI・CodeQL と Go 用の CI も通ってから次へ進む。文書だけの変更では、文書間の構成・パス・手順・参照先の整合性と差分を確認する。Markdown は Prettier の対象外なので、`format:check` の成功を文書の検証の代わりにしない
+- コードや設定を変更する各段階で `npm run typecheck`、`npm run lint`、`npm run format:check`、`npm test`、`npm run coverage` を確認し、CI・CodeQL も通ってから次へ進む。文書だけの変更では、文書間の構成・パス・手順・参照先の整合性と差分を確認する。Markdown は Prettier の対象外なので、`format:check` の成功を文書の検証の代わりにしない
 
 ## CI
 
@@ -106,7 +106,7 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 - Node のインストールと npm のキャッシュの復元は `.github/actions/setup-node` にまとめ、各ジョブから呼ぶ。キャッシュは `package-lock.json` が変わるまで再利用する。キャッシュは npm のダウンロード済みパッケージ用で `node_modules/` は共有しないため、Lint・Test・Coverage の各ジョブで `npm ci` を実行する
 - 各ジョブの制限時間は 15 分。同じ PR で新しい実行が始まったら、古い実行を取り消す。`develop`・`main` への push では実行中の CI を取り消さないが、同じブランチの待機中の実行は新しい push によって置き換わることがある
 - 性能測定は WSL で行い、ベンチマークは CI では実行しない
-- Go 実装にあったレース検出（Race ジョブ）に相当する仕組みは Node に無いため、TS 実装ではジョブを設けない。並行性の振る舞いはテストで検証する
+- レース検出（Race ジョブ）に相当する仕組みは Node に無いため、ジョブを設けない。並行性の振る舞いはテストで検証する
 
 ### CodeQL
 
@@ -139,9 +139,7 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 ## Web 画面と Windows からの接続
 
 - Node サーバーの起動後、Windows のブラウザーで `http://127.0.0.1:8080/` を開く。画面と API は同じサーバーが配信するため、フロントエンド用の起動コマンドや依存のインストールは不要
-- HTML・CSS・JavaScript は手順 4b で `internal/httpapi/web/` から `public/` へ内容を変えずにコピーする。Go の `go:embed` が元のファイルを使うため、移動はしない。配信の振る舞いは [API 仕様](specs/api.md#web-画面)を参照する
-- TS 実装では `src/index.ts` の組み立て時に `public/` の 3 ファイルをメモリへ読み込み、Web Controller へ渡す。読み込みに失敗したら起動しない。配信するのは `/`・`/assets/app.css`・`/assets/app.js` の明示パスだけとし、ディレクトリ全体は公開しない。変更後はサーバーを再起動する
-- 手順 4b から Go 実装を削除する手順 7 まで、`diff -r internal/httpapi/web public` が差分なしで終わることを確認する。画面を変更する場合は両方に同じ変更を入れる
+- `src/index.ts` の組み立て時に `public/` の 3 ファイルをメモリへ読み込み、Web Controller へ渡す。読み込みに失敗したら起動しない。配信するのは `/`・`/assets/app.css`・`/assets/app.js` の明示パスだけとし、ディレクトリ全体は公開しない。配信の振る舞いは [API 仕様](specs/api.md#web-画面)を参照する。変更後はサーバーを再起動する
 - WSL 2.4.11.0 のこの開発環境では、IPv6 の全アドレスで待ち受けると Windows 側に IPv6 のループバックだけが転送され、IPv4 の `127.0.0.1` が失敗した。サーバーは `0.0.0.0` で待ち受け、この差を避ける。IPv6 の接続は対象外
 - 接続確認は通常の Windows PowerShell またはブラウザーで行う。エージェントの実行サンドボックスからの失敗だけでは、Windows ホストから到達できないとは判断しない
 - 起動直後の転送待ちと、WSL 内・Windows 側の切り分け手順は [README](../README.md#接続できない場合) を参照
@@ -156,7 +154,6 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 | `develop` | 統合先 |
 | `feature/*` | 作業用。`develop` から作り、`develop` へ PR を出す |
 
-- TypeScript への移行は、[移行手順](migration.md)の手順ごとに feature ブランチを分ける。ブランチ名と、前の手順のマージを待ってから次のブランチを作る決まりは [移行手順](migration.md)を正本とする
 - 文書の変更にアプリの実装や設定変更を混ぜない。利用者から指示されていないコミット・push・PR 作成は行わない
 
 ### コミット
@@ -173,37 +170,3 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 ### リモート
 
 - `origin`：https://github.com/mshi-04/auth-server（public）
-
-## Go 実装（移行完了まで）
-
-[移行手順 7](migration.md#step-7) で、この節ごと削除する。それまでは Go 実装を壊さないよう、Go 用の CI も通す。
-
-### 環境とコマンド
-
-- Go は WSL にだけ入っている。モジュールキャッシュは WSL 側（`~/go`）に置かれる。Windows からは `wsl -d Ubuntu-24.04 --exec bash -lc 'go test ./...'` の形で実行する
-
-| 目的 | コマンド |
-|---|---|
-| 整形確認 | `gofmt -l .`（出力が空なら整形済み。`gofmt -w .` で整形する） |
-| go.mod の整理確認 | `go mod tidy -diff` |
-| 静的検査 | `go vet ./...` |
-| テスト | `go test ./...` |
-| ベンチマーク | `go test -bench=. ./internal/password` |
-| 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db go run ./cmd/authd` |
-
-### CI・CodeQL・Dependabot
-
-- `.github/workflows/ci.yml` の Go 用のジョブは、TS 用のジョブと並べて次の 4 つを独立して実行する。job ID は `go-lint`・`go-test`・`go-coverage`・`go-race`、表示名は `Go Lint` など、artifact 名は `go-coverage-report` とし、TS 用の `lint`・`test`・`coverage` と区別する。job ID は 1 つのワークフロー内で一意にする
-
-| ジョブ | 内容 |
-|---|---|
-| Go Lint | `gofmt -l .` による整形確認（ファイルは書き換えない）、`go mod tidy -diff`、`go vet ./...` |
-| Go Test | `go test -count=1 ./...` |
-| Go Coverage | `go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage/coverage.out ./...` とカバレッジレポートの生成・保存 |
-| Go Race | `CGO_ENABLED=1 go test -count=1 -race ./...` |
-
-- 実行環境は Ubuntu 24.04、`CGO_ENABLED=0`。Go のバージョンは `go.mod` から読み込む。Race ジョブだけ `CGO_ENABLED=1` にする。WSL には gcc が無いため、Race はローカルでは実行しない
-- Go のインストールとキャッシュの復元は `.github/actions/setup-go` にまとめる。キャッシュ（モジュールとビルド結果）はジョブごとに分け、`go.mod` と `go.sum` が変わるまで再利用する
-- Go Coverage の PR コメントと artifact の扱いは TS の Coverage と同じ規則に従う。Go の artifact は `go-coverage-report` とし、`coverage.html`・`coverage.txt`（関数別一覧）・`coverage.out` を保存する
-- CodeQL は `go` も解析する。`build-mode: manual` で `go build ./...` を実行し、共通の Go セットアップを使う
-- Dependabot は `gomod` のルートの `go.mod`・`go.sum` と、`/.github/actions/setup-go` の GitHub Actions も確認する

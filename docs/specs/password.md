@@ -60,7 +60,7 @@ type Cost = Pick<Params, "memoryKiB" | "iterations" | "parallelism">;
 
 - すべての項目は `Number.isSafeInteger` を満たす整数に限る。`maxConcurrent` と `waitTimeoutMs` は正の整数に限る
 - 不正な生成設定は `Argon2PasswordProvider.create` が `InvalidParamsError` を投げる。保存済み PHC の範囲外の値は `InvalidHashError` とする
-- memory・iterations・parallelism・出力長の下限は RFC 9106 の入力条件に従う。生成設定のソルト長の下限は RFC 9106 の推奨値 16 バイトとする。保存済み PHC のソルトの下限は、Node の `argon2` が nonce に要求する 8 バイトとする（Go 実装では 1 バイト以上を受理していた）
+- memory・iterations・parallelism・出力長の下限は RFC 9106 の入力条件に従う。生成設定のソルト長の下限は RFC 9106 の推奨値 16 バイトとする。保存済み PHC のソルトの下限は、Node の `argon2` が nonce に要求する 8 バイトとする
 
 ## 保存形式
 
@@ -131,7 +131,7 @@ class Argon2PasswordProvider implements PasswordProvider {
 - NFKC 正規化した後の **Unicode コードポイント数**（文字列のイテレーターで数える。UTF-16 のコード単位数の `length` は使わない）で長さを判定する
 - 最小 12 文字、最大 128 文字
 - 文字種の組み合わせは強制しない
-- JavaScript の文字列は UTF-16 のため、Go 実装の「不正な UTF-8」の拒否は、ペアになっていないサロゲートを含む文字列の拒否（`String.prototype.isWellFormed()` が `false`）に置き換える。HTTP の本文の不正な UTF-8 は、デコード時に U+FFFD へ置き換わる（[エンドポイント](api.md#エンドポイント)）。JSON のエスケープ（`"\ud800"`）で入ったペアになっていないサロゲートは、ここで拒否する
+- ペアになっていないサロゲートを含む文字列（`String.prototype.isWellFormed()` が `false`）を拒否する。HTTP の本文の不正な UTF-8 は、デコード時に U+FFFD へ置き換わる（[エンドポイント](api.md#エンドポイント)）。JSON のエスケープ（`"\ud800"`）で入ったペアになっていないサロゲートは、ここで拒否する
 - `Password.parse` が不正な文字列と最大長超過を `PolicyViolationError` で拒否し、`hash` が最小長を検査する。`verify` と `rehash` は解析済みの短い値や空文字も扱える
 
 ## 同時実行制限

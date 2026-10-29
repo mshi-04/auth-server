@@ -6,5 +6,4 @@
 .github/**/*.yaml
 bench-results/
 coverage/
-internal/
 public/

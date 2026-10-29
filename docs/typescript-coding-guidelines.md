@@ -3,8 +3,6 @@
 このリポジトリ（TypeScript 製の学習用認証 API）でコードを書くときの方針。
 機能仕様は [design.md の文書一覧](design.md#文書の正本と読む順序)から担当領域と関連契約を参照する。モジュール構成・責務・依存の向き・テスト方法は [architecture.md](architecture.md) を正本とし、この方針と食い違う場合はそちらを優先する。
 
-移行中の Go 実装は、移行の完了（[移行手順 7](migration.md#step-7)）で削除するまで機能を追加しない。
-
 以下は移行先の方針を定める。現在の配置は [アーキテクチャの現状と移行先](architecture.md#現状と移行先)、import 規則は [import の検査](architecture.md#import-の検査)に従う。
 
 ## 構成

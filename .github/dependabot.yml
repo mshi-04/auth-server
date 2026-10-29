@@ -13,22 +13,9 @@ updates:
       time: '09:00'
       timezone: Asia/Tokyo
 
-  - package-ecosystem: gomod
-    directory: /
-    target-branch: develop
-    groups:
-      go-modules:
-        patterns: ['*']
-    schedule:
-      interval: weekly
-      day: monday
-      time: '09:00'
-      timezone: Asia/Tokyo
-
   - package-ecosystem: github-actions
     directories:
       - /
-      - /.github/actions/setup-go
       - /.github/actions/setup-node
     target-branch: develop
     groups:

@@ -2,9 +2,7 @@
 
 採用技術と、その理由をまとめる。機能仕様の一覧は [design.md](design.md#文書の正本と読む順序) を参照。プロジェクトのフォルダ名と npm のパッケージ名は `auth-server` とする。依存パッケージのバージョンは、実装後は `package.json` と `package-lock.json` を正本とする。Node のメジャーバージョンは `.nvmrc` を正本とし、`package.json` の `engines.node`（`>=26.11.0 <27`）は対象外の版で動かしていないかの検査に使う。
 
-移行の完了（[移行手順 7](migration.md#step-7)）までは、Go 実装と Go 用の CI が並存する。Go 実装の技術は、この文書の末尾の「Go 実装（移行完了まで）」にまとめる。
-
-本書のパスと構成は移行先の採用方針を示す。現在の配置は [アーキテクチャ](architecture.md#現状と移行先)、起動・ベンチマーク・静的ファイルの参照先を変える段階は [移行手順](migration.md)に従う。
+本書は現在の採用方針を示す。構成と責務は [アーキテクチャ](architecture.md#現状と移行先)、起動・ベンチマークの実行方法は [開発ガイド](development.md#コマンド) を参照する。
 
 ## 言語・実行環境
 
@@ -31,7 +29,7 @@
 | 用途 | 採用 | 理由 |
 |---|---|---|
 | HTTP | 標準 `node:http` の `createServer` と、`routes` のメソッド・パスの対応表。HTTP の入出力は `controllers`、横断的な処理は `middlewares` に置く | ルートが 6 つだけなのでフレームワークは要らない。責務を分けても標準モジュールだけで実現できる |
-| Web 画面 | `public/` の HTML・CSS・JavaScript を起動時にメモリへ読み込んで配信。既存の Go 用 assets を挙動を変えずにコピーする | 画面と API を同じオリジンから配信し、別のビルドツールやフロントエンドの依存を増やさない。移行完了までは Go 側の配信も維持する |
+| Web 画面 | `public/` の HTML・CSS・JavaScript を起動時にメモリへ読み込んで配信 | 画面と API を同じオリジンから配信し、別のビルドツールやフロントエンドの依存を増やさない |
 | パスワードハッシュ | `PasswordProvider` を実装する `Argon2PasswordProvider` が、標準 `node:crypto` の `argon2`（Argon2id）を呼ぶ | RFC 9106 と OWASP が推奨。暗号処理は自前で実装しない。外部パッケージやネイティブのビルドが要らず、サービスを暗号 API から分離できる |
 | ソルト生成 | 標準 `node:crypto` の `randomBytes` | 暗号論的に安全な乱数 |
 | ハッシュ比較 | 標準 `node:crypto` の `timingSafeEqual` | 比較時間から一致箇所を推測されないようにする |
@@ -102,17 +100,3 @@ devDependency は次の 8 つに限る。
 | tsx、ts-node、esbuild などのトランスパイラ | Node の型除去で直接実行できる |
 | Docker、testcontainers | SQLite で DB サーバーが不要になった |
 | JWT ライブラリ | トークン発行はスコープ外 |
-
-## Go 実装（移行完了まで）
-
-移行の完了（[移行手順 7](migration.md#step-7)）で削除する。
-
-| 用途 | 採用 |
-|---|---|
-| 言語 | Go 1.27.2（バージョンは `go.mod` が正本） |
-| HTTP | 標準 `net/http` |
-| パスワードハッシュ・正規化 | `golang.org/x/crypto/argon2`、`golang.org/x/text/unicode/norm` |
-| DB | 標準 `database/sql` と `modernc.org/sqlite` |
-| UUID | `github.com/google/uuid` |
-| ログ | 標準 `log/slog` |
-| CI | Lint（`gofmt`・`go mod tidy -diff`・`go vet`）、Test、Coverage、Race と、Go の CodeQL 解析 |

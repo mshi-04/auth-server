@@ -439,7 +439,6 @@ export default defineConfig(
     ignores: [
       "node_modules/**",
       "coverage/**",
-      "internal/**",
       ".agents/**",
       ".claude/**",
       ".codex/**",
