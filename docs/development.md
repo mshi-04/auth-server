@@ -4,7 +4,7 @@
 
 TypeScript 実装の手順を正本とする。
 
-目標構成と現在の配置は [アーキテクチャ](architecture.md#現状と移行先)、段階的な作業順序は [移行手順](migration.md)を正本とする。
+構成と現在の配置は [アーキテクチャ](architecture.md#現状と移行先)を正本とする。
 
 ## 開発環境
 
@@ -56,7 +56,7 @@ SQLite はファイル 1 つで動作し、別途 DB サーバーを起動する
 
 ## コマンド
 
-WSL 上のリポジトリのルートで実行する。`npm run` の名前は `package.json` の `scripts` に定義する。Windows のブラウザーからの実接続は[移行手順 5](migration.md#step-5)で確認する。
+WSL 上のリポジトリのルートで実行する。`npm run` の名前は `package.json` の `scripts` に定義する。Windows のブラウザーからの実接続は [README](../README.md#web-画面を使う) に従って確認する。
 
 | 目的 | コマンド | 中身 |
 |---|---|---|
@@ -154,7 +154,6 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 | `develop` | 統合先 |
 | `feature/*` | 作業用。`develop` から作り、`develop` へ PR を出す |
 
-- TypeScript への移行は、[移行手順](migration.md)の手順ごとに feature ブランチを分ける。ブランチ名と、前の手順のマージを待ってから次のブランチを作る決まりは [移行手順](migration.md)を正本とする
 - 文書の変更にアプリの実装や設定変更を混ぜない。利用者から指示されていないコミット・push・PR 作成は行わない
 
 ### コミット

@@ -14,7 +14,7 @@
 4. GitHub Actions による CI（型検査、静的検査、整形確認、全テスト、カバレッジレポート、CodeQL による JavaScript/TypeScript のセキュリティ解析）
 5. Dependabot による npm パッケージと GitHub Actions の依存更新
 6. 同じ Node.js サーバーから配信する、登録・ログインを試す日本語の Web 画面
-7. Go 実装から TypeScript 実装への移行（[移行手順](migration.md)）
+7. Go 実装から TypeScript 実装への移行
 
 ### 実装しないもの
 
@@ -22,7 +22,7 @@ JWT・リフレッシュトークン、ペッパー、メール確認、パス�
 
 ## 文書の正本と読む順序
 
-実装前に本書、[アーキテクチャ](architecture.md)、[TypeScript のコーディング方針](typescript-coding-guidelines.md)、[移行手順](migration.md)を読む。続けて担当する機能の仕様と、変更の影響が及ぶ関連契約を確認する。
+実装前に本書、[アーキテクチャ](architecture.md)、[TypeScript のコーディング方針](typescript-coding-guidelines.md)を読む。続けて担当する機能の仕様と、変更の影響が及ぶ関連契約を確認する。
 
 | 文書 | 正本とする内容・読む場面 |
 |---|---|
@@ -30,7 +30,6 @@ JWT・リフレッシュトークン、ペッパー、メール確認、パス�
 | [DB 仕様](specs/database.md) | スキーマ、接続・権限・トランザクション、保存時のエラー |
 | [API・認証・サーバー仕様](specs/api.md) | 入出力、認証手順、ログ、設定、起動・終了、タイムアウト、Web 画面 |
 | [アーキテクチャ](architecture.md) | モジュール構成、責務、依存、内部契約、テストの組み立て方 |
-| [移行手順](migration.md) | 残りの作業順序、段階別ブランチ、移行中の確認事項 |
 | [開発ガイド](development.md) | WSL、コマンド、CI、依存更新、Git の運用 |
 | [テックスタック](tech-stack.md) | 採用技術と使わない技術 |
 | [TypeScript のコーディング方針](typescript-coding-guidelines.md) | 型・実装・エラー処理・テストの書き方 |

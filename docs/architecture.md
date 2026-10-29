@@ -6,8 +6,6 @@
 
 この文書は全体の設計を定める。ハッシュ計算は `src/providers/password/` の `Argon2PasswordProvider` にあり、ID 生成と JSON ログは `src/providers/` の `CryptoIdProvider`・`JsonLoggerProvider` が担当する。SQLite 実装は `src/repositories/sqlite/` の `SqliteUserRepository`、認証サービスは `src/services/auth-service.ts` の `AuthService` にある。HTTP 境界は `schemas`・`middlewares`・`controllers`・`routes`、起動と終了は `src/index.ts` に実装し、`npm start` で起動する。静的画面は `public/` から起動時に読み込む。
 
-移行手順の記録は [移行手順](migration.md)を正本とする。
-
 ## 構成と依存の向き
 
 業務処理の呼び出しは次の向きに統一する。`services` は HTTP・DB・暗号ライブラリを直接呼ばず、Repository と Provider の interface を使う。
@@ -284,4 +282,4 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 
 登録・ログインの応答、ダミー検証、再ハッシュ失敗時の成功、秘密値の非公開は維持する。
 
-各実装段階で型検査・Lint・整形確認・テスト・カバレッジを確認する。ベンチマークは Provider 移行段階で既存の測定範囲を維持して確認し、性能や既定値を変える場合だけ [パスワード仕様の手順](specs/password.md#テストと性能調整)で再測定する。Windows のブラウザーからの実接続確認は [移行手順 5](migration.md#step-5) で行う。
+各実装段階で型検査・Lint・整形確認・テスト・カバレッジを確認する。ベンチマークは Provider 移行段階で既存の測定範囲を維持して確認し、性能や既定値を変える場合だけ [パスワード仕様の手順](specs/password.md#テストと性能調整)で再測定する。Windows のブラウザーからの実接続確認は [README](../README.md#web-画面を使う) に従う。

@@ -13,7 +13,6 @@ AI エージェントがこのリポジトリで作業するときの指示書�
 | [docs/design.md](docs/design.md) | 目的・スコープ・既知の制限・完了条件と文書の入口。実装前に必ず読む |
 | [docs/architecture.md](docs/architecture.md) | モジュール構成、責務、依存の向き、テスト方法の正本。実装前に必ず読む |
 | [docs/typescript-coding-guidelines.md](docs/typescript-coding-guidelines.md) | TypeScript のコーディング方針。実装前に必ず読む。仕様と構成は各仕様書・architecture.md を優先する |
-| [docs/migration.md](docs/migration.md) | 残りの移行手順と段階別ブランチ。実装前に必ず読む |
 | [docs/specs/password.md](docs/specs/password.md) | パスワード仕様の正本。担当領域と関連契約を読む |
 | [docs/specs/database.md](docs/specs/database.md) | DB 仕様の正本。担当領域と関連契約を読む |
 | [docs/specs/api.md](docs/specs/api.md) | API・認証・サーバー仕様の正本。担当領域と関連契約を読む |
@@ -27,7 +26,7 @@ AI エージェントがこのリポジトリで作業するときの指示書�
 - スコープは design.md の「実装するもの」に限る。スコープ外の機能は、頼まれても先に design.md を更新してから着手する
 - 仕様を変えるときは、コードより先に担当仕様書を更新し、design.md の版数も更新する。スコープ変更は design.md に反映する。読む範囲は design.md の「文書の正本と読む順序」に従う
 - 仕様が曖昧な点や仕様書と矛盾する点は、推測で進めずに質問する
-- 実装は [移行手順](docs/migration.md)の順に進め、各段階でテストが通ってから次へ進む
+- [開発ガイド](docs/development.md#レイヤー分離時の設定と検証)に従って、実装後に必要な検証を行う
 
 ## 実行環境の注意
 

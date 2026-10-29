@@ -49,7 +49,7 @@ Go 実装（`golang.org/x/crypto/argon2`）で採用値を決めたときの記�
 
 ## TS 実装時の記録：Node 標準 Argon2id の測定（2026-10-24）
 
-この節は移行前の `src/password/Hasher` を使った測定記録である。[移行手順 2b](migration.md#step-2b) で `Argon2PasswordProvider` へ改名・再配置し、`Hasher.create` は `Argon2PasswordProvider.create` に対応する。移行後の再測定でも、初期化を計測外に置き、飽和時は同じ `Argon2PasswordProvider` インスタンスで 4 件を並列実行する。以下の数値は移行後の再測定結果を示すものではない。
+この節は移行前の `src/password/Hasher` を使った測定記録である。その後 `Argon2PasswordProvider` へ改名・再配置し、`Hasher.create` は `Argon2PasswordProvider.create` に対応する。移行後の再測定でも、初期化を計測外に置き、飽和時は同じ `Argon2PasswordProvider` インスタンスで 4 件を並列実行する。以下の数値は移行後の再測定結果を示すものではない。
 
 環境：WSL Ubuntu 24.04、Node.js 26.12.1、Vitest 5.0.5、linux/x64、Intel Core i7-12700。`UV_THREADPOOL_SIZE` は未設定（既定の 4）。当時の `Password.parse` と `Hasher.create` は計測外に置いた。
 
