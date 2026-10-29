@@ -72,22 +72,31 @@ describe("password values", () => {
 
     const salt = Buffer.alloc(16, 1);
     const key = Buffer.alloc(32, 2);
-    const hash = createHash(
-      { memoryKiB: 64, iterations: 1, parallelism: 1 },
-      salt,
-      key,
-    );
+    const cost = { memoryKiB: 64, iterations: 1, parallelism: 1 };
+    const hash = createHash(cost, salt, key);
+    cost.memoryKiB = 128;
     salt.fill(9);
     key.fill(8);
 
     const firstRead = readHash(hash);
+    expect(firstRead.cost).toEqual({
+      memoryKiB: 64,
+      iterations: 1,
+      parallelism: 1,
+    });
     expect(firstRead.salt.equals(Buffer.alloc(16, 1))).toBe(true);
     expect(firstRead.key.equals(Buffer.alloc(32, 2))).toBe(true);
 
+    Object.assign(firstRead.cost, { memoryKiB: 256 });
     firstRead.salt.fill(7);
     firstRead.key.fill(6);
 
     const secondRead = readHash(hash);
+    expect(secondRead.cost).toEqual({
+      memoryKiB: 64,
+      iterations: 1,
+      parallelism: 1,
+    });
     expect(secondRead.salt.equals(Buffer.alloc(16, 1))).toBe(true);
     expect(secondRead.key.equals(Buffer.alloc(32, 2))).toBe(true);
   });
