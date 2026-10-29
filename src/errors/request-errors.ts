@@ -1,5 +1,5 @@
 export class BadRequestError extends Error {
-  override name = "BadRequestError";
+  override readonly name = "BadRequestError";
   readonly kind: "invalid-input" | "read-failed";
 
   constructor(
@@ -12,7 +12,7 @@ export class BadRequestError extends Error {
 }
 
 export class PayloadTooLargeError extends Error {
-  override name = "PayloadTooLargeError";
+  override readonly name = "PayloadTooLargeError";
 
   constructor(message = "Request body too large.", options?: ErrorOptions) {
     super(message, options);
@@ -20,7 +20,7 @@ export class PayloadTooLargeError extends Error {
 }
 
 export class NotFoundError extends Error {
-  override name = "NotFoundError";
+  override readonly name = "NotFoundError";
 
   constructor(message = "Resource not found.", options?: ErrorOptions) {
     super(message, options);
@@ -28,7 +28,7 @@ export class NotFoundError extends Error {
 }
 
 export class MethodNotAllowedError extends Error {
-  override name = "MethodNotAllowedError";
+  override readonly name = "MethodNotAllowedError";
   readonly allowedMethods: readonly string[];
 
   constructor(allowedMethods: readonly string[], options?: ErrorOptions) {

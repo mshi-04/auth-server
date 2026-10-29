@@ -8,7 +8,7 @@ type LogOutput = {
 type Level = "info" | "warn" | "error";
 type JsonValue =
   string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-type Budget = { ancestors: WeakSet<object>; remaining: number };
+type Budget = { readonly ancestors: WeakSet<object>; remaining: number };
 
 const unsupported = "[Unserializable]";
 const circular = "[Circular]";
@@ -158,7 +158,7 @@ function attributeEntries(
 }
 
 export class JsonLoggerProvider implements LoggerProvider {
-  #output: LogOutput;
+  readonly #output: LogOutput;
 
   private constructor(output: LogOutput) {
     this.#output = output;

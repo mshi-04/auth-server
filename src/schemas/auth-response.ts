@@ -1,3 +1,3 @@
 export interface UserIdResponse {
-  user_id: string;
+  readonly user_id: string;
 }

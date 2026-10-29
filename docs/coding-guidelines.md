@@ -5,7 +5,7 @@
 
 本書の「する」「しない」は必須規約とし、例外は明記した範囲だけに認める。本番コードを主な対象とし、TypeScript のテスト・ベンチマーク・CI スクリプト・設定ファイルにも型安全性・Promise・後始末の規則を適用する。テスト固有の例外は「テスト」と「検査と整形」に定める。
 
-今回追加・強化する規約は、今後の新規・変更コードに適用する。既存コードの一括改修と検査設定の変更は別作業とし、現時点ですべてのコードが適合済みとは扱わない。現在有効な検査と導入予定は「検査と整形」で区別する。配置は [アーキテクチャの現状と移行先](architecture.md#現状と移行先)、import 規則は [import の検査](architecture.md#import-の検査)に従う。
+配置は [アーキテクチャの現状と移行先](architecture.md#現状と移行先)、import 規則は [import の検査](architecture.md#import-の検査)、有効な検査設定と適用範囲は「[現在の検査設定](#現在の検査設定)」に従う。
 
 ## 構成
 
@@ -23,7 +23,7 @@
 
 ## 型
 
-- `tsconfig.json` の `strict`・`noUncheckedIndexedAccess`・`exactOptionalPropertyTypes` を有効にする
+- `tsconfig.json` の `strict`・`noImplicitReturns`・`noFallthroughCasesInSwitch`・`noUncheckedIndexedAccess`・`exactOptionalPropertyTypes` を有効にする
 - `any`、型アサーション（`as`。`as const` も含む）、非 null アサーション（`!`）を使わない。外から来た値は `unknown` で受け取り、検査して型を絞る。型を合わせたいときは、型注釈か `satisfies` を使う。ESLint の `no-explicit-any`・`no-unsafe-*`・`consistent-type-assertions`（`assertionStyle: 'never'`）・`no-non-null-assertion`・`no-restricted-syntax` で検査する
 - `@ts-ignore`・`@ts-nocheck`・`@ts-expect-error` を使わない。テストにも例外を設けず、型が合わない場合は入力の検証か型定義を直す。型検査を有効にする `@ts-check` は禁止しない
 - 本番コードの入力・結果・DTO と、生成後に変更しないモデルのプロパティは `readonly` にする。設定入力の `Params` は「値オブジェクト」に定める例外とする。公開する型の変更時は architecture.md の契約も確認する
@@ -46,7 +46,7 @@
 - 契約として `Promise` を返すが中身が同期の処理（`SqliteUserRepository` のメソッド）は、`async` を付けずに書く。`await` の無い `async` 関数は `require-await` に指摘される。同期の処理を `try` で囲み、成功は `Promise.resolve`、失敗は変換したエラーを `Promise.reject` で返す。呼び出し元へ同期的に例外を投げない
 - 後始末は `try`・`finally` で書く。トランザクションは `BEGIN IMMEDIATE` の成功を確かめた後に `try` を始め、`COMMIT` まで進まなければ `ROLLBACK` する。返す Promise の失敗をその場で捕捉する場合や、処理の完了まで資源を保持する場合は `return await` を使う。待機を省いて `finally` の資源解放を先に実行しない（[return-await の根拠](https://typescript-eslint.io/rules/return-await/)）
 - 中断の `signal: AbortSignal` は最後の引数で受け取り、下の層（DB 呼び出し、`hash`、`verify`）までそのまま渡す。クラスのフィールドに保存しない
-- 作った `Promise` は `await` するか、呼び出し元へ `return` して責任を渡すか、終端の `catch` で失敗を処理する。空の処理で失敗を握りつぶさない。`void` を付けるだけでは失敗を処理したことにならない（[no-floating-promises の根拠](https://typescript-eslint.io/rules/no-floating-promises/#ignorevoid)）。条件式に `Promise` を渡さない（`if (passwordProvider.verify(...))` は常に真になる）。現在の検査の限界と強化予定は「検査と整形」に定める
+- 作った `Promise` は `await` するか、呼び出し元へ `return` して責任を渡すか、終端の `catch` で失敗を処理する。空の処理で失敗を握りつぶさない。`void` を付けるだけでは失敗を処理したことにならない（[no-floating-promises の根拠](https://typescript-eslint.io/rules/no-floating-promises/#ignorevoid)）。条件式に `Promise` を渡さない（`if (passwordProvider.verify(...))` は常に真になる）。検査設定は「[現在の検査設定](#現在の検査設定)」に定める
 
 ## 値オブジェクト
 
@@ -119,22 +119,22 @@
 - ESLint の指摘はコードを直して解消し、本番コードで抑制しない。例外は `*.test.ts` で、規則が禁止する書き方自体を試す必要がある場合だけとする。例として、秘密値をテンプレートリテラルへ埋め込んでも伏字になることを確かめるテストがある。この例外で `any`・型アサーション・TypeScript の抑制禁止を回避しない
 - 例外には対象行だけの `eslint-disable-next-line` を使い、規則名と検証のために必要な理由を同じ行に書く。ファイル全体・範囲全体の抑制、規則名や理由の省略を認めない
 
-### 現在の検査と導入予定
+### 現在の検査設定
 
-現在は `strict`・`noUncheckedIndexedAccess`・`exactOptionalPropertyTypes`、`strictTypeChecked` と個別設定により、型の安全性、Promise の扱い、union の分岐漏れ、依存の向きを検査している。`@typescript-eslint/return-await` の `error-handling-correctness-only` も有効である。
+`tsconfig.json` の `strict`・`noImplicitReturns`・`noFallthroughCasesInSwitch`・`noUncheckedIndexedAccess`・`exactOptionalPropertyTypes` と、`eslint.config.js` の `strictTypeChecked` および個別設定により、型の安全性、Promise の扱い、union の分岐漏れ、依存の向きを検査している。`@typescript-eslint/return-await` の `error-handling-correctness-only` も有効である。
 
-次の追加・強化は後続の実装で行う。文書更新だけでは設定は変わらないため、現時点では規約への適合をレビューでも確認する。導入する ESLint 規則の重大度はすべて `error` とする。
+各規則の設定と適用範囲は次のとおりとする。ESLint 規則の重大度はすべて `error` とする。
 
-| 検査 | 現在 | 導入する設定・適用範囲 |
-|---|---|---|
-| `no-else-return` | 未設定 | `allowElseIf: false`。検査対象の TypeScript に適用する。`throw` 後の不要な分岐や、必要な処理の順序はレビューでも確認する |
-| `@typescript-eslint/prefer-readonly` | 未設定 | 本番 TypeScript に適用し、コンストラクタ以外で変更しない private フィールドを `readonly` にする。DTO のプロパティや参照先の不変性はレビューで確認する |
-| `@typescript-eslint/explicit-module-boundary-types` | 未設定 | 本番 TypeScript の公開関数・公開メソッドに適用する。テスト・ベンチマークのヘルパーには要求しない |
-| `@typescript-eslint/strict-boolean-expressions` | 未設定 | `allowString`・`allowNumber`・`allowNullableObject` は `false`。ほかの非 boolean を許可するオプションも既定の `false` を維持し、検査対象の TypeScript に適用する |
-| `noImplicitReturns`・`noFallthroughCasesInSwitch` | 未設定 | 両方を `true` とし、`tsconfig.json` の検査対象に適用する |
-| `@typescript-eslint/no-floating-promises` | 有効だが、既定の `ignoreVoid: true` により `void` 付きの放置を検出しない | `ignoreVoid: false` に強化し、型情報を使う検査対象の TypeScript に適用する |
-| `@typescript-eslint/ban-ts-comment` | `@ts-ignore`・`@ts-nocheck` は禁止、理由付きの `@ts-expect-error` は許可 | `ts-ignore`・`ts-nocheck`・`ts-expect-error` をすべて `true`（禁止）にし、テストを含む検査対象の TypeScript に適用する |
-| `linterOptions.reportUnusedDisableDirectives` | 既定では警告 | `error` にし、不要になった ESLint の抑制を残さない |
+| 検査 | 設定・適用範囲 |
+|---|---|
+| `no-else-return` | `allowElseIf: false`。検査対象の TypeScript に適用する。`throw` 後の不要な分岐や、必要な処理の順序はレビューでも確認する |
+| `@typescript-eslint/prefer-readonly` | 本番 TypeScript に適用し、コンストラクタ以外で変更しない private フィールドを `readonly` にする。DTO のプロパティや参照先の不変性はレビューで確認する |
+| `@typescript-eslint/explicit-module-boundary-types` | 本番 TypeScript の公開関数・公開メソッドに適用する。テスト・ベンチマークのヘルパーには要求しない |
+| `@typescript-eslint/strict-boolean-expressions` | `allowString`・`allowNumber`・`allowNullableObject` は `false`。ほかの非 boolean を許可するオプションも既定の `false` を維持し、検査対象の TypeScript に適用する |
+| `noImplicitReturns`・`noFallthroughCasesInSwitch` | 両方を `true` とし、`tsconfig.json` の検査対象に適用する |
+| `@typescript-eslint/no-floating-promises` | `ignoreVoid: false` とし、型情報を使う検査対象の TypeScript で `void` 付きの放置も検出する |
+| `@typescript-eslint/ban-ts-comment` | `ts-ignore`・`ts-nocheck`・`ts-expect-error` をすべて `true`（禁止）にし、テストを含む検査対象の TypeScript に適用する |
+| `linterOptions.reportUnusedDisableDirectives` | `error` にし、不要になった ESLint の抑制を残さない |
 
 上表の「本番 TypeScript」は `src/` のうち `*.test.ts`・`*.bench.ts` を除いたコードを指す。実際の検査対象は [開発ガイド](development.md#コマンド)に従う。関数分割・命名、値オブジェクトが保証する条件、入力・結果の `readonly`、可変な参照の所有権、テスト用の抑制理由は自動検査だけでは保証できないため、レビューで確認する。
 

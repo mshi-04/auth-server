@@ -4,6 +4,8 @@
     "module": "nodenext",
     "noEmit": true,
     "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "erasableSyntaxOnly": true,

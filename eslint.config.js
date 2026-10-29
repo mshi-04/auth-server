@@ -80,23 +80,31 @@ function importedName(specifier) {
   );
 }
 
-function namedAccess(node, names, typeOnly = false) {
+function isNamedAccess(node, names) {
   return (
     (node.specifiers?.length ?? 0) > 0 &&
     node.specifiers.every(
       (specifier) =>
         ["ImportSpecifier", "ExportSpecifier"].includes(specifier.type) &&
-        names.includes(importedName(specifier)) &&
-        (!typeOnly ||
-          node.importKind === "type" ||
-          node.exportKind === "type" ||
-          specifier.importKind === "type" ||
-          specifier.exportKind === "type"),
+        names.includes(importedName(specifier)),
     )
   );
 }
 
-function implementationModule(module) {
+function isTypeOnlyNamedAccess(node, names) {
+  return (
+    isNamedAccess(node, names) &&
+    node.specifiers.every(
+      (specifier) =>
+        node.importKind === "type" ||
+        node.exportKind === "type" ||
+        specifier.importKind === "type" ||
+        specifier.exportKind === "type",
+    )
+  );
+}
+
+function isImplementationModule(module) {
   return implementationModules.includes(module);
 }
 
@@ -162,9 +170,9 @@ const projectPlugin = {
           }
           if (
             (filename === "providers/index.ts" &&
-              !namedAccess(node, providerInterfaces, true)) ||
+              !isTypeOnlyNamedAccess(node, providerInterfaces)) ||
             (filename === "repositories/index.ts" &&
-              !namedAccess(node, ["UserRepository"], true))
+              !isTypeOnlyNamedAccess(node, ["UserRepository"]))
           ) {
             reject();
             return;
@@ -227,13 +235,13 @@ const projectPlugin = {
               filename === "models/index.ts" ||
               (filename.startsWith("models/password/") && !secretCaller)
             ) {
-              if (!namedAccess(node, ["Password", "EncodedHash"])) {
+              if (!isNamedAccess(node, ["Password", "EncodedHash"])) {
                 reject();
               }
               return;
             }
             if (secretCaller) {
-              if (!namedAccess(node, modelSecretFunctions)) {
+              if (!isNamedAccess(node, modelSecretFunctions)) {
                 reject();
                 return;
               }
@@ -251,8 +259,8 @@ const projectPlugin = {
             if (
               target !== "models/password/hash-parameters.ts" ||
               !(
-                namedAccess(node, ["Params", "Cost"], true) ||
-                namedAccess(node, ["validateParams"])
+                isTypeOnlyNamedAccess(node, ["Params", "Cost"]) ||
+                isNamedAccess(node, ["validateParams"])
               )
             ) {
               reject();
@@ -264,7 +272,7 @@ const projectPlugin = {
             serviceIntegrationTests.includes(filename) &&
             targetModule === "providers/password";
           if (
-            implementationModule(targetModule) &&
+            isImplementationModule(targetModule) &&
             !composition &&
             module !== targetModule &&
             !serviceIntegration
@@ -285,14 +293,14 @@ const projectPlugin = {
           if (target === "providers/index.ts") {
             const allowed =
               layer === "middlewares" ? ["LoggerProvider"] : providerInterfaces;
-            if (!namedAccess(node, allowed, true)) {
+            if (!isTypeOnlyNamedAccess(node, allowed)) {
               reject();
               return;
             }
           }
           if (
             target === "repositories/index.ts" &&
-            !namedAccess(node, ["UserRepository"], true)
+            !isTypeOnlyNamedAccess(node, ["UserRepository"])
           ) {
             reject();
             return;
@@ -455,6 +463,9 @@ export default defineConfig(
       "eslint.config.js",
     ],
     extends: [js.configs.recommended, tseslint.configs.strictTypeChecked],
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+    },
     languageOptions: {
       parserOptions: {
         projectService: true,
@@ -462,11 +473,32 @@ export default defineConfig(
       },
     },
     rules: {
+      "no-else-return": ["error", { allowElseIf: false }],
+      "@typescript-eslint/ban-ts-comment": [
+        "error",
+        {
+          "ts-ignore": true,
+          "ts-nocheck": true,
+          "ts-expect-error": true,
+        },
+      ],
       "@typescript-eslint/consistent-type-assertions": [
         "error",
         { assertionStyle: "never" },
       ],
       "@typescript-eslint/consistent-type-imports": "error",
+      "@typescript-eslint/no-floating-promises": [
+        "error",
+        { ignoreVoid: false },
+      ],
+      "@typescript-eslint/strict-boolean-expressions": [
+        "error",
+        {
+          allowString: false,
+          allowNumber: false,
+          allowNullableObject: false,
+        },
+      ],
       "@typescript-eslint/switch-exhaustiveness-check": "error",
       "no-restricted-syntax": ["error", ...forbiddenSyntax],
       "no-restricted-properties": ["error", ...forbiddenProperties],
@@ -480,6 +512,9 @@ export default defineConfig(
   {
     files: [".github/scripts/**/*.cjs"],
     extends: [js.configs.recommended],
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+    },
     languageOptions: {
       sourceType: "commonjs",
       globals: {
@@ -493,6 +528,8 @@ export default defineConfig(
     files: ["src/**/*.ts"],
     ignores: ["src/**/*.test.ts", "src/**/*.bench.ts"],
     rules: {
+      "@typescript-eslint/explicit-module-boundary-types": "error",
+      "@typescript-eslint/prefer-readonly": "error",
       "no-restricted-syntax": [
         "error",
         ...forbiddenSyntax,

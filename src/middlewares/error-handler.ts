@@ -16,10 +16,10 @@ import type { RequestContext } from "../models/index.ts";
 import type { LoggerProvider } from "../providers/index.ts";
 
 interface Problem {
-  status: number;
-  detail: string;
-  allowedMethods?: readonly string[];
-  closeConnection?: boolean;
+  readonly status: number;
+  readonly detail: string;
+  readonly allowedMethods?: readonly string[];
+  readonly closeConnection?: boolean;
 }
 
 function classify(error: unknown): Problem | undefined {

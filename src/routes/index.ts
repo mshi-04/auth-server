@@ -7,8 +7,8 @@ import { healthRoutes } from "./health-routes.ts";
 import { webRoutes } from "./web-routes.ts";
 
 export interface Route {
-  path: string;
-  methods: readonly string[];
+  readonly path: string;
+  readonly methods: readonly string[];
   handle(
     req: IncomingMessage,
     res: ServerResponse,
@@ -28,7 +28,11 @@ function requestPath(target: string | undefined): string | undefined {
 export function createRoutes(
   authController: AuthController,
   webController: WebController,
-) {
+): (
+  req: IncomingMessage,
+  res: ServerResponse,
+  context: RequestContext,
+) => Promise<void> {
   const routes = [
     ...authRoutes(authController),
     ...healthRoutes(),

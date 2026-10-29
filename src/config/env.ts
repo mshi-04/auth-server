@@ -2,9 +2,13 @@ import { lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { ConfigError } from "../errors/index.ts";
 
+const defaultPort = 8080;
+const minPort = 1;
+const maxPort = 65535;
+
 export type Config = {
-  databasePath: string;
-  port: number;
+  readonly databasePath: string;
+  readonly port: number;
 };
 
 function hasCode(error: unknown, code: string): boolean {
@@ -71,11 +75,11 @@ function parseDatabasePath(raw: string | undefined): string {
 
 function parsePort(raw: string | undefined): number {
   if (raw === undefined || raw === "") {
-    return 8080;
+    return defaultPort;
   }
 
   const port = Number(raw);
-  if (/[^0-9]/u.test(raw) || port < 1 || port > 65535) {
+  if (/[^0-9]/u.test(raw) || port < minPort || port > maxPort) {
     throw new ConfigError("PORT must be decimal digits between 1 and 65535.");
   }
   return port;

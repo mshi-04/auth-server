@@ -4,7 +4,7 @@ import type { CredentialsRequest, UserIdResponse } from "../schemas/index.ts";
 import type { AuthService } from "../services/index.ts";
 
 export class AuthController {
-  #service: AuthService;
+  readonly #service: AuthService;
 
   private constructor(service: AuthService) {
     this.#service = service;

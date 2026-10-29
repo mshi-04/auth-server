@@ -2,20 +2,24 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { RequestContext } from "../models/index.ts";
 
 export interface WebAssets {
-  html: Buffer;
-  css: Buffer;
-  js: Buffer;
+  readonly html: Buffer;
+  readonly css: Buffer;
+  readonly js: Buffer;
 }
 
 export class WebController {
-  #assets: WebAssets;
+  readonly #assets: WebAssets;
 
   private constructor(assets: WebAssets) {
     this.#assets = assets;
   }
 
   static create(assets: WebAssets): WebController {
-    return new WebController(assets);
+    return new WebController({
+      html: Buffer.from(assets.html),
+      css: Buffer.from(assets.css),
+      js: Buffer.from(assets.js),
+    });
   }
 
   index(

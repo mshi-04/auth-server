@@ -2,7 +2,7 @@ import { format, inspect } from "node:util";
 import { describe, expect, it } from "vitest";
 import { PolicyViolationError } from "../../errors/index.ts";
 import { EncodedHash, Password } from "../index.ts";
-import { createHash } from "./values.ts";
+import { createHash, readHash, readPassword } from "./values.ts";
 
 describe("password values", () => {
   it.each([
@@ -64,5 +64,31 @@ describe("password values", () => {
       expect(inspect({ encoded })).not.toContain(encoded.phc());
     }
     expect(inspect({ password })).not.toContain(raw);
+  });
+
+  it("isolates internal state from external mutations", () => {
+    const password = Password.parse("correct horse battery staple");
+    expect(readPassword(password)).not.toBe(readPassword(password));
+
+    const salt = Buffer.alloc(16, 1);
+    const key = Buffer.alloc(32, 2);
+    const hash = createHash(
+      { memoryKiB: 64, iterations: 1, parallelism: 1 },
+      salt,
+      key,
+    );
+    salt.fill(9);
+    key.fill(8);
+
+    const firstRead = readHash(hash);
+    expect(firstRead.salt.equals(Buffer.alloc(16, 1))).toBe(true);
+    expect(firstRead.key.equals(Buffer.alloc(32, 2))).toBe(true);
+
+    firstRead.salt.fill(7);
+    firstRead.key.fill(6);
+
+    const secondRead = readHash(hash);
+    expect(secondRead.salt.equals(Buffer.alloc(16, 1))).toBe(true);
+    expect(secondRead.key.equals(Buffer.alloc(32, 2))).toBe(true);
   });
 });

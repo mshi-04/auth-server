@@ -17,9 +17,11 @@ import type { PasswordProvider } from "../index.ts";
 import { deriveKey } from "./derive.ts";
 import { abortedError, Semaphore } from "./semaphore.ts";
 
+const minPasswordCodePoints = 12;
+
 export class Argon2PasswordProvider implements PasswordProvider {
-  #params: Params;
-  #slots: Semaphore;
+  readonly #params: Params;
+  readonly #slots: Semaphore;
 
   private constructor(params: Params) {
     this.#params = params;
@@ -33,7 +35,7 @@ export class Argon2PasswordProvider implements PasswordProvider {
   }
 
   async hash(password: Password, signal: AbortSignal): Promise<EncodedHash> {
-    if (readPassword(password).length < 12) {
+    if (readPassword(password).length < minPasswordCodePoints) {
       throw new PolicyViolationError();
     }
     return this.#generate(password, signal);

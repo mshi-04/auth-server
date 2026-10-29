@@ -351,6 +351,11 @@ describe("HTTP routes", () => {
         response.headers["content-length"],
       );
       expectSecurity(head);
+
+      const original = bytes.toString("utf8");
+      bytes.fill(0x78);
+      const afterMutation = await fixture.send(path);
+      expect(afterMutation.body).toBe(original);
     },
   );
 
@@ -636,7 +641,10 @@ describe("HTTP routes", () => {
         if (stored === undefined) {
           throw new Error("Expected registered user.");
         }
-        stored.passwordHash = "invalid-phc";
+        fixture.repository.users[0] = {
+          ...stored,
+          passwordHash: "invalid-phc",
+        };
       }
       const response = await fixture.post("/v1/sessions", {
         ...validInput,

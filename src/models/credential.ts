@@ -1,4 +1,4 @@
 export type Credential = {
-  userId: string;
-  passwordHash: string;
+  readonly userId: string;
+  readonly passwordHash: string;
 };

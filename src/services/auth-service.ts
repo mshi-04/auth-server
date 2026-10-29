@@ -35,11 +35,11 @@ function isAbortedBySignal(error: unknown, signal: AbortSignal): boolean {
 }
 
 export class AuthService {
-  #repository: UserRepository;
-  #passwordProvider: PasswordProvider;
-  #idProvider: IdProvider;
-  #logger: LoggerProvider;
-  #dummyHash: EncodedHash;
+  readonly #repository: UserRepository;
+  readonly #passwordProvider: PasswordProvider;
+  readonly #idProvider: IdProvider;
+  readonly #logger: LoggerProvider;
+  readonly #dummyHash: EncodedHash;
 
   private constructor(
     repository: UserRepository,

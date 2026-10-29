@@ -1,8 +1,20 @@
 import { InvalidHashError } from "../../errors/index.ts";
-import { inRange, validCost } from "./hash-parameters.ts";
+import { isInRange, isValidCost } from "./hash-parameters.ts";
 import type { Cost } from "./hash-parameters.ts";
 
-export type DecodedHash = { cost: Cost; salt: Buffer; key: Buffer };
+const bitsPerByte = 8;
+const bitsPerBase64Char = 6;
+const costFieldCount = 3;
+const minStoredSaltBytes = 8;
+const maxSaltBytes = 64;
+const minKeyBytes = 4;
+const maxKeyBytes = 64;
+
+export type DecodedHash = {
+  readonly cost: Cost;
+  readonly salt: Buffer;
+  readonly key: Buffer;
+};
 
 export function encodeBase64(bytes: Buffer): string {
   return bytes.toString("base64").replace(/=+$/, "");
@@ -15,15 +27,15 @@ export function encodeHash(decoded: DecodedHash): string {
 
 function decodePart(encoded: string, minimum: number, maximum: number): Buffer {
   if (
-    encoded.length < Math.ceil((minimum * 8) / 6) ||
-    encoded.length > Math.ceil((maximum * 8) / 6) ||
+    encoded.length < Math.ceil((minimum * bitsPerByte) / bitsPerBase64Char) ||
+    encoded.length > Math.ceil((maximum * bitsPerByte) / bitsPerBase64Char) ||
     /[^A-Za-z0-9+/]/.test(encoded)
   ) {
     throw new InvalidHashError();
   }
   const decoded = Buffer.from(encoded, "base64");
   if (
-    !inRange(decoded.length, minimum, maximum) ||
+    !isInRange(decoded.length, minimum, maximum) ||
     encodeBase64(decoded) !== encoded
   ) {
     throw new InvalidHashError();
@@ -34,7 +46,7 @@ function decodePart(encoded: string, minimum: number, maximum: number): Buffer {
 function parseCost(encoded: string): Cost {
   const fields = encoded.split(",");
   const values = new Map<string, number>();
-  if (fields.length !== 3) {
+  if (fields.length !== costFieldCount) {
     throw new InvalidHashError();
   }
   for (const field of fields) {
@@ -62,7 +74,7 @@ function parseCost(encoded: string): Cost {
     throw new InvalidHashError();
   }
   const cost = { memoryKiB, iterations, parallelism };
-  if (!validCost(cost)) {
+  if (!isValidCost(cost)) {
     throw new InvalidHashError();
   }
   return cost;
@@ -84,7 +96,7 @@ export function parseHash(encoded: string): DecodedHash {
   }
   return {
     cost: parseCost(cost),
-    salt: decodePart(salt, 8, 64),
-    key: decodePart(key, 4, 64),
+    salt: decodePart(salt, minStoredSaltBytes, maxSaltBytes),
+    key: decodePart(key, minKeyBytes, maxKeyBytes),
   };
 }
