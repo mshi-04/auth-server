@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { findError, isCausedBy } from "./find-error.ts";
+import { causeChain, findError, isCausedBy } from "./find-error.ts";
 
 class ExpectedError extends Error {
   override name = "ExpectedError";
@@ -162,5 +162,20 @@ describe("isCausedBy", () => {
     first.cause = second;
 
     expect(isCausedBy(first, new Error("reason"))).toBe(false);
+  });
+});
+
+describe("causeChain", () => {
+  it("yields each error from the outermost and stops at a cycle", () => {
+    const inner = new Error("inner");
+    const middle = new Error("middle", { cause: inner });
+    const outer = new Error("outer", { cause: middle });
+    inner.cause = middle;
+    expect([...causeChain(outer)]).toEqual([outer, middle, inner]);
+  });
+
+  it("yields a non-Error value once without following it", () => {
+    expect([...causeChain("reason")]).toEqual(["reason"]);
+    expect([...causeChain(undefined)]).toEqual([]);
   });
 });
