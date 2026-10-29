@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>auth-server | パスワード認証を試す</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <a class="brand" href="/" aria-label="auth-server ホーム"><span class="brand-mark" aria-hidden="true">a</span>auth-server<span class="tag">学習用</span></a>
+      <div class="connection">
+        <span class="connection-label" id="connection-status" role="status" data-state="checking">接続を確認中</span>
+        <button class="text-button" id="check-connection" type="button" disabled>再確認</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="intro" aria-labelledby="intro-title">
+        <p class="eyebrow">PASSWORD AUTHENTICATION</p>
+        <h1 id="intro-title">パスワード認証を、<br>ブラウザで試す。</h1>
+        <p class="intro-copy">ユーザーを登録して、ログインする。<br>パスワードを安全に保存する仕組みを、<br class="desktop-break">小さな認証 API で学びます。</p>
+        <div class="journey" role="group" aria-label="試し方">
+          <div><span class="step">01</span><div><h2>ユーザーを登録</h2><p>メールアドレスとパスワードを入力。</p></div></div>
+          <div><span class="step">02</span><div><h2>同じ情報でログイン</h2><p>登録したユーザーと照合します。</p></div></div>
+        </div>
+        <p class="storage-note"><span class="note-mark" aria-hidden="true">✓</span>パスワードは Argon2id でハッシュ化して保存。</p>
+      </section>
+
+      <section class="auth-card" aria-labelledby="form-title">
+        <div class="mode-switch" role="group" aria-label="操作の選択">
+          <button id="login-mode" type="button" aria-pressed="true" disabled>ログイン</button>
+          <button id="register-mode" type="button" aria-pressed="false" disabled>ユーザー登録</button>
+        </div>
+        <div class="card-heading">
+          <p class="eyebrow" id="form-eyebrow">WELCOME BACK</p>
+          <h2 id="form-title">ログインを試す</h2>
+          <p id="form-description">登録したメールアドレスとパスワードを入力してください。</p>
+        </div>
+
+        <noscript><p class="noscript-message">この画面を使うには、ブラウザの JavaScript を有効にしてください。</p></noscript>
+        <form id="auth-form" novalidate hidden>
+          <div class="field">
+            <label for="email">メールアドレス</label>
+            <input id="email" name="email" type="text" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="you@example.com">
+          </div>
+          <div class="field">
+            <label for="password">パスワード</label>
+            <div class="password-field">
+              <input id="password" name="password" type="password" autocomplete="current-password" aria-describedby="password-help">
+              <button id="toggle-password" class="visibility-button" type="button" aria-pressed="false" aria-label="パスワードを表示">表示</button>
+            </div>
+            <p class="field-help" id="password-help">登録時に使ったパスワードを入力してください。</p>
+          </div>
+          <button id="submit-button" class="primary-button" type="submit"><span id="submit-label">ログインする</span><span aria-hidden="true">→</span></button>
+        </form>
+
+        <div id="result" class="result" role="status" aria-live="polite" aria-atomic="true">
+          <p class="result-title" id="result-title"></p>
+          <p id="result-message"></p>
+          <div class="user-id" id="user-id-row" hidden><span>ユーザー ID</span><code id="user-id"></code></div>
+        </div>
+        <p class="session-note">ログインは照合の確認だけを行います。<br>ログイン状態は保持されません。</p>
+      </section>
+    </main>
+
+    <footer class="footer"><span>学習用の認証 API · 本番利用には適していません</span><span>TypeScript + Argon2id + SQLite</span></footer>
+  </div>
+</body>
+</html>

@@ -9,9 +9,6 @@ on:
 permissions:
   contents: read
 
-env:
-  CGO_ENABLED: '0'
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -27,22 +24,20 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
 
       - name: Check formatting
-        run: |
-          unformatted=$(gofmt -l .)
-          if [ -n "$unformatted" ]; then
-            printf '%s\n' "$unformatted"
-            exit 1
-          fi
-
-      - name: Check go.mod tidiness
-        run: go mod tidy -diff
-
-      - name: Vet
-        run: go vet ./...
+        run: npm run format:check
 
   test:
     name: Test
@@ -54,11 +49,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Test
-        run: go test -count=1 ./...
+        run: npm test
 
   coverage:
     name: Coverage
@@ -73,33 +71,28 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Test with coverage
         id: coverage_test
-        run: |
-          mkdir -p coverage
-          go test -count=1 -covermode=atomic -coverpkg=./... -coverprofile=coverage/coverage.out ./...
+        run: npm run coverage
 
-      - name: Create coverage reports
+      - name: Create coverage summary
         id: coverage_reports
-        shell: bash
-        run: |
-          go tool cover -func=coverage/coverage.out | tee coverage/coverage.txt
-          go tool cover -html=coverage/coverage.out -o coverage/coverage.html
-          printf '%s\n' '## Coverage' '' '```text' \
-            "$(tail -n1 coverage/coverage.txt)" '```' >> "$GITHUB_STEP_SUMMARY"
+        env:
+          COVERAGE_LANGUAGE: typescript
+        run: node .github/scripts/coverage-comment.cjs
 
       - name: Upload coverage reports
         id: coverage_artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-report
-          path: |
-            coverage/coverage.out
-            coverage/coverage.txt
-            coverage/coverage.html
+          path: coverage/
           if-no-files-found: error
           retention-days: 14
           overwrite: true
@@ -111,87 +104,11 @@ jobs:
               github.actor != 'dependabot[bot]' }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          COVERAGE_LANGUAGE: typescript
           COVERAGE_TEST_OUTCOME: ${{ steps.coverage_test.outcome }}
           COVERAGE_REPORT_OUTCOME: ${{ steps.coverage_reports.outcome }}
           COVERAGE_ARTIFACT_URL: ${{ steps.coverage_artifact.outputs.artifact-url }}
         with:
           script: |
-            const fs = require('node:fs');
-            const marker = '<!-- auth-server-coverage -->';
-            const pr = context.payload.pull_request;
-            const runNumber = context.runNumber;
-            const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
-            const runURL = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}/attempts/${attempt}`;
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              ...context.repo, issue_number: pr.number, per_page: 100,
-            });
-            const comment = comments.find(c =>
-              c.user?.login === 'github-actions[bot]' && c.body?.startsWith(marker));
-            const previous = comment?.body.match(/<!-- auth-server-coverage-run:(\d+):(\d+) -->/);
-            if (previous && (Number(previous[1]) > runNumber ||
-                (Number(previous[1]) === runNumber && Number(previous[2]) > attempt))) {
-              core.info('A newer coverage run has already updated the comment.');
-              return;
-            }
-
-            let result = 'カバレッジを計測できませんでした。実行ログを確認してください。';
-            if (process.env.COVERAGE_TEST_OUTCOME === 'success' &&
-                process.env.COVERAGE_REPORT_OUTCOME === 'success') {
-              try {
-                const report = fs.readFileSync('coverage/coverage.txt', 'utf8').trim();
-                const total = report.match(/^total:\s+\(statements\)\s+(\d+(?:\.\d+)?)%\s*$/m);
-                if (!total || Number(total[1]) > 100) {
-                  throw new Error('Invalid coverage total');
-                }
-                const details = report.length > 48000
-                  ? `${report.slice(0, 48000)}\n...（全文は artifact を参照）`
-                  : report;
-                const fence = '`'.repeat(Math.max(3, ...(report.match(/`+/g) ?? []).map(s => s.length + 1)));
-                result = `合計カバレッジ: **${total[1]}%**\n\n<details>\n<summary>関数別カバレッジ</summary>\n\n${fence}text\n${details}\n${fence}\n\n</details>`;
-              } catch {
-                core.setFailed('Could not read a valid coverage report.');
-              }
-            }
-            const lines = [marker, `<!-- auth-server-coverage-run:${runNumber}:${attempt} -->`,
-              '## Coverage', '', result, '',
-              `計測コミット: \`${context.sha.slice(0, 7)}\``,
-              `[実行ログ #${runNumber}（試行 ${attempt}）](${runURL})`];
-            if (process.env.COVERAGE_ARTIFACT_URL) {
-              lines.push(`[詳細レポート（artifact）](${process.env.COVERAGE_ARTIFACT_URL})`);
-            }
-
-            const {data: currentPR} = await github.rest.pulls.get({
-              ...context.repo, pull_number: pr.number,
-            });
-            if (currentPR.state !== 'open' || currentPR.head.sha !== pr.head.sha) {
-              core.info('The pull request is closed or its head commit has changed.');
-              return;
-            }
-            const body = lines.join('\n');
-            if (comment) {
-              await github.rest.issues.updateComment({
-                ...context.repo, comment_id: comment.id, body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                ...context.repo, issue_number: pr.number, body,
-              });
-            }
-
-  race:
-    name: Race
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    env:
-      CGO_ENABLED: '1'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-
-      - name: Test with race detector
-        run: go test -count=1 -race ./...
+            const updateCoverageComment = require('./.github/scripts/coverage-comment.cjs');
+            await updateCoverageComment({ github, context, core });
