@@ -1,4 +1,4 @@
-function* causeChain(error: unknown): Generator {
+export function* causeChain(error: unknown): Generator {
   const seen = new Set<unknown>();
   let current = error;
 

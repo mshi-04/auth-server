@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   BadRequestError,
   BusyError,
+  causeChain,
   EmailTakenError,
   InvalidCredentialsError,
   InvalidEmailError,
@@ -18,13 +19,11 @@ interface Problem {
   status: number;
   detail: string;
   allowedMethods?: readonly string[];
+  closeConnection?: boolean;
 }
 
 function classify(error: unknown): Problem | undefined {
-  const seen = new Set<unknown>();
-  let current = error;
-  while (current !== undefined && !seen.has(current)) {
-    seen.add(current);
+  for (const current of causeChain(error)) {
     if (current instanceof BadRequestError) {
       return {
         status: 400,
@@ -54,7 +53,11 @@ function classify(error: unknown): Problem | undefined {
       return { status: 409, detail: "メールアドレスは既に登録されています" };
     }
     if (current instanceof PayloadTooLargeError) {
-      return { status: 413, detail: "リクエストボディが上限を超えています" };
+      return {
+        status: 413,
+        detail: "リクエストボディが上限を超えています",
+        closeConnection: true,
+      };
     }
     if (current instanceof InvalidEmailError) {
       return {
@@ -71,7 +74,6 @@ function classify(error: unknown): Problem | undefined {
     if (current instanceof BusyError) {
       return { status: 503, detail: "一時的に処理を受け付けられません" };
     }
-    current = current instanceof Error ? current.cause : undefined;
   }
   return undefined;
 }
@@ -84,6 +86,11 @@ export function handleError(
   logger: LoggerProvider,
 ): void {
   if (!context.canRespond()) {
+    return;
+  }
+  if (res.headersSent) {
+    logger.error("request failed after response headers", { error });
+    res.destroy();
     return;
   }
   const classified = classify(error);
@@ -100,6 +107,9 @@ export function handleError(
   res.setHeader("Content-Type", "application/problem+json");
   if (problem.allowedMethods !== undefined) {
     res.setHeader("Allow", problem.allowedMethods.join(", "));
+  }
+  if (problem.closeConnection === true) {
+    res.setHeader("Connection", "close");
   }
   res.statusCode = problem.status;
   if (req.method === "HEAD") {

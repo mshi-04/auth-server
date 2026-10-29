@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ServerResponse } from "node:http";
 import type { RequestContext } from "../models/index.ts";
 
 class RequestLifecycle implements RequestContext {
@@ -122,7 +122,6 @@ class RequestLifecycle implements RequestContext {
 }
 
 export function createRequestContext(
-  _request: IncomingMessage,
   response: ServerResponse,
   deadline: number,
 ): RequestContext & { dispose(): void } {
