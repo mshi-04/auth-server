@@ -187,7 +187,7 @@ async function createFixture() {
   const server = createServer((req, res) => {
     const deadline = performance.now() + 30000;
     setSecurityHeaders(res);
-    const context = createRequestContext(req, res, deadline);
+    const context = createRequestContext(res, deadline);
     const run = async (): Promise<void> => {
       try {
         await routes(req, res, context);
@@ -387,7 +387,7 @@ describe("HTTP routes", () => {
     "/x/../healthz",
     "/%68ealthz",
     "*",
-    "http://example.com/healthz",
+    "http://example.com/missing",
   ])("returns 404 without normalizing %s", async (path) => {
     const fixture = await createFixture();
     const response = await fixture.raw(path);
@@ -398,6 +398,22 @@ describe("HTTP routes", () => {
       "指定されたリソースが見つかりません",
     );
   });
+
+  it.each([
+    ["http://127.0.0.1/healthz", 200],
+    ["HTTP://example.com/healthz?check=1", 200],
+    ["http://example.com", 200],
+    ["http://example.com/", 200],
+    ["http://example.com/HEALTHZ", 404],
+  ])(
+    "matches the path of an absolute-form target %s",
+    async (target, status) => {
+      const fixture = await createFixture();
+      const response = await fixture.raw(target);
+      expect(response.status).toBe(status);
+      expectSecurity(response);
+    },
+  );
 
   it.each([
     ["/v1/users", "GET", "POST"],
@@ -525,6 +541,7 @@ describe("HTTP routes", () => {
         "Payload Too Large",
         "リクエストボディが上限を超えています",
       );
+      expect(response.headers.connection).toBe("close");
       expect(fixture.passwords.hashCalls).toBe(1);
     },
   );

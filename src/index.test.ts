@@ -26,19 +26,25 @@ import { AuthService } from "./services/index.ts";
 
 class MemoryLogger implements LoggerProvider {
   errors: unknown[] = [];
+  failures = 0;
   listening = Promise.withResolvers<undefined>();
   info(): void {
     this.listening.resolve(undefined);
   }
   warn(): void {}
   error(_message: string, attributes?: Record<string, unknown>): void {
+    if (this.failures > 0) {
+      this.failures--;
+      throw new Error("logger failed");
+    }
     this.errors.push(attributes);
   }
 }
 
 class TestRepository implements UserRepository {
+  onCreate = (): Promise<void> => Promise.resolve();
   createUser(): Promise<void> {
-    return Promise.resolve();
+    return this.onCreate();
   }
   findCredentialByEmail(): Promise<Credential> {
     return Promise.resolve({ userId: "user-1", passwordHash: hash.phc() });
@@ -82,8 +88,9 @@ const ids: IdProvider = {
 async function httpFixture() {
   const logger = new MemoryLogger();
   const passwords = new TestPasswords();
+  const repository = new TestRepository();
   const service = await AuthService.create(
-    new TestRepository(),
+    repository,
     passwords,
     ids,
     logger,
@@ -91,7 +98,7 @@ async function httpFixture() {
   );
   const assets = await loadWebAssets();
   const server = createHttpServer(service, assets, logger);
-  return { server, logger, passwords };
+  return { server, logger, passwords, repository };
 }
 
 async function listen(server: Server): Promise<number> {
@@ -168,6 +175,55 @@ describe("HTTP server composition", () => {
     }
   });
 
+  it("survives clients that reset the connection right after CONNECT", async () => {
+    const { server, logger } = await httpFixture();
+    const port = await listen(server);
+    try {
+      for (let attempt = 0; attempt < 50; attempt++) {
+        const socket = connect(port, "127.0.0.1");
+        socket.on("error", () => undefined);
+        await once(socket, "connect");
+        socket.write(
+          "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        );
+        await new Promise((resolve) => setImmediate(resolve));
+        socket.resetAndDestroy();
+      }
+      const response = await fetch(`http://127.0.0.1:${String(port)}/healthz`);
+      expect(response.status).toBe(200);
+      await response.text();
+      expect(logger.errors).toEqual([]);
+    } finally {
+      server.closeAllConnections();
+      await shutdownServer(server);
+    }
+  });
+
+  it("records a failure of the error handler itself and drops the connection", async () => {
+    const { server, logger, repository } = await httpFixture();
+    repository.onCreate = () => Promise.reject(new Error("database failed"));
+    logger.failures = 1;
+    const port = await listen(server);
+    try {
+      await expect(
+        fetch(`http://127.0.0.1:${String(port)}/v1/users`, {
+          method: "POST",
+          body: JSON.stringify({
+            email: "a@example.com",
+            password: "correct horse battery staple",
+          }),
+        }),
+      ).rejects.toThrow();
+      expect(logger.errors).toHaveLength(1);
+      expect(logger.errors[0]).toMatchObject({
+        error: { message: "logger failed" },
+      });
+    } finally {
+      server.closeAllConnections();
+      await shutdownServer(server);
+    }
+  });
+
   it("keeps the original response deadline across body reception and service work", async () => {
     const { server, passwords, logger } = await httpFixture();
     const port = await listen(server);
@@ -224,8 +280,8 @@ describe("server startup and shutdown", () => {
     expect(server.listening).toBe(false);
   });
 
-  it("waits for an active response before completing shutdown", async () => {
-    const server = createServer();
+  it("waits for an active response and then closes its keep-alive connection", async () => {
+    const server = createServer({ keepAliveTimeout: 60_000 });
     const port = await listen(server);
     const entered = new Promise<ServerResponse>((resolve) => {
       server.once("request", (_req, res) => {
@@ -240,11 +296,13 @@ describe("server startup and shutdown", () => {
       stopped = true;
     })();
     try {
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 300));
       expect(stopped).toBe(false);
       res.end("completed");
       expect(await (await response).text()).toBe("completed");
+      const completed = performance.now();
       await shuttingDown;
+      expect(performance.now() - completed).toBeLessThan(1_000);
       expect(stopped).toBe(true);
     } finally {
       server.closeAllConnections();
@@ -314,6 +372,39 @@ describe("server startup and shutdown", () => {
     await expect(
       run({}, new MemoryLogger(), new AbortController().signal),
     ).rejects.toThrow("DATABASE_PATH is required");
+  });
+
+  it("finishes without an error when stopped during startup", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "auth-server-run-"));
+    const logger = new MemoryLogger();
+    try {
+      await expect(
+        run(
+          { DATABASE_PATH: join(directory, "auth.db") },
+          logger,
+          AbortSignal.abort(new Error("Server shutting down.")),
+        ),
+      ).resolves.toBeUndefined();
+      expect(logger.errors).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("still reports startup failures that the stop signal did not cause", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "auth-server-run-"));
+    const controller = new AbortController();
+    try {
+      const running = run(
+        { DATABASE_PATH: join(directory, "missing", "auth.db") },
+        new MemoryLogger(),
+        controller.signal,
+      );
+      controller.abort(new Error("Server shutting down."));
+      await expect(running).rejects.toBeInstanceOf(Error);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it.each(["SIGINT", "SIGTERM"] satisfies NodeJS.Signals[])(

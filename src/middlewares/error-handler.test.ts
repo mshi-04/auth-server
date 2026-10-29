@@ -222,6 +222,30 @@ describe("handleError", () => {
     expect(body).toBe("");
   });
 
+  it("records and drops the connection when headers were already sent", () => {
+    const req = new IncomingMessage(new Socket());
+    const res = new ServerResponse(req);
+    const logger = new RecordingLogger();
+    const error = new NotFoundError();
+    res.writeHead(200);
+    handleError(error, req, res, context(), logger);
+    expect(logger.errors).toEqual([
+      {
+        message: "request failed after response headers",
+        attributes: { error },
+      },
+    ]);
+    expect(res.destroyed).toBe(true);
+    expect(res.statusCode).toBe(200);
+    req.destroy();
+  });
+
+  it("closes the connection after a 413 response", async () => {
+    const { response } = await runError(new PayloadTooLargeError());
+    expect(response.status).toBe(413);
+    expect(response.headers.get("connection")).toBe("close");
+  });
+
   it.each([new BusyError(), new Error("aborted operation")])(
     "suppresses both logging and response when the context cannot respond",
     (error) => {
