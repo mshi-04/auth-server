@@ -36,12 +36,9 @@ export DATABASE_PATH="$HOME/.local/share/auth-server/auth.db"
 同じターミナルで実行します。Node.js の型除去で `.ts` を直接実行するため、ビルドの工程はありません。初回や `package-lock.json` の更新時は `npm ci` を実行します。
 
 ```bash
-. "$HOME/.nvm/nvm.sh"
-nvm use
-npm ci
-```
-
-```bash
+. "$HOME/.nvm/nvm.sh" &&
+nvm use &&
+npm ci &&
 npm start
 ```
 
@@ -161,12 +158,12 @@ WSL のネットワークモードや設定の説明は、[Microsoft のネッ�
 WSL のリポジトリルートで実行します。
 
 ```bash
-. "$HOME/.nvm/nvm.sh"
-nvm use
-npm run typecheck
-npm run lint
-npm run format:check
-npm test
+. "$HOME/.nvm/nvm.sh" &&
+nvm use &&
+npm run typecheck &&
+npm run lint &&
+npm run format:check &&
+npm test &&
 npm run coverage
 ```
 
