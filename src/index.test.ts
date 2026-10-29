@@ -6,6 +6,7 @@ import type { Server, ServerResponse } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createHttpServer,
@@ -416,7 +417,7 @@ describe("server startup and shutdown", () => {
       await shutdownServer(reservation);
       const child = spawn(
         process.execPath,
-        [new URL("./index.ts", import.meta.url).pathname],
+        [fileURLToPath(new URL("./index.ts", import.meta.url))],
         {
           env: {
             ...process.env,
