@@ -4,9 +4,9 @@
 
 ## 現状と移行先
 
-この文書は移行先全体の設計を定める。ハッシュ計算は `src/providers/password/` の `Argon2PasswordProvider` にあり、ID 生成と JSON ログは `src/providers/` の `CryptoIdProvider`・`JsonLoggerProvider` が担当する。SQLite 実装は `src/repositories/sqlite/` の `SqliteUserRepository`、認証サービスは `src/services/auth-service.ts` の `AuthService` にある。HTTP 境界は `schemas`・`middlewares`・`controllers`・`routes`、起動と終了は `src/index.ts` に実装し、`npm start` で起動する。静的画面は `public/` から起動時に読み込む。
+この文書は全体の設計を定める。ハッシュ計算は `src/providers/password/` の `Argon2PasswordProvider` にあり、ID 生成と JSON ログは `src/providers/` の `CryptoIdProvider`・`JsonLoggerProvider` が担当する。SQLite 実装は `src/repositories/sqlite/` の `SqliteUserRepository`、認証サービスは `src/services/auth-service.ts` の `AuthService` にある。HTTP 境界は `schemas`・`middlewares`・`controllers`・`routes`、起動と終了は `src/index.ts` に実装し、`npm start` で起動する。静的画面は `public/` から起動時に読み込む。
 
-Go 実装と Go 用 CI は [移行手順 7](migration.md#step-7)まで残す。各実装段階の順番とブランチは [移行手順](migration.md)を正本とする。
+移行手順の記録は [移行手順](migration.md)を正本とする。
 
 ## 構成と依存の向き
 
@@ -110,7 +110,7 @@ auth-server/
 - 単一ファイルの実装用公開口である `providers/crypto-id-provider.ts`・`providers/json-logger-provider.ts` は、組み立てを行う `src/index.ts` だけが直接 import できる。
 - `models/index.ts` は値オブジェクトと共通型を公開し、秘密値を扱う内部関数は公開しない。Provider 専用の内部 import の例外は下記で定める。
 - テストは対象と同じディレクトリの `*.test.ts`、ベンチマークは `*.bench.ts` に置く。
-- `public/` は TS のソースと分離した配信資源である。HTTP 移行時に Go の `internal/httpapi/web/` から内容を変えずにコピーし、Go 削除まで両方を保持する。
+- `public/` は TS のソースと分離した配信資源である。
 
 ## 各層の責務と許可する依存
 
@@ -268,19 +268,6 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 
 初期化失敗時は起動せず、開いた DB を閉じる。SIGINT・SIGTERM と起動後の終了でも DB を解放する。DB や Logger をグローバル変数へ置かない。
 
-## ファイル移行マッピング
-
-残りの Go 実装からの移植先を示す。Go 実装の削除は最後に行う。
-
-| 既存 | 移行先・分割内容 |
-|---|---|
-| Go `internal/httpapi/handler.go` | 手順 4b：Routes、Controllers、本文・検証・エラー応答の Middlewares、DTO の Schemas へ分割。要求のエラーは `errors/request-errors.ts` に追加 |
-| Go `internal/httpapi/static.go` | Web の Route・Controller と `index.ts` の起動時読み込み |
-| Go `internal/httpapi/web/*` | `public/*` へコピー |
-| Go `cmd/authd/main.go` | `src/index.ts` |
-
-手順 4b で start を `node src/index.ts` へ変更する。ESLint の依存規則とテスト、Vitest・ESLint・Prettier の静的ファイルの除外経路、関連文書も対象段階でそろえる。
-
 ## テスト
 
 | 対象 | 方法 |
@@ -295,6 +282,6 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 | Config・Logger | 環境変数を引数で渡し、メモリ上の出力先で検証 |
 | 依存規則 | 禁止 import、具体実装へのアクセス、モデル内部 API の例外範囲、動的 import などの回避を検証 |
 
-JSON キー大小文字・孤立サロゲート（[API 仕様](specs/api.md#json-入力)）、保存済み PHC のソルト長下限（[パスワード仕様](specs/password.md#パラメータ)）など、TS の仕様が Go 実装と異なる項目は各仕様書を優先する。仕様書は Go 実装との差分に注記を付け、注記は [移行手順 7](migration.md#step-7) で Go 実装と一緒に削除する。Go のテストをそのまま移すことで TS 仕様を戻さない。登録・ログインの応答、ダミー検証、再ハッシュ失敗時の成功、秘密値の非公開は維持する。
+登録・ログインの応答、ダミー検証、再ハッシュ失敗時の成功、秘密値の非公開は維持する。
 
 各実装段階で型検査・Lint・整形確認・テスト・カバレッジを確認する。ベンチマークは Provider 移行段階で既存の測定範囲を維持して確認し、性能や既定値を変える場合だけ [パスワード仕様の手順](specs/password.md#テストと性能調整)で再測定する。Windows のブラウザーからの実接続確認は [移行手順 5](migration.md#step-5) で行う。

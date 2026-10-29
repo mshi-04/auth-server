@@ -117,7 +117,7 @@ afterEach(() => {
 });
 
 describe("HTTP server composition", () => {
-  it("loads exactly the unchanged Go web assets", async () => {
+  it("loads the web assets from public", async () => {
     const assets = await loadWebAssets();
     for (const [key, filename] of [
       ["html", "index.html"],
@@ -125,7 +125,7 @@ describe("HTTP server composition", () => {
       ["js", "app.js"],
     ] satisfies [keyof typeof assets, string][]) {
       const original = await readFile(
-        new URL(`../internal/httpapi/web/${filename}`, import.meta.url),
+        new URL(`../public/${filename}`, import.meta.url),
       );
       expect(assets[key]).toEqual(original);
     }

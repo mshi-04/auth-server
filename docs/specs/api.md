@@ -21,7 +21,7 @@
 - 空文字は入力形式エラーにせず `AuthService` へ渡し、サービスの検証・認証結果に従う。登録では入力検証で 422 になる。既存の空パスワードは `verify`・`rehash` の契約に従ってログインと移行ができる
 - Content-Type ヘッダーは必須にせず、本文を検査する
 - 本文のバイト列は `TextDecoder`（UTF-8、`fatal: false`）で文字列にし、不正な UTF-8 は U+FFFD に置き換える。その後 `JSON.parse` で解析する
-- 項目名は大文字小文字を区別して完全一致で照合する（Go 実装の `encoding/json` は区別しなかった）。重複項目は `JSON.parse` の動作どおり後勝ちとする
+- 項目名は大文字小文字を区別して完全一致で照合する。重複項目は `JSON.parse` の動作どおり後勝ちとする
 - JSON のエスケープで入ったペアになっていないサロゲートは置き換えずに `AuthService` へ渡し、パスワードは [パスワードポリシー](password.md#パスワードポリシー) の規則で、メールアドレスは [メールアドレスの検証](#メールアドレスの検証) の ASCII 制限で拒否する
 
 ### エラー応答
@@ -51,7 +51,7 @@
 
 ## メールアドレスの検証
 
-Node には Go の `net/mail.ParseAddress` に相当する標準 API が無いため、受理する形式をここで定め、`models/email.ts` の解析を `AuthService` から呼ぶ。
+Node にはメールアドレス解析の標準 API が無いため、受理する形式をここで定め、`models/email.ts` の解析を `AuthService` から呼ぶ。
 
 - 前後の空白（`String.prototype.trim()` の対象）を除いた入力が、アドレス（`a@example.com`）そのものか、それを山括弧で囲んだもの（`<a@example.com>`）であること
 - アドレスは RFC 5322 の dot-atom 形式の `ローカル部@ドメイン` に限る
