@@ -11,11 +11,7 @@ export class WebController {
   #assets: WebAssets;
 
   private constructor(assets: WebAssets) {
-    this.#assets = {
-      html: Buffer.from(assets.html),
-      css: Buffer.from(assets.css),
-      js: Buffer.from(assets.js),
-    };
+    this.#assets = assets;
   }
 
   static create(assets: WebAssets): WebController {

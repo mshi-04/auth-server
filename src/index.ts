@@ -3,8 +3,10 @@ import { createServer, ServerResponse } from "node:http";
 import type { IncomingMessage, Server } from "node:http";
 import { Socket } from "node:net";
 import { loadConfig } from "./config/index.ts";
+import type { Config } from "./config/index.ts";
 import { AuthController, WebController } from "./controllers/index.ts";
 import type { WebAssets } from "./controllers/index.ts";
+import { isCausedBy } from "./errors/index.ts";
 import {
   createRequestContext,
   handleError,
@@ -43,7 +45,7 @@ export function createHttpServer(
   function onRequest(req: IncomingMessage, res: ServerResponse): void {
     const deadline = performance.now() + 30_000;
     setSecurityHeaders(res);
-    const context = createRequestContext(req, res, deadline);
+    const context = createRequestContext(res, deadline);
 
     async function dispatch(): Promise<void> {
       try {
@@ -56,7 +58,7 @@ export function createHttpServer(
     }
 
     dispatch().catch((error: unknown) => {
-      if (context.canRespond()) {
+      if (!context.signal.aborted) {
         logger.error("request failed", { error });
       }
       res.destroy();
@@ -78,6 +80,10 @@ export function createHttpServer(
       socket.destroy();
       return;
     }
+    // Node は CONNECT のソケットから error リスナーを外すため、切断で未捕捉例外にならないよう付け直す。
+    socket.on("error", () => {
+      socket.destroy();
+    });
     const res = new ServerResponse(req);
     res.assignSocket(socket);
     res.setHeader("Connection", "close");
@@ -91,11 +97,17 @@ export function createHttpServer(
 
 export function shutdownServer(server: Server): Promise<void> {
   return new Promise((resolve, reject) => {
+    // close() は呼んだ時点の待機中の接続しか閉じないため、処理中だった接続も応答後に閉じる。
+    const idleSweeper = setInterval(() => {
+      server.closeIdleConnections();
+    }, 100);
     const timer = setTimeout(() => {
+      clearInterval(idleSweeper);
       server.closeAllConnections();
       resolve();
     }, 30_000);
     server.close((error?: Error) => {
+      clearInterval(idleSweeper);
       clearTimeout(timer);
       if (
         error !== undefined &&
@@ -116,12 +128,14 @@ export async function serve(
   signal: AbortSignal,
 ): Promise<void> {
   signal.throwIfAborted();
-  let stop = (): void => undefined;
-  let fail: (error: Error) => void = () => undefined;
-  const stopped = new Promise<void>((resolve, reject) => {
-    stop = resolve;
-    fail = reject;
-  });
+  const {
+    promise: stopped,
+    resolve,
+    reject: fail,
+  } = Promise.withResolvers<undefined>();
+  const stop = (): void => {
+    resolve(undefined);
+  };
   const onAbort = (): void => {
     if (server.listening) {
       stop();
@@ -150,12 +164,11 @@ export async function serve(
   }
 }
 
-export async function run(
-  env: NodeJS.ProcessEnv,
+async function start(
+  config: Config,
   logger: LoggerProvider,
   signal: AbortSignal,
 ): Promise<void> {
-  const config = loadConfig(env);
   const repository = await SqliteUserRepository.open(
     config.databasePath,
     signal,
@@ -180,6 +193,22 @@ export async function run(
     );
   } finally {
     repository.close();
+  }
+}
+
+export async function run(
+  env: NodeJS.ProcessEnv,
+  logger: LoggerProvider,
+  signal: AbortSignal,
+): Promise<void> {
+  const config = loadConfig(env);
+  try {
+    await start(config, logger, signal);
+  } catch (error) {
+    if (signal.aborted && isCausedBy(error, signal.reason)) {
+      return;
+    }
+    throw error;
   }
 }
 

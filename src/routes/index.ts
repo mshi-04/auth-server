@@ -16,6 +16,15 @@ export interface Route {
   ): void | Promise<void>;
 }
 
+function requestPath(target: string | undefined): string | undefined {
+  const path = target?.split("?", 1)[0];
+  const absoluteForm = path?.match(/^https?:\/\/[^/]*(\/.*)?$/iu);
+  if (absoluteForm === null || absoluteForm === undefined) {
+    return path;
+  }
+  return absoluteForm[1] ?? "/";
+}
+
 export function createRoutes(
   authController: AuthController,
   webController: WebController,
@@ -30,7 +39,7 @@ export function createRoutes(
     res: ServerResponse,
     context: RequestContext,
   ): Promise<void> => {
-    const path = req.url?.split("?", 1)[0];
+    const path = requestPath(req.url);
     const route = routes.find((candidate) => candidate.path === path);
     if (route === undefined) {
       throw new NotFoundError();
