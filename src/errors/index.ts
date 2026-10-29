@@ -7,7 +7,13 @@ export {
   WeakPasswordError,
 } from "./auth-errors.ts";
 export { ConfigError } from "./config-errors.ts";
-export { findError, isCausedBy } from "./find-error.ts";
+export {
+  BadRequestError,
+  MethodNotAllowedError,
+  NotFoundError,
+  PayloadTooLargeError,
+} from "./request-errors.ts";
+export { causeChain, findError, isCausedBy } from "./find-error.ts";
 export {
   InvalidHashError,
   InvalidParamsError,

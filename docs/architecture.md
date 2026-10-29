@@ -4,7 +4,7 @@
 
 ## 現状と移行先
 
-この文書は移行先全体の設計を定める。ハッシュ計算は `src/providers/password/` の `Argon2PasswordProvider` にあり、ID 生成と JSON ログは `src/providers/` の `CryptoIdProvider`・`JsonLoggerProvider` が担当する。SQLite 実装は `src/repositories/sqlite/` の `SqliteUserRepository`、認証サービスは `src/services/auth-service.ts` の `AuthService` にあり、HTTP・起動処理は Go の `cmd/authd/` と `internal/httpapi/` にある。`package.json` の起動先 `src/main.ts` はまだ存在しない。
+この文書は移行先全体の設計を定める。ハッシュ計算は `src/providers/password/` の `Argon2PasswordProvider` にあり、ID 生成と JSON ログは `src/providers/` の `CryptoIdProvider`・`JsonLoggerProvider` が担当する。SQLite 実装は `src/repositories/sqlite/` の `SqliteUserRepository`、認証サービスは `src/services/auth-service.ts` の `AuthService` にある。HTTP 境界は `schemas`・`middlewares`・`controllers`・`routes`、起動と終了は `src/index.ts` に実装し、`npm start` で起動する。静的画面は `public/` から起動時に読み込む。
 
 Go 実装と Go 用 CI は [移行手順 7](migration.md#step-7)まで残す。各実装段階の順番とブランチは [移行手順](migration.md)を正本とする。
 
@@ -117,6 +117,8 @@ auth-server/
 表はプロジェクト内の依存を示す。型専用 import にも同じ制約を適用し、interface と実装を区別する。
 
 依存表と実装用公開口の制約は本番コードを対象にする。テスト・ベンチマークでは、対象モジュール内部の検証や本物の Provider を注入する結合テストに必要な import を、対象ファイルに限定して許可する。テスト用の例外を本番コードから利用したり、Service の実装へ具体クラスの依存を持ち込んだりしない。
+
+HTTP の結合テスト `routes/index.test.ts` は、本物の `AuthService` と手書きの偽物を組み合わせるため、`services/index.ts` と Repository・Provider の interface を参照できる。`src/index.test.ts` は組み立てと起動・終了を検証するため、`src/index.ts` と各モジュールの公開口を参照できる。入口への import を許可するのは、このテストだけとする。
 
 | 層 | 責務 | 依存してよい先 |
 |---|---|---|
