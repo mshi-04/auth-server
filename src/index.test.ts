@@ -1,13 +1,17 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { createServer, request } from "node:http";
-import type { Server, ServerResponse } from "node:http";
+import { Agent, createServer, request } from "node:http";
+import type { ServerResponse } from "node:http";
 import { connect } from "node:net";
+import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { rejected } from "../tests/support/errors.ts";
+import { RecordingUserRepository } from "../tests/support/fakes/user-repository.ts";
+import { listenOnLoopback } from "../tests/support/http.ts";
 import {
   createHttpServer,
   loadWebAssets,
@@ -16,13 +20,12 @@ import {
   shutdownServer,
 } from "./index.ts";
 import { EncodedHash } from "./models/index.ts";
-import type { Credential, Password } from "./models/index.ts";
+import type { Password } from "./models/index.ts";
 import type {
   IdProvider,
   LoggerProvider,
   PasswordProvider,
 } from "./providers/index.ts";
-import type { UserRepository } from "./repositories/index.ts";
 import { AuthService } from "./services/index.ts";
 
 class MemoryLogger implements LoggerProvider {
@@ -39,19 +42,6 @@ class MemoryLogger implements LoggerProvider {
       throw new Error("logger failed");
     }
     this.errors.push(attributes);
-  }
-}
-
-class TestRepository implements UserRepository {
-  onCreate = (): Promise<void> => Promise.resolve();
-  createUser(): Promise<void> {
-    return this.onCreate();
-  }
-  findCredentialByEmail(): Promise<Credential> {
-    return Promise.resolve({ userId: "user-1", passwordHash: hash.phc() });
-  }
-  updatePasswordHash(): Promise<void> {
-    return Promise.resolve();
   }
 }
 
@@ -89,7 +79,10 @@ const ids: IdProvider = {
 async function httpFixture() {
   const logger = new MemoryLogger();
   const passwords = new TestPasswords();
-  const repository = new TestRepository();
+  const repository = new RecordingUserRepository({
+    userId: "user-1",
+    passwordHash: hash.phc(),
+  });
   const service = await AuthService.create(
     repository,
     passwords,
@@ -100,16 +93,6 @@ async function httpFixture() {
   const assets = await loadWebAssets();
   const server = createHttpServer(service, assets, logger);
   return { server, logger, passwords, repository };
-}
-
-async function listen(server: Server): Promise<number> {
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("Expected an IP listener.");
-  }
-  return address.port;
 }
 
 afterEach(() => {
@@ -141,7 +124,7 @@ describe("HTTP server composition", () => {
       "connectionsCheckingInterval",
     );
     expect(checkingInterval).toBe(1_000);
-    const port = await listen(server);
+    const port = await listenOnLoopback(server);
     try {
       const response = await fetch(`http://127.0.0.1:${String(port)}/healthz`);
       expect(response.status).toBe(200);
@@ -155,7 +138,7 @@ describe("HTTP server composition", () => {
 
   it("returns a common 404 Problem Details response to an authority-form CONNECT", async () => {
     const { server } = await httpFixture();
-    const port = await listen(server);
+    const port = await listenOnLoopback(server);
     const socket = connect(port, "127.0.0.1");
     try {
       const received: Buffer[] = [];
@@ -178,23 +161,64 @@ describe("HTTP server composition", () => {
 
   it("survives clients that reset the connection right after CONNECT", async () => {
     const { server, logger } = await httpFixture();
-    const port = await listen(server);
+    const port = await listenOnLoopback(server);
+    const accepted = Promise.withResolvers<undefined>();
+    server.once("connect", () => {
+      accepted.resolve(undefined);
+    });
+    const socket = connect(port, "127.0.0.1");
+    socket.on("error", () => undefined);
+    const closed = new Promise<void>((resolve) => {
+      socket.once("close", () => {
+        resolve();
+      });
+    });
     try {
-      for (let attempt = 0; attempt < 50; attempt++) {
-        const socket = connect(port, "127.0.0.1");
-        socket.on("error", () => undefined);
-        await once(socket, "connect");
-        socket.write(
-          "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n",
-        );
-        await new Promise((resolve) => setImmediate(resolve));
-        socket.resetAndDestroy();
-      }
+      await once(socket, "connect");
+      socket.write(
+        "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n",
+      );
+      await accepted.promise;
+      socket.resetAndDestroy();
+      await closed;
       const response = await fetch(`http://127.0.0.1:${String(port)}/healthz`);
       expect(response.status).toBe(200);
       await response.text();
       expect(logger.errors).toEqual([]);
     } finally {
+      socket.destroy();
+      server.closeAllConnections();
+      await shutdownServer(server);
+    }
+  });
+
+  it("handles an error from an accepted CONNECT socket without an unhandled error", async () => {
+    const { server, logger } = await httpFixture();
+    const port = await listenOnLoopback(server);
+    const handled = Promise.withResolvers<undefined>();
+    const closed = Promise.withResolvers<undefined>();
+    server.once("connect", (_req, acceptedSocket) => {
+      acceptedSocket.once("close", () => {
+        closed.resolve(undefined);
+      });
+      acceptedSocket.emit("error", new Error("client reset"));
+      handled.resolve(undefined);
+    });
+    const socket = connect(port, "127.0.0.1");
+    socket.on("error", () => undefined);
+    try {
+      await once(socket, "connect");
+      socket.write(
+        "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n",
+      );
+      await handled.promise;
+      await closed.promise;
+      const response = await fetch(`http://127.0.0.1:${String(port)}/healthz`);
+      expect(response.status).toBe(200);
+      await response.text();
+      expect(logger.errors).toEqual([]);
+    } finally {
+      socket.destroy();
       server.closeAllConnections();
       await shutdownServer(server);
     }
@@ -202,9 +226,10 @@ describe("HTTP server composition", () => {
 
   it("records a failure of the error handler itself and drops the connection", async () => {
     const { server, logger, repository } = await httpFixture();
-    repository.onCreate = () => Promise.reject(new Error("database failed"));
+    repository.onCreateUser = () =>
+      Promise.reject(new Error("database failed"));
     logger.failures = 1;
-    const port = await listen(server);
+    const port = await listenOnLoopback(server);
     try {
       await expect(
         fetch(`http://127.0.0.1:${String(port)}/v1/users`, {
@@ -227,7 +252,7 @@ describe("HTTP server composition", () => {
 
   it("keeps the original response deadline across body reception and service work", async () => {
     const { server, passwords, logger } = await httpFixture();
-    const port = await listen(server);
+    const port = await listenOnLoopback(server);
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     const entered = new Promise<ServerResponse>((resolve) => {
       server.once("request", (_req, res) => {
@@ -283,30 +308,75 @@ describe("server startup and shutdown", () => {
 
   it("waits for an active response and then closes its keep-alive connection", async () => {
     const server = createServer({ keepAliveTimeout: 60_000 });
-    const port = await listen(server);
+    const port = await listenOnLoopback(server);
+    const connected = new Promise<Socket>((resolve) => {
+      server.once("connection", resolve);
+    });
     const entered = new Promise<ServerResponse>((resolve) => {
       server.once("request", (_req, res) => {
         resolve(res);
       });
     });
-    const response = fetch(`http://127.0.0.1:${String(port)}/`);
+    const agent = new Agent({ keepAlive: true });
+    const started = Promise.withResolvers<undefined>();
+    const response = Promise.withResolvers<string>();
+    const client = request(
+      { host: "127.0.0.1", port, path: "/", agent },
+      (incoming) => {
+        const chunks: Buffer[] = [];
+        incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+        incoming.once("error", response.reject);
+        incoming.once("end", () => {
+          response.resolve(Buffer.concat(chunks).toString("utf8"));
+        });
+        started.resolve(undefined);
+      },
+    );
+    client.once("error", response.reject);
+    client.end();
     const res = await entered;
+    res.writeHead(200, { Connection: "keep-alive" });
+    res.flushHeaders();
+    await started.promise;
+    const socket = await connected;
+    const closed = new Promise<void>((resolve) => {
+      socket.once("close", () => {
+        resolve();
+      });
+    });
+    const finished = once(res, "finish");
+    const idle = new Promise<void>((resolve) => {
+      agent.once("free", () => {
+        resolve();
+      });
+    });
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"],
+    });
     let stopped = false;
     const shuttingDown = (async () => {
       await shutdownServer(server);
       stopped = true;
     })();
     try {
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await vi.advanceTimersByTimeAsync(300);
       expect(stopped).toBe(false);
       res.end("completed");
-      expect(await (await response).text()).toBe("completed");
-      const completed = performance.now();
+      await finished;
+      expect(await response.promise).toBe("completed");
+      await idle;
+      await vi.advanceTimersByTimeAsync(999);
+      await closed;
       await shuttingDown;
-      expect(performance.now() - completed).toBeLessThan(1_000);
       expect(stopped).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
     } finally {
+      res.destroy();
+      client.destroy();
+      agent.destroy();
+      socket.destroy();
       server.closeAllConnections();
+      vi.useRealTimers();
       await shuttingDown;
     }
   });
@@ -323,11 +393,9 @@ describe("server startup and shutdown", () => {
 
   it("forcibly closes remaining connections after 30 seconds", async () => {
     const server = createServer();
-    const port = await listen(server);
+    const port = await listenOnLoopback(server);
     const entered = once(server, "request");
-    const response = fetch(`http://127.0.0.1:${String(port)}/`).catch(
-      (error: unknown) => error,
-    );
+    const response = rejected(fetch(`http://127.0.0.1:${String(port)}/`));
     await entered;
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
@@ -357,7 +425,7 @@ describe("server startup and shutdown", () => {
 
   it("propagates listen failures and releases the server", async () => {
     const occupied = createServer();
-    const port = await listen(occupied);
+    const port = await listenOnLoopback(occupied);
     const server = createServer();
     try {
       await expect(
@@ -413,7 +481,7 @@ describe("server startup and shutdown", () => {
     async (signal) => {
       const directory = await mkdtemp(join(tmpdir(), "auth-server-entry-"));
       const reservation = createServer();
-      const port = await listen(reservation);
+      const port = await listenOnLoopback(reservation);
       await shutdownServer(reservation);
       const child = spawn(
         process.execPath,

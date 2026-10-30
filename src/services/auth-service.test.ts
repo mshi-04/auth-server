@@ -1,5 +1,10 @@
 import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
+import { rejected } from "../../tests/support/errors.ts";
+import { RecordingFixedIdProvider } from "../../tests/support/fakes/id-provider.ts";
+import { RecordingLogger } from "../../tests/support/fakes/logger.ts";
+import { RecordingPasswordProvider } from "../../tests/support/fakes/password-provider.ts";
+import { RecordingUserRepository } from "../../tests/support/fakes/user-repository.ts";
 import {
   BusyError,
   EmailTakenError,
@@ -14,13 +19,6 @@ import {
   findError,
 } from "../errors/index.ts";
 import { EncodedHash, Password } from "../models/index.ts";
-import type { Credential, NewUser } from "../models/index.ts";
-import type {
-  IdProvider,
-  LoggerProvider,
-  PasswordProvider,
-} from "../providers/index.ts";
-import type { UserRepository } from "../repositories/index.ts";
 import { AuthService } from "./index.ts";
 
 const dummyPhc =
@@ -32,138 +30,28 @@ const validPassword = "correct horse battery staple";
 const input = { email: "user@example.com", rawPassword: validPassword };
 const createSignal = new AbortController().signal;
 const signal = new AbortController().signal;
-
-type LogEntry = {
-  message: string;
-  attributes: Record<string, unknown> | undefined;
-};
-
-class FakeUserRepository implements UserRepository {
-  createUserCalls: { user: NewUser; signal: AbortSignal }[] = [];
-  findCredentialCalls: { emailNormalized: string; signal: AbortSignal }[] = [];
-  updatePasswordHashCalls: {
-    userId: string;
-    passwordHash: string;
-    signal: AbortSignal;
-  }[] = [];
-  credential: Credential = { userId: "user-1", passwordHash: storedPhc };
-  onCreateUser = (): Promise<void> => Promise.resolve();
-  onFindCredentialByEmail = (): Promise<Credential> =>
-    Promise.resolve(this.credential);
-  onUpdatePasswordHash = (): Promise<void> => Promise.resolve();
-
-  createUser(user: NewUser, signal: AbortSignal): Promise<void> {
-    this.createUserCalls.push({ user, signal });
-    return this.onCreateUser();
-  }
-
-  findCredentialByEmail(
-    emailNormalized: string,
-    signal: AbortSignal,
-  ): Promise<Credential> {
-    this.findCredentialCalls.push({ emailNormalized, signal });
-    return this.onFindCredentialByEmail();
-  }
-
-  updatePasswordHash(
-    userId: string,
-    passwordHash: string,
-    signal: AbortSignal,
-  ): Promise<void> {
-    this.updatePasswordHashCalls.push({ userId, passwordHash, signal });
-    return this.onUpdatePasswordHash();
-  }
-}
-
-class FakePasswordProvider implements PasswordProvider {
-  hashCalls: { password: Password; signal: AbortSignal }[] = [];
-  rehashCalls: { password: Password; signal: AbortSignal }[] = [];
-  verifyCalls: {
-    password: Password;
-    encoded: EncodedHash;
-    signal: AbortSignal;
-  }[] = [];
-  needsRehashCalls: EncodedHash[] = [];
-  dummyHash = EncodedHash.parse(dummyPhc);
-  hashedResult = EncodedHash.parse(storedPhc);
-  rehashedResult = EncodedHash.parse(rehashedPhc);
-  verifyResult = true;
-  needsRehashResult = false;
-  onHash = (): Promise<EncodedHash> =>
-    Promise.resolve(
-      this.hashCalls.length === 1 ? this.dummyHash : this.hashedResult,
-    );
-  onRehash = (): Promise<EncodedHash> => Promise.resolve(this.rehashedResult);
-  onVerify = (): Promise<boolean> => Promise.resolve(this.verifyResult);
-
-  hash(password: Password, signal: AbortSignal): Promise<EncodedHash> {
-    this.hashCalls.push({ password, signal });
-    return this.onHash();
-  }
-
-  rehash(password: Password, signal: AbortSignal): Promise<EncodedHash> {
-    this.rehashCalls.push({ password, signal });
-    return this.onRehash();
-  }
-
-  verify(
-    password: Password,
-    encoded: EncodedHash,
-    signal: AbortSignal,
-  ): Promise<boolean> {
-    this.verifyCalls.push({ password, encoded, signal });
-    return this.onVerify();
-  }
-
-  needsRehash(encoded: EncodedHash): boolean {
-    this.needsRehashCalls.push(encoded);
-    return this.needsRehashResult;
-  }
-}
-
-class FakeIdProvider implements IdProvider {
-  userId = "00000000-0000-4000-8000-000000000001";
-  dummyPassword = "dummy-password-123456";
-  newUserIdCalls = 0;
-  newDummyPasswordCalls = 0;
-  onNewUserId = (): string => this.userId;
-  onNewDummyPassword = (): string => this.dummyPassword;
-
-  newUserId(): string {
-    this.newUserIdCalls++;
-    return this.onNewUserId();
-  }
-
-  newDummyPassword(): string {
-    this.newDummyPasswordCalls++;
-    return this.onNewDummyPassword();
-  }
-}
-
-class FakeLoggerProvider implements LoggerProvider {
-  infoCalls: LogEntry[] = [];
-  warnCalls: LogEntry[] = [];
-  errorCalls: LogEntry[] = [];
-
-  info(message: string, attributes?: Record<string, unknown>): void {
-    this.infoCalls.push({ message, attributes });
-  }
-
-  warn(message: string, attributes?: Record<string, unknown>): void {
-    this.warnCalls.push({ message, attributes });
-  }
-
-  error(message: string, attributes?: Record<string, unknown>): void {
-    this.errorCalls.push({ message, attributes });
-  }
-}
+const invalidPasswordCases: [name: string, rawPassword: string][] = [
+  ["lone surrogate", "abcdefghijkl\uD800"],
+  ["over 128 code points", "a".repeat(129)],
+  ["over 128 code points after NFKC expansion", "㍿".repeat(33)],
+];
 
 function createFakes() {
   return {
-    repository: new FakeUserRepository(),
-    passwordProvider: new FakePasswordProvider(),
-    idProvider: new FakeIdProvider(),
-    logger: new FakeLoggerProvider(),
+    repository: new RecordingUserRepository({
+      userId: "user-1",
+      passwordHash: storedPhc,
+    }),
+    passwordProvider: new RecordingPasswordProvider({
+      dummyHash: EncodedHash.parse(dummyPhc),
+      hashedResult: EncodedHash.parse(storedPhc),
+      rehashedResult: EncodedHash.parse(rehashedPhc),
+    }),
+    idProvider: new RecordingFixedIdProvider(
+      "00000000-0000-4000-8000-000000000001",
+      "dummy-password-123456",
+    ),
+    logger: new RecordingLogger(),
   };
 }
 
@@ -184,17 +72,18 @@ async function createTestContext() {
   return { ...fakes, service: await createService(fakes) };
 }
 
-async function rejected(promise: Promise<unknown>): Promise<unknown> {
-  try {
-    await promise;
-  } catch (error) {
-    return error;
-  }
-  throw new Error("expected the operation to fail");
-}
-
 function causeOf(error: unknown): unknown {
   return error instanceof Error ? error.cause : undefined;
+}
+
+function expectSingleWarning(
+  logger: RecordingLogger,
+  message: string,
+  error: unknown,
+) {
+  expect(logger.warnCalls).toEqual([
+    { message, attributes: { userId: "user-1", error } },
+  ]);
 }
 
 describe("AuthService.create", () => {
@@ -302,11 +191,7 @@ describe("AuthService.register", () => {
     expect(logger.errorCalls).toHaveLength(0);
   });
 
-  it.each([
-    ["lone surrogate", "abcdefghijkl\uD800"],
-    ["over 128 code points", "a".repeat(129)],
-    ["over 128 code points after NFKC expansion", "㍿".repeat(33)],
-  ])(
+  it.each(invalidPasswordCases)(
     "rejects invalid password at Password.parse (%s) with WeakPasswordError before hashing or touching repository",
     async (_, rawPassword) => {
       const { repository, passwordProvider, idProvider, service } =
@@ -351,51 +236,51 @@ describe("AuthService.register", () => {
     },
   );
 
-  it("maps PolicyViolationError from passwordProvider.hash to WeakPasswordError without calling repository", async () => {
-    const { repository, passwordProvider, idProvider, service } =
-      await createTestContext();
-    const policyCause = new PolicyViolationError("too short");
-    passwordProvider.onHash = () => Promise.reject(policyCause);
+  it.each([
+    {
+      name: "PolicyViolationError to WeakPasswordError",
+      cause: new PolicyViolationError("too short"),
+      causeType: PolicyViolationError,
+      resultType: WeakPasswordError,
+      excludedTypes: [],
+      rawPassword: "short",
+    },
+    {
+      name: "PasswordBusyError to BusyError",
+      cause: new PasswordBusyError("busy"),
+      causeType: PasswordBusyError,
+      resultType: BusyError,
+      excludedTypes: [],
+      rawPassword: validPassword,
+    },
+    {
+      name: "unexpected error without WeakPasswordError or BusyError",
+      cause: new InvalidParamsError("invalid params"),
+      causeType: InvalidParamsError,
+      resultType: Error,
+      excludedTypes: [WeakPasswordError, BusyError],
+      rawPassword: validPassword,
+    },
+  ])(
+    "maps $name from passwordProvider.hash without calling repository",
+    async ({ cause, causeType, resultType, excludedTypes, rawPassword }) => {
+      const { repository, passwordProvider, idProvider, service } =
+        await createTestContext();
+      passwordProvider.onHash = () => Promise.reject(cause);
 
-    const caught = await rejected(
-      service.register({ ...input, rawPassword: "short" }, signal),
-    );
+      const caught = await rejected(
+        service.register({ ...input, rawPassword }, signal),
+      );
 
-    expect(caught).toBeInstanceOf(WeakPasswordError);
-    expect(findError(caught, PolicyViolationError)).toBe(policyCause);
-    expect(idProvider.newUserIdCalls).toBe(0);
-    expect(repository.createUserCalls).toHaveLength(0);
-  });
-
-  it("maps PasswordBusyError from passwordProvider.hash to BusyError without calling repository", async () => {
-    const { repository, passwordProvider, idProvider, service } =
-      await createTestContext();
-    const busyCause = new PasswordBusyError("busy");
-    passwordProvider.onHash = () => Promise.reject(busyCause);
-
-    const caught = await rejected(service.register(input, signal));
-
-    expect(caught).toBeInstanceOf(BusyError);
-    expect(findError(caught, PasswordBusyError)).toBe(busyCause);
-    expect(idProvider.newUserIdCalls).toBe(0);
-    expect(repository.createUserCalls).toHaveLength(0);
-  });
-
-  it("wraps unexpected error from passwordProvider.hash without WeakPasswordError or BusyError", async () => {
-    const { repository, passwordProvider, idProvider, service } =
-      await createTestContext();
-    const paramsCause = new InvalidParamsError("invalid params");
-    passwordProvider.onHash = () => Promise.reject(paramsCause);
-
-    const caught = await rejected(service.register(input, signal));
-
-    expect(caught).toBeInstanceOf(Error);
-    expect(caught).not.toBeInstanceOf(WeakPasswordError);
-    expect(caught).not.toBeInstanceOf(BusyError);
-    expect(findError(caught, InvalidParamsError)).toBe(paramsCause);
-    expect(idProvider.newUserIdCalls).toBe(0);
-    expect(repository.createUserCalls).toHaveLength(0);
-  });
+      expect(caught).toBeInstanceOf(resultType);
+      for (const excludedType of excludedTypes) {
+        expect(caught).not.toBeInstanceOf(excludedType);
+      }
+      expect(findError<Error>(caught, causeType)).toBe(cause);
+      expect(idProvider.newUserIdCalls).toBe(0);
+      expect(repository.createUserCalls).toHaveLength(0);
+    },
+  );
 
   it("wraps error when idProvider.newUserId throws", async () => {
     const { repository, idProvider, service } = await createTestContext();
@@ -436,11 +321,7 @@ describe("AuthService.register", () => {
 });
 
 describe("AuthService.login", () => {
-  it.each([
-    ["lone surrogate", "abcdefghijkl\uD800"],
-    ["over 128 code points", "a".repeat(129)],
-    ["over 128 code points after NFKC expansion", "㍿".repeat(33)],
-  ])(
+  it.each(invalidPasswordCases)(
     "throws InvalidCredentialsError immediately on Password.parse failure (%s) without querying repository or verifying",
     async (_, rawPassword) => {
       const { repository, passwordProvider, logger, service } =
@@ -721,12 +602,7 @@ describe("AuthService.login", () => {
 
       expect(result).toEqual({ userId: "user-1" });
       expect(repository.updatePasswordHashCalls).toHaveLength(0);
-      expect(logger.warnCalls).toEqual([
-        {
-          message: "rehash password failed",
-          attributes: { userId: "user-1", error: rehashError },
-        },
-      ]);
+      expectSingleWarning(logger, "rehash password failed", rehashError);
     },
   );
 
@@ -746,12 +622,7 @@ describe("AuthService.login", () => {
 
       expect(result).toEqual({ userId: "user-1" });
       expect(repository.updatePasswordHashCalls).toHaveLength(1);
-      expect(logger.warnCalls).toEqual([
-        {
-          message: "save rehashed password failed",
-          attributes: { userId: "user-1", error: updateError },
-        },
-      ]);
+      expectSingleWarning(logger, "save rehashed password failed", updateError);
     },
   );
 
@@ -772,12 +643,7 @@ describe("AuthService.login", () => {
       const result = await service.login(input, controller.signal);
 
       expect(result).toEqual({ userId: "user-1" });
-      expect(logger.warnCalls).toEqual([
-        {
-          message: "rehash password failed",
-          attributes: { userId: "user-1", error: unrelatedError },
-        },
-      ]);
+      expectSingleWarning(logger, "rehash password failed", unrelatedError);
     },
   );
 

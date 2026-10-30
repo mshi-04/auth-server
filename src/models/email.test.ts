@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { caught } from "../../tests/support/errors.ts";
 import { InvalidEmailError } from "../errors/index.ts";
 import { normalizeEmail, parseEmail } from "./index.ts";
 
@@ -110,19 +111,13 @@ const invalidEmailCases: InvalidEmailCase[] = [
 ];
 
 function expectInvalidEmail(fn: () => string, rawInput: string): void {
-  let caught: unknown;
-  try {
-    fn();
-  } catch (error: unknown) {
-    caught = error;
-  }
-
-  expect(caught).toBeInstanceOf(InvalidEmailError);
-  if (caught instanceof InvalidEmailError) {
-    expect(caught.message).toBe("Invalid email address.");
+  const error = caught(fn);
+  expect(error).toBeInstanceOf(InvalidEmailError);
+  if (error instanceof InvalidEmailError) {
+    expect(error.message).toBe("Invalid email address.");
     const trimmed = rawInput.trim();
     if (trimmed !== "") {
-      expect(caught.message).not.toContain(trimmed);
+      expect(error.message).not.toContain(trimmed);
     }
   }
 }

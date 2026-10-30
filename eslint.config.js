@@ -44,6 +44,13 @@ const cryptoFiles = [
   "providers/crypto-id-provider.ts",
   "providers/crypto-id-provider.test.ts",
 ];
+const supportTypeDependencies = [
+  "providers/index.ts",
+  "repositories/index.ts",
+  "models/index.ts",
+  "node:http",
+];
+const supportValueDependencies = ["errors/index.ts", "node:events"];
 
 function sourcePath(filename) {
   return relative(sourceRoot, resolve(filename)).split(sep).join("/");
@@ -108,6 +115,27 @@ function isImplementationModule(module) {
   return implementationModules.includes(module);
 }
 
+function supportName(filename) {
+  const prefix = "../tests/support/";
+  return filename.startsWith(prefix)
+    ? filename.slice(prefix.length)
+    : undefined;
+}
+
+function canImportFromSupport(node, target) {
+  if (node.type !== "ImportDeclaration") {
+    return false;
+  }
+  const names = node.specifiers.map(importedName);
+  if (supportValueDependencies.includes(target)) {
+    return isNamedAccess(node, names);
+  }
+  return (
+    supportTypeDependencies.includes(target) &&
+    isTypeOnlyNamedAccess(node, names)
+  );
+}
+
 const projectPlugin = {
   rules: {
     dependencies: {
@@ -123,6 +151,7 @@ const projectPlugin = {
         const filename = sourcePath(context.filename);
         const module = moduleName(filename);
         const layer = layerName(module);
+        const helper = supportName(filename);
         const testing = /\.(?:test|bench)\.ts$/.test(filename);
         const composition =
           filename === "index.ts" || filename === "index.test.ts";
@@ -183,6 +212,16 @@ const projectPlugin = {
             return;
           }
 
+          if (helper !== undefined) {
+            const target = source.startsWith(".")
+              ? sourcePath(resolve(dirname(context.filename), source))
+              : source;
+            if (!canImportFromSupport(node, target)) {
+              reject();
+            }
+            return;
+          }
+
           if (source.startsWith("node:")) {
             if (
               (["node:http", "node:https", "node:http2"].includes(source) &&
@@ -204,6 +243,12 @@ const projectPlugin = {
           }
 
           const target = sourcePath(resolve(dirname(context.filename), source));
+          if (supportName(target) !== undefined) {
+            if (!testing) {
+              reject();
+            }
+            return;
+          }
           const targetModule = moduleName(target);
           const targetLayer = layerName(targetModule);
           if (filename === "index.test.ts" && target === "index.ts") {
@@ -421,24 +466,25 @@ const forbiddenGlobals = [
   },
 ];
 
+const forbiddenSourceReentry = {
+  regex: "^(?:\\.\\.?/)+(?:[^/]+/)*src(?:/|$)",
+  message: "Use a direct relative path within src without re-entering src.",
+};
+const restrictedImportPatterns = [
+  {
+    regex: "[^./][^/]*/\\.{1,2}(?:/|$)|//",
+    message: "Use a direct relative path without redundant segments.",
+  },
+  forbiddenSourceReentry,
+  {
+    regex: "^(?!node:|vitest(?:/|$))[^./]",
+    message: "Runtime imports must use Node standard modules with node:.",
+  },
+];
 const restrictedImports = [
   "error",
   {
-    patterns: [
-      {
-        regex: "[^./][^/]*/\\.{1,2}(?:/|$)|//",
-        message: "Use a direct relative path without redundant segments.",
-      },
-      {
-        regex: "^(?:\\.\\.?/)+(?:[^/]+/)*src(?:/|$)",
-        message:
-          "Use a direct relative path within src without re-entering src.",
-      },
-      {
-        regex: "^(?!node:|vitest(?:/|$))[^./]",
-        message: "Runtime imports must use Node standard modules with node:.",
-      },
-    ],
+    patterns: restrictedImportPatterns,
   },
 ];
 
@@ -458,6 +504,7 @@ export default defineConfig(
   {
     files: [
       "src/**/*.ts",
+      "tests/support/**/*.ts",
       ".github/scripts/**/*.ts",
       "vitest.config.ts",
       "eslint.config.js",
@@ -547,11 +594,24 @@ export default defineConfig(
     },
   },
   {
-    files: ["src/**/*.ts"],
+    files: ["src/**/*.ts", "tests/support/**/*.ts"],
     plugins: { project: projectPlugin },
     rules: {
       "no-restricted-imports": restrictedImports,
       "project/dependencies": "error",
+    },
+  },
+  {
+    files: ["tests/support/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: restrictedImportPatterns.filter(
+            (pattern) => pattern !== forbiddenSourceReentry,
+          ),
+        },
+      ],
     },
   },
 );

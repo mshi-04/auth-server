@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { Database } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { rejected } from "../../../tests/support/errors.ts";
 import { BusyError, findError } from "../../errors/index.ts";
 import { SqliteUserRepository } from "./index.ts";
 
@@ -45,10 +46,9 @@ describe("SqliteUserRepository.open", () => {
   it("does not create a file for a pre-aborted open", async () => {
     const path = await temporaryPath();
     const reason = new DOMException("startup interrupted", "AbortError");
-    const failure: unknown = await SqliteUserRepository.open(
-      path,
-      AbortSignal.abort(reason),
-    ).catch((error: unknown) => error);
+    const failure = await rejected(
+      SqliteUserRepository.open(path, AbortSignal.abort(reason)),
+    );
     expect(findError(failure, BusyError)).toBeInstanceOf(BusyError);
     expect(findError(failure, DOMException)).toBe(reason);
     await expect(readFile(path)).rejects.toMatchObject({ code: "ENOENT" });
@@ -81,10 +81,7 @@ describe("SqliteUserRepository.open", () => {
     locker.exec("PRAGMA journal_mode = WAL; BEGIN IMMEDIATE");
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
-      const failure: unknown = await SqliteUserRepository.open(
-        path,
-        signal,
-      ).catch((error: unknown) => error);
+      const failure = await rejected(SqliteUserRepository.open(path, signal));
       expect(findError(failure, BusyError)).toBeInstanceOf(BusyError);
       expect(vi.getTimerCount()).toBe(0);
       locker.exec("ROLLBACK");

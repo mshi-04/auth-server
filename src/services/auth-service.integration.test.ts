@@ -1,114 +1,34 @@
 import { describe, expect, it } from "vitest";
+import { rejected } from "../../tests/support/errors.ts";
+import { SequentialIdProvider } from "../../tests/support/fakes/id-provider.ts";
+import { RecordingLogger } from "../../tests/support/fakes/logger.ts";
+import { InMemoryUserRepository } from "../../tests/support/fakes/user-repository.ts";
 import {
   BusyError,
   EmailTakenError,
   InvalidCredentialsError,
   PasswordBusyError,
-  UserNotFoundError,
   WeakPasswordError,
   findError,
 } from "../errors/index.ts";
 import { EncodedHash, Password } from "../models/index.ts";
-import type { Credential, NewUser, Params } from "../models/index.ts";
-import type {
-  IdProvider,
-  LoggerProvider,
-  PasswordProvider,
-} from "../providers/index.ts";
+import type { Params } from "../models/index.ts";
+import type { PasswordProvider } from "../providers/index.ts";
 import {
   Argon2PasswordProvider,
   defaultParams,
 } from "../providers/password/index.ts";
-import type { UserRepository } from "../repositories/index.ts";
 import { AuthService } from "./index.ts";
 
 function smallParams(): Params {
   return { ...defaultParams(), memoryKiB: 64, iterations: 1, parallelism: 1 };
 }
 
-class InMemoryUserRepository implements UserRepository {
-  usersById = new Map<string, NewUser>();
-  userIdByEmail = new Map<string, string>();
-
-  createUser(user: NewUser, signal: AbortSignal): Promise<void> {
-    if (signal.aborted) {
-      return Promise.reject(new Error("aborted", { cause: signal.reason }));
-    }
-    if (this.userIdByEmail.has(user.emailNormalized)) {
-      return Promise.reject(new EmailTakenError());
-    }
-    this.usersById.set(user.id, { ...user });
-    this.userIdByEmail.set(user.emailNormalized, user.id);
-    return Promise.resolve();
-  }
-
-  findCredentialByEmail(
-    emailNormalized: string,
-    signal: AbortSignal,
-  ): Promise<Credential> {
-    if (signal.aborted) {
-      return Promise.reject(new Error("aborted", { cause: signal.reason }));
-    }
-    const userId = this.userIdByEmail.get(emailNormalized);
-    const user = userId !== undefined ? this.usersById.get(userId) : undefined;
-    if (user === undefined) {
-      return Promise.reject(new UserNotFoundError());
-    }
-    return Promise.resolve({
-      userId: user.id,
-      passwordHash: user.passwordHash,
-    });
-  }
-
-  updatePasswordHash(
-    userId: string,
-    passwordHash: string,
-    signal: AbortSignal,
-  ): Promise<void> {
-    if (signal.aborted) {
-      return Promise.reject(new Error("aborted", { cause: signal.reason }));
-    }
-    const user = this.usersById.get(userId);
-    if (user === undefined) {
-      return Promise.reject(new UserNotFoundError());
-    }
-    this.usersById.set(userId, { ...user, passwordHash });
-    return Promise.resolve();
-  }
-}
-
-class SequentialIdProvider implements IdProvider {
-  #counter = 0;
-
-  newUserId(): string {
-    this.#counter++;
-    return `00000000-0000-4000-8000-${String(this.#counter).padStart(12, "0")}`;
-  }
-
-  newDummyPassword(): string {
-    return "dummy-password-for-integration-test";
-  }
-}
-
-class RecordingLogger implements LoggerProvider {
-  warns: {
-    message: string;
-    attributes: Record<string, unknown> | undefined;
-  }[] = [];
-  errors: {
-    message: string;
-    attributes: Record<string, unknown> | undefined;
-  }[] = [];
-
-  info(): void {}
-
-  warn(message: string, attributes?: Record<string, unknown>): void {
-    this.warns.push({ message, attributes });
-  }
-
-  error(message: string, attributes?: Record<string, unknown>): void {
-    this.errors.push({ message, attributes });
-  }
+function createIntegrationIds() {
+  return new SequentialIdProvider(
+    (value) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`,
+    "dummy-password-for-integration-test",
+  );
 }
 
 async function createIntegrationSetup(
@@ -117,7 +37,7 @@ async function createIntegrationSetup(
   ),
 ) {
   const repository = new InMemoryUserRepository();
-  const idProvider = new SequentialIdProvider();
+  const idProvider = createIntegrationIds();
   const logger = new RecordingLogger();
   const signal = new AbortController().signal;
   const service = await AuthService.create(
@@ -194,18 +114,15 @@ describe("AuthService integration with Argon2PasswordProvider", () => {
     );
     const firstPhc = repository.usersById.get(first.userId)?.passwordHash;
 
-    let caught: unknown;
-    try {
-      await service.register(
+    const caught = await rejected(
+      service.register(
         {
           email: "<DUP@Example.com>",
           rawPassword: "another password entirely",
         },
         signal,
-      );
-    } catch (error) {
-      caught = error;
-    }
+      ),
+    );
 
     expect(findError(caught, EmailTakenError)).toBeInstanceOf(EmailTakenError);
     expect(repository.usersById.size).toBe(1);
@@ -273,8 +190,8 @@ describe("AuthService integration with Argon2PasswordProvider", () => {
       expect(currentProvider.needsRehash(EncodedHash.parse(updatedPhc))).toBe(
         false,
       );
-      expect(logger.warns).toHaveLength(0);
-      expect(logger.errors).toHaveLength(0);
+      expect(logger.warnCalls).toHaveLength(0);
+      expect(logger.errorCalls).toHaveLength(0);
     },
   );
 
@@ -328,59 +245,50 @@ describe("AuthService integration with Argon2PasswordProvider", () => {
   it("propagates BusyError with signal.reason when AbortSignal is already aborted in create, register, and login", async () => {
     const provider = Argon2PasswordProvider.create(smallParams());
     const repository = new InMemoryUserRepository();
-    const idProvider = new SequentialIdProvider();
+    const idProvider = createIntegrationIds();
     const logger = new RecordingLogger();
 
     const abortReason = new Error("request cancelled");
     const abortedController = new AbortController();
     abortedController.abort(abortReason);
 
-    let createError: unknown;
-    try {
-      await AuthService.create(
+    const createError = await rejected(
+      AuthService.create(
         repository,
         provider,
         idProvider,
         logger,
         abortedController.signal,
-      );
-    } catch (error) {
-      createError = error;
-    }
+      ),
+    );
     expect(createError).toBeInstanceOf(BusyError);
     expect(findError(createError, PasswordBusyError)?.cause).toBe(abortReason);
 
     const { service } = await createIntegrationSetup(provider);
 
-    let registerError: unknown;
-    try {
-      await service.register(
+    const registerError = await rejected(
+      service.register(
         {
           email: "user@example.com",
           rawPassword: "correct horse battery staple",
         },
         abortedController.signal,
-      );
-    } catch (error) {
-      registerError = error;
-    }
+      ),
+    );
     expect(registerError).toBeInstanceOf(BusyError);
     expect(findError(registerError, PasswordBusyError)?.cause).toBe(
       abortReason,
     );
 
-    let loginDummyError: unknown;
-    try {
-      await service.login(
+    const loginDummyError = await rejected(
+      service.login(
         {
           email: "not-an-email",
           rawPassword: "correct horse battery staple",
         },
         abortedController.signal,
-      );
-    } catch (error) {
-      loginDummyError = error;
-    }
+      ),
+    );
     expect(loginDummyError).toBeInstanceOf(BusyError);
     expect(findError(loginDummyError, PasswordBusyError)?.cause).toBe(
       abortReason,

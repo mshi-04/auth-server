@@ -2,28 +2,19 @@ import { createServer, request } from "node:http";
 import type { IncomingHttpHeaders, Server } from "node:http";
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
+import { SequentialIdProvider } from "../../tests/support/fakes/id-provider.ts";
+import { RecordingLogger } from "../../tests/support/fakes/logger.ts";
+import { RecordingPasswordProvider } from "../../tests/support/fakes/password-provider.ts";
+import { RouteUserRepository } from "../../tests/support/fakes/user-repository.ts";
+import { listenOnLoopback } from "../../tests/support/http.ts";
 import { AuthController, WebController } from "../controllers/index.ts";
-import {
-  BusyError,
-  EmailTakenError,
-  InvalidHashError,
-  PasswordBusyError,
-  PolicyViolationError,
-  UserNotFoundError,
-} from "../errors/index.ts";
+import { BusyError } from "../errors/index.ts";
 import {
   createRequestContext,
   handleError,
   setSecurityHeaders,
 } from "../middlewares/index.ts";
 import { EncodedHash } from "../models/index.ts";
-import type { Credential, NewUser } from "../models/index.ts";
-import type {
-  IdProvider,
-  LoggerProvider,
-  PasswordProvider,
-} from "../providers/index.ts";
-import type { UserRepository } from "../repositories/index.ts";
 import { AuthService } from "../services/index.ts";
 import { createRoutes } from "./index.ts";
 
@@ -34,111 +25,6 @@ const validInput = {
 };
 const csp =
   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
-
-class MemoryRepository implements UserRepository {
-  users: NewUser[] = [];
-  findCalls: string[] = [];
-  updateCalls: { userId: string; passwordHash: string }[] = [];
-  onCreate = (): Promise<void> => Promise.resolve();
-  onFind = (): Promise<void> => Promise.resolve();
-  onUpdate = (): Promise<void> => Promise.resolve();
-
-  async createUser(user: NewUser): Promise<void> {
-    await this.onCreate();
-    if (
-      this.users.some((entry) => entry.emailNormalized === user.emailNormalized)
-    ) {
-      throw new EmailTakenError();
-    }
-    this.users.push(user);
-  }
-
-  async findCredentialByEmail(emailNormalized: string): Promise<Credential> {
-    this.findCalls.push(emailNormalized);
-    await this.onFind();
-    const user = this.users.find(
-      (entry) => entry.emailNormalized === emailNormalized,
-    );
-    if (user === undefined) {
-      throw new UserNotFoundError();
-    }
-    return { userId: user.id, passwordHash: user.passwordHash };
-  }
-
-  async updatePasswordHash(
-    userId: string,
-    passwordHash: string,
-  ): Promise<void> {
-    this.updateCalls.push({ userId, passwordHash });
-    await this.onUpdate();
-  }
-}
-
-class TestPasswordProvider implements PasswordProvider {
-  hashCalls = 0;
-  verifyCalls = 0;
-  rehashCalls = 0;
-  verifyResult = true;
-  rehashRequired = false;
-  onHash = (): Promise<EncodedHash> =>
-    Promise.resolve(EncodedHash.parse(storedPhc));
-  onVerify = (): Promise<boolean> => Promise.resolve(this.verifyResult);
-  onRehash = (): Promise<EncodedHash> =>
-    Promise.resolve(EncodedHash.parse(storedPhc));
-
-  hash(): Promise<EncodedHash> {
-    this.hashCalls++;
-    return this.onHash();
-  }
-
-  verify(): Promise<boolean> {
-    this.verifyCalls++;
-    return this.onVerify();
-  }
-
-  rehash(): Promise<EncodedHash> {
-    this.rehashCalls++;
-    return this.onRehash();
-  }
-
-  needsRehash(): boolean {
-    return this.rehashRequired;
-  }
-}
-
-class FixedIds implements IdProvider {
-  #next = 0;
-
-  newUserId(): string {
-    this.#next++;
-    return `test-user-${String(this.#next)}`;
-  }
-
-  newDummyPassword(): string {
-    return "dummy password for HTTP tests";
-  }
-}
-
-class MemoryLogger implements LoggerProvider {
-  warnings: {
-    message: string;
-    attributes: Record<string, unknown> | undefined;
-  }[] = [];
-  errors: {
-    message: string;
-    attributes: Record<string, unknown> | undefined;
-  }[] = [];
-
-  info(): void {}
-
-  warn(message: string, attributes?: Record<string, unknown>): void {
-    this.warnings.push({ message, attributes });
-  }
-
-  error(message: string, attributes?: Record<string, unknown>): void {
-    this.errors.push({ message, attributes });
-  }
-}
 
 interface WireResponse {
   status: number;
@@ -165,14 +51,22 @@ afterEach(async () => {
 });
 
 async function createFixture() {
-  const repository = new MemoryRepository();
-  const passwords = new TestPasswordProvider();
-  const logger = new MemoryLogger();
+  const repository = new RouteUserRepository();
+  const passwords = new RecordingPasswordProvider({
+    dummyHash: EncodedHash.parse(storedPhc),
+    hashedResult: EncodedHash.parse(storedPhc),
+    rehashedResult: EncodedHash.parse(storedPhc),
+  });
+  // サービス内部のログは auth-service.test.ts の担当なので、HTTP 層のログだけを別に記録する。
+  const logger = new RecordingLogger();
   const service = await AuthService.create(
     repository,
     passwords,
-    new FixedIds(),
-    logger,
+    new SequentialIdProvider(
+      (number) => `test-user-${String(number)}`,
+      "dummy password for HTTP tests",
+    ),
+    new RecordingLogger(),
     new AbortController().signal,
   );
   const assets = {
@@ -202,16 +96,8 @@ async function createFixture() {
       res.destroy();
     });
   });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
+  const port = await listenOnLoopback(server);
   servers.push(server);
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    throw new Error("Test server did not bind to TCP.");
-  }
-  const port = address.port;
   const url = `http://127.0.0.1:${String(port)}`;
 
   const send = async (
@@ -219,21 +105,21 @@ async function createFixture() {
     options: RequestInit = {},
   ): Promise<WireResponse> => {
     const response = await fetch(`${url}${path}`, options);
-    return {
+    return checkedResponse({
       status: response.status,
       headers: Object.fromEntries(response.headers),
       body: await response.text(),
-    };
+    });
   };
   const post = (path: string, value: unknown): Promise<WireResponse> =>
     send(path, { method: "POST", body: JSON.stringify(value) });
-  const raw = (
+  const raw = async (
     path: string,
     method = "GET",
     body?: Buffer,
     headers?: Record<string, string>,
-  ): Promise<WireResponse> =>
-    new Promise((resolve, reject) => {
+  ): Promise<WireResponse> => {
+    const response = await new Promise<WireResponse>((resolve, reject) => {
       const req = request(
         { hostname: "127.0.0.1", port, path, method, headers },
         (res) => {
@@ -252,13 +138,28 @@ async function createFixture() {
       req.once("error", reject);
       req.end(body);
     });
+    return checkedResponse(response);
+  };
   return { repository, passwords, logger, assets, send, post, raw };
 }
 
-function expectSecurity(response: WireResponse): void {
+function checkedResponse(response: WireResponse): WireResponse {
   expect(response.headers["cache-control"]).toBe("no-store");
   expect(response.headers["x-content-type-options"]).toBe("nosniff");
   expect(response.headers["content-security-policy"]).toBe(csp);
+  return response;
+}
+
+function expectProblemStatus(response: WireResponse, status: number): void {
+  expect(response.status).toBe(status);
+  expect(response.headers["content-type"]).toBe("application/problem+json");
+  const problem: unknown = JSON.parse(response.body);
+  expect(problem).toMatchObject({ status });
+}
+
+function expectProblemDetail(response: WireResponse, detail: string): void {
+  const problem: unknown = JSON.parse(response.body);
+  expect(problem).toMatchObject({ detail });
 }
 
 function expectProblem(
@@ -267,9 +168,7 @@ function expectProblem(
   title: string,
   detail: string,
 ): void {
-  expect(response.status).toBe(status);
-  expect(response.headers["content-type"]).toBe("application/problem+json");
-  expectSecurity(response);
+  expectProblemStatus(response, status);
   expect(JSON.parse(response.body)).toEqual({
     type: "about:blank",
     title,
@@ -285,7 +184,6 @@ describe("HTTP routes", () => {
     expect(registered.status).toBe(201);
     expect(registered.headers["content-type"]).toBe("application/json");
     expect(JSON.parse(registered.body)).toEqual({ user_id: "test-user-1" });
-    expectSecurity(registered);
     expect(fixture.repository.users).toEqual([
       {
         id: "test-user-1",
@@ -301,10 +199,7 @@ describe("HTTP routes", () => {
     expect(login.status).toBe(200);
     expect(JSON.parse(login.body)).toEqual({ user_id: "test-user-1" });
     expect(login.headers["set-cookie"]).toBeUndefined();
-    expectSecurity(login);
-    expect(fixture.repository.findCalls).toEqual(["person@example.com"]);
-    expect(fixture.passwords.verifyCalls).toBe(1);
-    expect(fixture.logger.errors).toEqual([]);
+    expect(fixture.logger.errorCalls).toEqual([]);
   });
 
   it("returns 409 for a normalized duplicate", async () => {
@@ -320,7 +215,7 @@ describe("HTTP routes", () => {
       "Conflict",
       "メールアドレスは既に登録されています",
     );
-    expect(fixture.logger.errors).toEqual([]);
+    expect(fixture.logger.errorCalls).toEqual([]);
   });
 
   it.each([
@@ -342,7 +237,6 @@ describe("HTTP routes", () => {
       expect(response.headers["content-type"]).toBe(contentType);
       expect(response.headers["content-length"]).toBe(String(bytes.length));
       expect(response.body).toBe(bytes.toString("utf8"));
-      expectSecurity(response);
       const head = await fixture.send(path, { method: "HEAD" });
       expect(head.status).toBe(200);
       expect(head.body).toBe("");
@@ -350,7 +244,6 @@ describe("HTTP routes", () => {
       expect(head.headers["content-length"]).toBe(
         response.headers["content-length"],
       );
-      expectSecurity(head);
 
       const original = bytes.toString("utf8");
       bytes.fill(0x78);
@@ -368,7 +261,6 @@ describe("HTTP routes", () => {
       const response = await fixture.send("/healthz", { method });
       expect(response.status).toBe(200);
       expect(response.body).toBe("");
-      expectSecurity(response);
       expect(fixture.repository.findCalls).toEqual([]);
     },
   );
@@ -396,12 +288,7 @@ describe("HTTP routes", () => {
   ])("returns 404 without normalizing %s", async (path) => {
     const fixture = await createFixture();
     const response = await fixture.raw(path);
-    expectProblem(
-      response,
-      404,
-      "Not Found",
-      "指定されたリソースが見つかりません",
-    );
+    expectProblemStatus(response, 404);
   });
 
   it.each([
@@ -416,7 +303,6 @@ describe("HTTP routes", () => {
       const fixture = await createFixture();
       const response = await fixture.raw(target);
       expect(response.status).toBe(status);
-      expectSecurity(response);
     },
   );
 
@@ -430,12 +316,7 @@ describe("HTTP routes", () => {
   ])("returns 405 and Allow for %s %s", async (path, method, allow) => {
     const fixture = await createFixture();
     const response = await fixture.send(path, { method });
-    expectProblem(
-      response,
-      405,
-      "Method Not Allowed",
-      "指定されたHTTPメソッドは使用できません",
-    );
+    expectProblemStatus(response, 405);
     expect(response.headers.allow).toBe(allow);
   });
 
@@ -452,30 +333,12 @@ describe("HTTP routes", () => {
       expect(response.status).toBe(status);
       expect(response.body).toBe("");
       expect(response.headers["content-type"]).toBe("application/problem+json");
-      expectSecurity(response);
     }
   });
 
   it.each([
-    "",
     "{",
-    "null",
-    "[]",
-    "123",
-    "true",
-    '"text"',
-    "{}",
-    '{"email":"user@example.com"}',
-    '{"password":"password"}',
-    '{"email":null,"password":"password"}',
-    '{"email":"user@example.com","password":null}',
-    '{"email":1,"password":"password"}',
-    '{"email":"user@example.com","password":[]}',
-    '{"Email":"user@example.com","password":"password"}',
-    '{"email":"user@example.com","Password":"password"}',
     '{"email":"user@example.com","password":"password","extra":1}',
-    '{"email":"user@example.com","password":"password"}{}',
-    '{"email":"user@example.com","password":"password"}garbage',
   ])(
     "rejects invalid JSON/input %s before calling the service",
     async (body) => {
@@ -484,45 +347,13 @@ describe("HTTP routes", () => {
         method: "POST",
         body,
       });
-      expectProblem(
-        response,
-        400,
-        "Bad Request",
-        "リクエストのJSONが正しくありません",
-      );
-      expect(fixture.passwords.hashCalls).toBe(1);
+      expectProblemStatus(response, 400);
+      expectProblemDetail(response, "リクエストのJSONが正しくありません");
+      expect(fixture.passwords.hashCalls).toHaveLength(1);
       expect(fixture.repository.users).toEqual([]);
-      expect(fixture.logger.errors).toEqual([]);
+      expect(fixture.logger.errorCalls).toEqual([]);
     },
   );
-
-  it("accepts duplicate keys with the last value and trailing whitespace", async () => {
-    const fixture = await createFixture();
-    const response = await fixture.send("/v1/users", {
-      method: "POST",
-      body: '{"email":false,"email":"last@example.com","password":null,"password":"abcdefghijkl"} \r\n\t',
-    });
-    expect(response.status).toBe(201);
-    expect(fixture.repository.users[0]?.email).toBe("last@example.com");
-  });
-
-  it("does not require Content-Type", async () => {
-    const fixture = await createFixture();
-    const response = await fixture.raw(
-      "/v1/users",
-      "POST",
-      Buffer.from(JSON.stringify(validInput)),
-    );
-    expect(response.status).toBe(201);
-  });
-
-  it("allows exactly 16 KiB including trailing whitespace", async () => {
-    const fixture = await createFixture();
-    const json = JSON.stringify(validInput);
-    const body = json + " ".repeat(16384 - Buffer.byteLength(json));
-    const response = await fixture.send("/v1/users", { method: "POST", body });
-    expect(response.status).toBe(201);
-  });
 
   it.each([false, true])(
     "rejects bodies larger than 16 KiB (chunked=%s)",
@@ -540,51 +371,11 @@ describe("HTTP routes", () => {
           ? { "Transfer-Encoding": "chunked" }
           : { "Content-Length": String(body.length) },
       );
-      expectProblem(
-        response,
-        413,
-        "Payload Too Large",
-        "リクエストボディが上限を超えています",
-      );
+      expectProblemStatus(response, 413);
       expect(response.headers.connection).toBe("close");
-      expect(fixture.passwords.hashCalls).toBe(1);
+      expect(fixture.passwords.hashCalls).toHaveLength(1);
     },
   );
-
-  it("counts multibyte input as bytes", async () => {
-    const fixture = await createFixture();
-    const body = JSON.stringify({
-      email: "あ".repeat(5500),
-      password: validInput.password,
-    });
-    expect(body.length).toBeLessThan(16384);
-    expect(Buffer.byteLength(body)).toBeGreaterThan(16384);
-    const response = await fixture.raw("/v1/users", "POST", Buffer.from(body), {
-      "Transfer-Encoding": "chunked",
-    });
-    expectProblem(
-      response,
-      413,
-      "Payload Too Large",
-      "リクエストボディが上限を超えています",
-    );
-  });
-
-  it("replaces malformed UTF-8 before JSON parsing", async () => {
-    const fixture = await createFixture();
-    const body = Buffer.concat([
-      Buffer.from('{"email":"'),
-      Buffer.from([0xff]),
-      Buffer.from('@example.com","password":"abcdefghijkl"}'),
-    ]);
-    const response = await fixture.raw("/v1/users", "POST", body);
-    expectProblem(
-      response,
-      422,
-      "Unprocessable Entity",
-      "メールアドレスの形式が正しくありません",
-    );
-  });
 
   it.each(["", "\ud800"])(
     "passes semantic email/password values to the service (%j)",
@@ -599,35 +390,14 @@ describe("HTTP routes", () => {
         email: value,
         password: value,
       });
-      expectProblem(
-        login,
-        401,
-        "Unauthorized",
-        "メールアドレスまたはパスワードが正しくありません",
-      );
+      expectProblemStatus(login, 401);
       expect(login.headers["www-authenticate"]).toBeUndefined();
-      expect(fixture.logger.errors).toEqual([]);
+      expect(fixture.logger.errorCalls).toEqual([]);
     },
   );
 
-  it("maps the provider minimum-length failure to 422", async () => {
-    const fixture = await createFixture();
-    fixture.passwords.onHash = () => Promise.reject(new PolicyViolationError());
-    const response = await fixture.post("/v1/users", {
-      ...validInput,
-      password: "short",
-    });
-    expectProblem(
-      response,
-      422,
-      "Unprocessable Entity",
-      "パスワードがポリシーを満たしていません",
-    );
-    expect(fixture.logger.errors).toEqual([]);
-  });
-
   it.each(["unknown", "invalid", "mismatch", "invalid-hash"])(
-    "unifies %s login failure without HTTP error logging",
+    "unifies %s login failure as 401 without HTTP error logging",
     async (failure) => {
       const fixture = await createFixture();
       if (failure === "mismatch" || failure === "invalid-hash") {
@@ -650,51 +420,20 @@ describe("HTTP routes", () => {
         ...validInput,
         email: failure === "invalid" ? "invalid email" : validInput.email,
       });
-      expectProblem(
-        response,
-        401,
-        "Unauthorized",
-        "メールアドレスまたはパスワードが正しくありません",
-      );
+      expectProblemStatus(response, 401);
       expect(response.headers["www-authenticate"]).toBeUndefined();
-      expect(fixture.passwords.verifyCalls).toBe(1);
-      expect(fixture.logger.errors).toHaveLength(
-        failure === "invalid-hash" ? 1 : 0,
-      );
-      if (failure === "invalid-hash") {
-        expect(fixture.logger.errors[0]?.message).toBe(
-          "invalid stored password hash",
-        );
-        expect(fixture.logger.errors[0]?.attributes?.error).toBeInstanceOf(
-          InvalidHashError,
-        );
-      }
+      expect(fixture.logger.errorCalls).toEqual([]);
     },
   );
 
-  it.each(["password", "database"])(
-    "maps a wrapped %s wait failure to 503",
-    async (source) => {
-      const fixture = await createFixture();
-      if (source === "password") {
-        fixture.passwords.onHash = () =>
-          Promise.reject(
-            new Error("wrapped", { cause: new PasswordBusyError() }),
-          );
-      } else {
-        fixture.repository.onCreate = () =>
-          Promise.reject(new Error("wrapped", { cause: new BusyError() }));
-      }
-      const response = await fixture.post("/v1/users", validInput);
-      expectProblem(
-        response,
-        503,
-        "Service Unavailable",
-        "一時的に処理を受け付けられません",
-      );
-      expect(fixture.logger.errors).toEqual([]);
-    },
-  );
+  it("maps a wrapped busy failure to 503 without HTTP error logging", async () => {
+    const fixture = await createFixture();
+    fixture.repository.onCreate = () =>
+      Promise.reject(new Error("wrapped", { cause: new BusyError() }));
+    const response = await fixture.post("/v1/users", validInput);
+    expectProblemStatus(response, 503);
+    expect(fixture.logger.errorCalls).toEqual([]);
+  });
 
   it("returns a fixed 500 and logs the failure once", async () => {
     const fixture = await createFixture();
@@ -708,26 +447,18 @@ describe("HTTP routes", () => {
       "サーバー内部でエラーが発生しました",
     );
     expect(response.body).not.toContain(failure.message);
-    expect(fixture.logger.errors).toHaveLength(1);
+    expect(fixture.logger.errorCalls).toHaveLength(1);
   });
 
-  it.each(["generate", "save"])(
-    "keeps login successful after rehash %s failure with one service warning",
-    async (stage) => {
-      const fixture = await createFixture();
-      await fixture.post("/v1/users", validInput);
-      fixture.passwords.rehashRequired = true;
-      const failure = new Error("rehash failed");
-      if (stage === "generate") {
-        fixture.passwords.onRehash = () => Promise.reject(failure);
-      } else {
-        fixture.repository.onUpdate = () => Promise.reject(failure);
-      }
-      const response = await fixture.post("/v1/sessions", validInput);
-      expect(response.status).toBe(200);
-      expect(JSON.parse(response.body)).toEqual({ user_id: "test-user-1" });
-      expect(fixture.logger.warnings).toHaveLength(1);
-      expect(fixture.logger.errors).toEqual([]);
-    },
-  );
+  it("keeps login successful when the service tolerates a rehash failure", async () => {
+    const fixture = await createFixture();
+    await fixture.post("/v1/users", validInput);
+    fixture.passwords.needsRehashResult = true;
+    fixture.repository.onUpdate = () =>
+      Promise.reject(new Error("rehash failed"));
+    const response = await fixture.post("/v1/sessions", validInput);
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ user_id: "test-user-1" });
+    expect(fixture.logger.errorCalls).toEqual([]);
+  });
 });

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { rejected } from "../../../tests/support/errors.ts";
 import { BusyError } from "../../errors/index.ts";
 import { openDatabase } from "./initialization.ts";
 
@@ -107,9 +108,9 @@ describe("SQLite connection initialization", () => {
     lockRollbackDatabase(path);
     fakeTime();
     let failure: unknown;
-    const pending = openDatabase(path, signal).catch((error: unknown) => {
-      failure = error;
-    });
+    const pending = (async () => {
+      failure = await rejected(openDatabase(path, signal));
+    })();
     await vi.advanceTimersByTimeAsync(4999);
     expect(failure).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1);
@@ -142,9 +143,7 @@ describe("SQLite connection initialization", () => {
     fakeTime();
     const controller = new AbortController();
     const reason = new Error("request cancelled");
-    const pending = openDatabase(path, controller.signal).catch(
-      (error: unknown) => error,
-    );
+    const pending = rejected(openDatabase(path, controller.signal));
     await vi.advanceTimersByTimeAsync(35);
     controller.abort(reason);
     expect(await pending).toMatchObject({

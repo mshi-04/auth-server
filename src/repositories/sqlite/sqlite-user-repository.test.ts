@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { caught, rejected } from "../../../tests/support/errors.ts";
 import {
   BusyError,
   EmailTakenError,
@@ -56,24 +57,6 @@ function testUser(): NewUser {
 function rowCount(observer: Database, table: "users" | "password_credentials") {
   return observer.prepare(`SELECT count(*) AS count FROM ${table}`).get()
     ?.count;
-}
-
-function caught(action: () => unknown): unknown {
-  try {
-    action();
-  } catch (error) {
-    return error;
-  }
-  throw new Error("expected the operation to fail");
-}
-
-async function rejected(promise: Promise<unknown>): Promise<unknown> {
-  try {
-    await promise;
-  } catch (error) {
-    return error;
-  }
-  throw new Error("expected the operation to fail");
 }
 
 function requireTimestamp(value: unknown, before: number, after: number) {
@@ -190,12 +173,7 @@ describe("SqliteUserRepository", () => {
       const original = testUser();
       await repository.createUser(original, signal);
       const duplicate = { ...original, id, emailNormalized: email };
-      let failure: unknown;
-      try {
-        await repository.createUser(duplicate, signal);
-      } catch (error) {
-        failure = error;
-      }
+      const failure = await rejected(repository.createUser(duplicate, signal));
       expect(failure).toBeInstanceOf(Error);
       expect(findError(failure, EmailTakenError) !== undefined).toBe(taken);
       expect(findSqliteError(failure)).toMatchObject({
@@ -434,23 +412,18 @@ describe("SqliteUserRepository", () => {
       await repository.createUser(user, signal);
       observer.exec("BEGIN IMMEDIATE");
       try {
-        let failure: unknown;
-        try {
-          if (operation === "create") {
-            await repository.createUser(
-              {
-                ...user,
-                id: "another",
-                emailNormalized: "another@example.test",
-              },
-              signal,
-            );
-          } else {
-            await repository.updatePasswordHash(user.id, "replacement", signal);
-          }
-        } catch (error) {
-          failure = error;
-        }
+        const failure = await rejected(
+          operation === "create"
+            ? repository.createUser(
+                {
+                  ...user,
+                  id: "another",
+                  emailNormalized: "another@example.test",
+                },
+                signal,
+              )
+            : repository.updatePasswordHash(user.id, "replacement", signal),
+        );
         expect(findError(failure, BusyError)).toBeInstanceOf(BusyError);
         expect(findSqliteError(failure)).toMatchObject({
           code: "ERR_SQLITE_ERROR",

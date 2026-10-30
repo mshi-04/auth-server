@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { rejected } from "../../../tests/support/errors.ts";
 import { PasswordBusyError } from "../../errors/index.ts";
 import { Semaphore } from "./semaphore.ts";
 
@@ -37,9 +38,9 @@ describe("semaphore waiting", () => {
     const semaphore = Semaphore.create(1, 5000);
     const release = await semaphore.acquire(freeSignal);
     let failure: unknown;
-    const waiting = semaphore.acquire(freeSignal).catch((error: unknown) => {
-      failure = error;
-    });
+    const waiting = (async () => {
+      failure = await rejected(semaphore.acquire(freeSignal));
+    })();
     await vi.advanceTimersByTimeAsync(4999);
     expect(failure).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1);
@@ -76,9 +77,7 @@ describe("semaphore waiting", () => {
     const release = await semaphore.acquire(freeSignal);
     const controller = new AbortController();
     const reason = new Error("deadline");
-    const canceled = semaphore
-      .acquire(controller.signal)
-      .catch((error: unknown) => error);
+    const canceled = rejected(semaphore.acquire(controller.signal));
     const next = semaphore.acquire(freeSignal);
     controller.abort(reason);
     expect(await canceled).toMatchObject({
@@ -94,9 +93,7 @@ describe("semaphore waiting", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     const semaphore = Semaphore.create(1, 1);
     const release = await semaphore.acquire(freeSignal);
-    const failure = semaphore
-      .acquire(freeSignal)
-      .catch((error: unknown) => error);
+    const failure = rejected(semaphore.acquire(freeSignal));
     vi.spyOn(performance, "now").mockReturnValue(2);
     release();
     expect(await failure).toBeInstanceOf(PasswordBusyError);
@@ -109,9 +106,10 @@ describe("semaphore waiting", () => {
     const semaphore = Semaphore.create(1, 2147483648);
     const release = await semaphore.acquire(freeSignal);
     let timedOut = false;
-    const waiting = semaphore.acquire(freeSignal).catch(() => {
+    const waiting = (async () => {
+      await rejected(semaphore.acquire(freeSignal));
       timedOut = true;
-    });
+    })();
     await vi.advanceTimersByTimeAsync(2147483647);
     expect(timedOut).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
