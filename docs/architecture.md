@@ -176,7 +176,7 @@ HTTP フレームワークは使わず、`node:http` 向けの関数として構
 
 `SqliteUserRepository.open(path, signal)` は接続を 1 つだけ所有する具体実装を返す（`Promise`）。`open`・`close` は組み立て用の API で、Service 向けの `UserRepository` には含めない。接続確認・WAL・`init.sql` 初期化の失敗時は接続を閉じる。権限検査、新規 DB の `0o600`、WAL 切り替えだけの再試行は [DB 仕様の初期化と接続設定](database.md#初期化と接続設定)、`BEGIN IMMEDIATE` と SQLite エラーの `code`・数値 `errcode` による変換は [DB 仕様の書き込み](database.md#書き込み)を維持する。
 
-`src/repositories/sqlite/sqlite-user-repository.ts` の `SqliteUserRepository` が接続を所有する。初期化・権限検査・DB エラー変換・スキーマ・公開口・型補助宣言とテストは同じモジュールに置く。`@types/node` 26.6.5 にない `Database` の型だけを補う `node-sqlite.d.ts` は、型定義が改名に対応するまで保持する。実行時は `Database` を直接使う。
+`src/repositories/sqlite/sqlite-user-repository.ts` の `SqliteUserRepository` が接続を所有する。初期化・権限検査・DB エラー変換・スキーマ・公開口・型補助宣言とテストは同じモジュールに置く。現在の `@types/node` にない `Database` の型だけを補う `node-sqlite.d.ts` は、型定義が改名に対応するまで保持する。実行時は `Database` を直接使う。
 
 SQLite のメソッドは同期 API を使うが、interface は `Promise` を返し、同期例外を外へ投げない。Service へ接続・行型・トランザクション操作を公開しない。予期しない DB エラーは文脈と `cause` を付けて投げ、Repository ではログを出さない。
 
