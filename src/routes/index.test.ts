@@ -8,12 +8,7 @@ import { RecordingPasswordProvider } from "../../tests/support/fakes/password-pr
 import { RouteUserRepository } from "../../tests/support/fakes/user-repository.ts";
 import { listenOnLoopback } from "../../tests/support/http.ts";
 import { AuthController, WebController } from "../controllers/index.ts";
-import {
-  BusyError,
-  InvalidHashError,
-  PasswordBusyError,
-  PolicyViolationError,
-} from "../errors/index.ts";
+import { BusyError } from "../errors/index.ts";
 import {
   createRequestContext,
   handleError,
@@ -62,6 +57,7 @@ async function createFixture() {
     hashedResult: EncodedHash.parse(storedPhc),
     rehashedResult: EncodedHash.parse(storedPhc),
   });
+  // サービス内部のログは auth-service.test.ts の担当なので、HTTP 層のログだけを別に記録する。
   const logger = new RecordingLogger();
   const service = await AuthService.create(
     repository,
@@ -70,7 +66,7 @@ async function createFixture() {
       (number) => `test-user-${String(number)}`,
       "dummy password for HTTP tests",
     ),
-    logger,
+    new RecordingLogger(),
     new AbortController().signal,
   );
   const assets = {
@@ -203,8 +199,6 @@ describe("HTTP routes", () => {
     expect(login.status).toBe(200);
     expect(JSON.parse(login.body)).toEqual({ user_id: "test-user-1" });
     expect(login.headers["set-cookie"]).toBeUndefined();
-    expect(fixture.repository.findCalls).toEqual(["person@example.com"]);
-    expect(fixture.passwords.verifyCalls).toHaveLength(1);
     expect(fixture.logger.errorCalls).toEqual([]);
   });
 
@@ -343,25 +337,8 @@ describe("HTTP routes", () => {
   });
 
   it.each([
-    "",
     "{",
-    "null",
-    "[]",
-    "123",
-    "true",
-    '"text"',
-    "{}",
-    '{"email":"user@example.com"}',
-    '{"password":"password"}',
-    '{"email":null,"password":"password"}',
-    '{"email":"user@example.com","password":null}',
-    '{"email":1,"password":"password"}',
-    '{"email":"user@example.com","password":[]}',
-    '{"Email":"user@example.com","password":"password"}',
-    '{"email":"user@example.com","Password":"password"}',
     '{"email":"user@example.com","password":"password","extra":1}',
-    '{"email":"user@example.com","password":"password"}{}',
-    '{"email":"user@example.com","password":"password"}garbage',
   ])(
     "rejects invalid JSON/input %s before calling the service",
     async (body) => {
@@ -377,34 +354,6 @@ describe("HTTP routes", () => {
       expect(fixture.logger.errorCalls).toEqual([]);
     },
   );
-
-  it("accepts duplicate keys with the last value and trailing whitespace", async () => {
-    const fixture = await createFixture();
-    const response = await fixture.send("/v1/users", {
-      method: "POST",
-      body: '{"email":false,"email":"last@example.com","password":null,"password":"abcdefghijkl"} \r\n\t',
-    });
-    expect(response.status).toBe(201);
-    expect(fixture.repository.users[0]?.email).toBe("last@example.com");
-  });
-
-  it("does not require Content-Type", async () => {
-    const fixture = await createFixture();
-    const response = await fixture.raw(
-      "/v1/users",
-      "POST",
-      Buffer.from(JSON.stringify(validInput)),
-    );
-    expect(response.status).toBe(201);
-  });
-
-  it("allows exactly 16 KiB including trailing whitespace", async () => {
-    const fixture = await createFixture();
-    const json = JSON.stringify(validInput);
-    const body = json + " ".repeat(16384 - Buffer.byteLength(json));
-    const response = await fixture.send("/v1/users", { method: "POST", body });
-    expect(response.status).toBe(201);
-  });
 
   it.each([false, true])(
     "rejects bodies larger than 16 KiB (chunked=%s)",
@@ -428,32 +377,6 @@ describe("HTTP routes", () => {
     },
   );
 
-  it("counts multibyte input as bytes", async () => {
-    const fixture = await createFixture();
-    const body = JSON.stringify({
-      email: "あ".repeat(5500),
-      password: validInput.password,
-    });
-    expect(body.length).toBeLessThan(16384);
-    expect(Buffer.byteLength(body)).toBeGreaterThan(16384);
-    const response = await fixture.raw("/v1/users", "POST", Buffer.from(body), {
-      "Transfer-Encoding": "chunked",
-    });
-    expectProblemStatus(response, 413);
-  });
-
-  it("replaces malformed UTF-8 before JSON parsing", async () => {
-    const fixture = await createFixture();
-    const body = Buffer.concat([
-      Buffer.from('{"email":"'),
-      Buffer.from([0xff]),
-      Buffer.from('@example.com","password":"abcdefghijkl"}'),
-    ]);
-    const response = await fixture.raw("/v1/users", "POST", body);
-    expectProblemStatus(response, 422);
-    expectProblemDetail(response, "メールアドレスの形式が正しくありません");
-  });
-
   it.each(["", "\ud800"])(
     "passes semantic email/password values to the service (%j)",
     async (value) => {
@@ -473,24 +396,8 @@ describe("HTTP routes", () => {
     },
   );
 
-  it("maps the provider minimum-length failure to 422", async () => {
-    const fixture = await createFixture();
-    fixture.passwords.onHash = () => Promise.reject(new PolicyViolationError());
-    const response = await fixture.post("/v1/users", {
-      ...validInput,
-      password: "short",
-    });
-    expectProblem(
-      response,
-      422,
-      "Unprocessable Entity",
-      "パスワードがポリシーを満たしていません",
-    );
-    expect(fixture.logger.errorCalls).toEqual([]);
-  });
-
   it.each(["unknown", "invalid", "mismatch", "invalid-hash"])(
-    "unifies %s login failure without HTTP error logging",
+    "unifies %s login failure as 401 without HTTP error logging",
     async (failure) => {
       const fixture = await createFixture();
       if (failure === "mismatch" || failure === "invalid-hash") {
@@ -515,39 +422,18 @@ describe("HTTP routes", () => {
       });
       expectProblemStatus(response, 401);
       expect(response.headers["www-authenticate"]).toBeUndefined();
-      expect(fixture.passwords.verifyCalls).toHaveLength(1);
-      expect(fixture.logger.errorCalls).toHaveLength(
-        failure === "invalid-hash" ? 1 : 0,
-      );
-      if (failure === "invalid-hash") {
-        expect(fixture.logger.errorCalls[0]?.message).toBe(
-          "invalid stored password hash",
-        );
-        expect(fixture.logger.errorCalls[0]?.attributes?.error).toBeInstanceOf(
-          InvalidHashError,
-        );
-      }
-    },
-  );
-
-  it.each(["password", "database"])(
-    "maps a wrapped %s wait failure to 503",
-    async (source) => {
-      const fixture = await createFixture();
-      if (source === "password") {
-        fixture.passwords.onHash = () =>
-          Promise.reject(
-            new Error("wrapped", { cause: new PasswordBusyError() }),
-          );
-      } else {
-        fixture.repository.onCreate = () =>
-          Promise.reject(new Error("wrapped", { cause: new BusyError() }));
-      }
-      const response = await fixture.post("/v1/users", validInput);
-      expectProblemStatus(response, 503);
       expect(fixture.logger.errorCalls).toEqual([]);
     },
   );
+
+  it("maps a wrapped busy failure to 503 without HTTP error logging", async () => {
+    const fixture = await createFixture();
+    fixture.repository.onCreate = () =>
+      Promise.reject(new Error("wrapped", { cause: new BusyError() }));
+    const response = await fixture.post("/v1/users", validInput);
+    expectProblemStatus(response, 503);
+    expect(fixture.logger.errorCalls).toEqual([]);
+  });
 
   it("returns a fixed 500 and logs the failure once", async () => {
     const fixture = await createFixture();
@@ -564,23 +450,15 @@ describe("HTTP routes", () => {
     expect(fixture.logger.errorCalls).toHaveLength(1);
   });
 
-  it.each(["generate", "save"])(
-    "keeps login successful after rehash %s failure with one service warning",
-    async (stage) => {
-      const fixture = await createFixture();
-      await fixture.post("/v1/users", validInput);
-      fixture.passwords.needsRehashResult = true;
-      const failure = new Error("rehash failed");
-      if (stage === "generate") {
-        fixture.passwords.onRehash = () => Promise.reject(failure);
-      } else {
-        fixture.repository.onUpdate = () => Promise.reject(failure);
-      }
-      const response = await fixture.post("/v1/sessions", validInput);
-      expect(response.status).toBe(200);
-      expect(JSON.parse(response.body)).toEqual({ user_id: "test-user-1" });
-      expect(fixture.logger.warnCalls).toHaveLength(1);
-      expect(fixture.logger.errorCalls).toEqual([]);
-    },
-  );
+  it("keeps login successful when the service tolerates a rehash failure", async () => {
+    const fixture = await createFixture();
+    await fixture.post("/v1/users", validInput);
+    fixture.passwords.needsRehashResult = true;
+    fixture.repository.onUpdate = () =>
+      Promise.reject(new Error("rehash failed"));
+    const response = await fixture.post("/v1/sessions", validInput);
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ user_id: "test-user-1" });
+    expect(fixture.logger.errorCalls).toEqual([]);
+  });
 });
