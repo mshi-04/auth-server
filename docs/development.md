@@ -45,7 +45,7 @@ wsl -d Ubuntu-24.04 --exec bash -lc '. "$HOME/.nvm/nvm.sh" && nvm use --silent &
 
 SQLite はファイル 1 つで動作し、別途 DB サーバーを起動する必要はない。
 
-- `@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、`src/repositories/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。実行時は `Database` を直接使い、型定義が対応したら補助宣言を削除する
+- 現在の `@types/node` には Node 26.11 の `Database` への改名がまだ反映されていないため、`src/repositories/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。実行時は `Database` を直接使い、型定義が対応したら補助宣言を削除する
 - DB ファイルは `/mnt/c` 配下に置かない。WSL 側（例：`~/.local/share/auth-server/auth.db`）に置く
 - 親ディレクトリは自動で作られないため、初回は `mkdir -p -m 700 ~/.local/share/auth-server` で所有者専用に作っておく
 - 既存の親ディレクトリは `chmod 700 ~/.local/share/auth-server` で権限を制限する。DB と既存の `-wal`・`-shm`・`-journal` ファイルにも所有者以外の権限があれば、該当ファイルを `chmod 600` にしてから起動する。親とファイルの所有者は実行ユーザーと一致させる。シンボリックリンクは使わない
@@ -124,6 +124,7 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 - 更新はエコシステムごとに 1 件の PR にまとめる（`groups`）
 - npm パッケージはルートの `package.json`・`package-lock.json`、GitHub Actions は `.github/workflows/` と `.github/actions/setup-node/action.yml` を対象にする。共通アクション内の依存も更新できるよう、GitHub Actions の確認先に `/` と `/.github/actions/setup-node` を指定する
 - Node のメジャーバージョン（`.nvmrc`）は Dependabot の対象外とし、手で更新する
+- TypeScript は [tech-stack.md の開発用の依存](tech-stack.md#開発用の依存)に従い、型検査用の `@typescript/native`（`typescript` 7 系の npm alias）と、ESLint の API 用の `typescript`（`@typescript/typescript6` の npm alias）を併用する。更新時は alias の対象パッケージの安定版と typescript-eslint の対応範囲を確認し、`npm ci`・型検査・Lint がすべて通る組み合わせにする。`npm ci` の後に `npm exec -- tsc --version` が 7 系を示すことも確認する
 - Dependabot は既定ブランチの設定ファイルを読むため、定期更新はこの設定が `main` に入ってから有効になる。設定ファイルの配置先と、更新 PR のマージ先の `develop` は異なる
 - GitHub の自動セキュリティ更新 PR は `target-branch` に従わず既定ブランチの `main` 向けになるため、リポジトリ設定で無効にする。Dependabot alerts（脆弱性の通知）は有効のまま残す。[GitHub の target-branch 仕様](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch)を参照
 - 通知された脆弱性は、修正 PR を手で `develop` 向けに作るか、週次の更新 PR で直す。通知は `main` の依存関係から計算されるため、修正が `main` に入るまで通知は残り、`main` には脆弱な版が残る。急ぐ場合は、修正後すぐに `develop` を `main` へマージする
