@@ -107,6 +107,9 @@
 - サービスの分岐とエラー変換は偽の `PasswordProvider` で検証する。小さいパラメータの本物の `Argon2PasswordProvider` を使う結合テストも残し、PHC・NFKC・再ハッシュの連携を確かめる
 - `#` フィールドだけを持つ `Password`・`EncodedHash` は、`toEqual`・`toStrictEqual` では別の値でも等しくなる。偽物に渡された値は `toBe`（参照の同一性）、`EncodedHash` の内容は `phc()` で比べる
 - 共通の準備はヘルパー関数にまとめ、失敗したときにどの入力か分かるテスト名にする
+- 共有する偽物と補助関数の配置・利用範囲は architecture.md に従う。異なる用途をモードで切り替える万能な偽物を作らず、各テストで新しいインスタンスを作る
+- エラーを取り出して検査するときは、同期例外を共有の `caught`、Promise の失敗を `rejected` で捕捉する。同じ処理を複数回呼んで別の属性を検査しない。同期的に投げないことや失敗前の状態を確かめる観測は残す
+- 同じ分岐でも入力経路・副作用・原因・中断条件が異なる確認は残す。アサーションを削るときは残る確認先を明らかにし、固定変換と各層の連携の責任を分ける
 - 変更した振る舞いには、その振る舞いが壊れたら失敗するテストを付ける。必ず通ってしまうテストを書かない
 - 時間に依存するテストは、Vitest の偽タイマー（`vi.useFakeTimers`）で決定的にする。並行性に依存するテストは、`Promise` の解決の順序をテスト側で制御する
 
@@ -114,8 +117,8 @@
 
 - 書式は Prettier に任せ、手で揃えない。整形だけの変更を、ほかの変更と同じコミットに混ぜない
 - ESLint は typescript-eslint の `strictTypeChecked` を基本にする。AGENTS.md の禁止事項（乱数 API の制限など）、イベントループを止める `argon2Sync`、依存規則を回避する動的 import と `createRequire` も禁止する
-- 層の構成を変えるときは `eslint.config.js` とその検証テストも合わせる。`services` の HTTP・DB・暗号モジュールへの直接依存、`repositories/sqlite` 以外の `node:sqlite`、具体的な Provider 以外の暗号呼び出し、逆向きの import を禁止する。旧 `src/store/sqlite/` の経路と暫定規則は撤去済みである。モデル内部へのアクセスは上記の秘密値契約だけを例外とし、`src/index.ts` は全体を組み立てる唯一の入口にする
-- `eslint.config.js` は層ごとの依存規則を検査する。許可・拒否の組み合わせは `.github/scripts/eslint-config.test.ts` で検証する。禁止する名前やパターンの実際の一覧は `eslint.config.js` を正本とする
+- 層や共有補助コードの構成を変えるときは `eslint.config.js` を合わせ、設定テストの代表例を見直す。`services` の HTTP・DB・暗号モジュールへの直接依存、`repositories/sqlite` 以外の `node:sqlite`、具体的な Provider 以外の暗号呼び出し、逆向きの import を禁止する。旧 `src/store/sqlite/` の経路と暫定規則は撤去済みである。モデル内部へのアクセスは上記の秘密値契約だけを例外とし、`src/index.ts` は全体を組み立てる唯一の入口にする
+- `eslint.config.js` は層ごとの依存規則を検査する。`.github/scripts/eslint-config.test.ts` は許可・拒否の代表例による最小限の確認とし、層の全組み合わせや回避構文は網羅しない。禁止する名前やパターンの実際の一覧は `eslint.config.js` を正本とする
 - ESLint の指摘はコードを直して解消し、本番コードで抑制しない。例外は `*.test.ts` で、規則が禁止する書き方自体を試す必要がある場合だけとする。例として、秘密値をテンプレートリテラルへ埋め込んでも伏字になることを確かめるテストがある。この例外で `any`・型アサーション・TypeScript の抑制禁止を回避しない
 - 例外には対象行だけの `eslint-disable-next-line` を使い、規則名と検証のために必要な理由を同じ行に書く。ファイル全体・範囲全体の抑制、規則名や理由の省略を認めない
 

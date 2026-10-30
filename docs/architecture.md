@@ -26,7 +26,7 @@ Interface の定義は `repositories/` と `providers/` に置く。具体実装
 - `repositories/index.ts`・`providers/index.ts` は Service 向けの interface を公開し、具体実装は `repositories/sqlite/index.ts`・`providers/password/index.ts` などの実装用の公開口から `src/index.ts` が取得する。具体実装の生成関数も Service に公開しない。
 - 単一ファイルの実装用公開口である `providers/crypto-id-provider.ts`・`providers/json-logger-provider.ts` は、組み立てを行う `src/index.ts` だけが直接 import できる。
 - `models/index.ts` は値オブジェクトと共通型を公開し、秘密値を扱う内部関数は公開しない。Provider 専用の内部 import の例外は下記で定める。
-- テストは対象と同じディレクトリの `*.test.ts`、ベンチマークは `*.bench.ts` に置く。
+- テストは対象と同じディレクトリの `*.test.ts`、ベンチマークは `*.bench.ts` に置く。複数のテストで使う偽物と補助関数だけは、リポジトリ直下の `tests/support/` に置く。
 - `public/` は TS のソースと分離した配信資源である。
 
 ## 各層の責務と許可する依存
@@ -36,6 +36,11 @@ Interface の定義は `repositories/` と `providers/` に置く。具体実装
 依存表と実装用公開口の制約は本番コードを対象にする。テスト・ベンチマークでは、対象モジュール内部の検証や本物の Provider を注入する結合テストに必要な import を、対象ファイルに限定して許可する。テスト用の例外を本番コードから利用したり、Service の実装へ具体クラスの依存を持ち込んだりしない。
 
 HTTP の結合テスト `routes/index.test.ts` は、本物の `AuthService` と手書きの偽物を組み合わせるため、`services/index.ts` と Repository・Provider の interface を参照できる。`src/index.test.ts` は組み立てと起動・終了を検証するため、`src/index.ts` と各モジュールの公開口を参照できる。入口への import を許可するのは、このテストだけとする。
+
+`tests/support/` を import できるのはテスト・ベンチマーク（`*.test.ts`・`*.bench.ts`）だけとし、本番コードからは import・型 import・再 export できない。補助コード同士の依存や全体の公開口は設けず、用途ごとに直接 import する。補助コードが依存できるのは次に限り、具体的な Provider・モデルの秘密値 API・起動入口・テスト本体には依存させない。
+
+- 型 import だけ：`providers/index.ts`・`repositories/index.ts`・`models/index.ts`、`node:http`
+- 値の import も可：`errors/index.ts`、`node:events`
 
 | 層 | 責務 | 依存してよい先 |
 |---|---|---|
@@ -51,7 +56,7 @@ HTTP の結合テスト `routes/index.test.ts` は、本物の `AuthService` と
 | `errors` | HTTP 非依存のカスタムエラーと `cause` 探索 | Node 標準のみ |
 | `index.ts` | 設定、資源の所有、具体実装の生成、DI、サーバー起動・終了 | すべて |
 
-- `node:http`・`node:https`・`node:http2` は `routes`・`controllers`・`middlewares`・`index.ts` に限る。
+- `node:http`・`node:https`・`node:http2` は `routes`・`controllers`・`middlewares`・`index.ts` に限る。テスト用の `tests/support/` には `node:http` の型だけを例外として許可する。
 - `node:sqlite` は `repositories/sqlite` に限る。`index.ts` も Repository の API から接続を開閉し、DB 接続や行型を上位へ漏らさない。
 - `node:crypto` は `providers` の具体実装に限る。Service の UUID・ダミーハッシュ用乱数も Provider を経由する。モデルの正規化・PHC 構文解析は暗号計算を行わない。
 - Service は `req`・`res`・HTTP ステータス、HTTP DTO、環境変数、SQLite、暗号 API を参照しない。Repository・Provider から Service への逆依存も禁止する。
@@ -61,7 +66,7 @@ HTTP の結合テスト `routes/index.test.ts` は、本物の `AuthService` と
 
 ### import の検査
 
-`eslint.config.js` で上の依存規則を検査し、`.github/scripts/eslint-config.test.ts` で許可・拒否の組み合わせを検証する。新ディレクトリを追加するだけで依存検査が機能したとは扱わない。Service から具体実装への型 import、実装用公開口へのアクセス、再 export や動的 import による回避も禁止する。名前が `ForTesting` で終わるテスト用の差し替え口（`providers/password/derive.ts` の `replaceDerivationForTesting` など）は、テスト・ベンチマーク以外から import・再 export・プロパティ参照できない。名前を検査できるよう、差し替え口を持つモジュールは本番コードから `import * as` で読み込まず、`export *` で再 export しない。対象のモジュールは `eslint.config.js` に列挙する。
+`eslint.config.js` で上の依存規則と共有補助コードの境界を検査する。`.github/scripts/eslint-config.test.ts` は、ルールが違反を報告し、正当な利用を拒否しないことを代表例で確認する最小限のテストとする。層の全組み合わせや回避構文を網羅するものではない。新ディレクトリを追加するだけで依存検査が機能したとは扱わない。Service から具体実装への型 import、実装用公開口へのアクセス、再 export や動的 import による回避も禁止する。名前が `ForTesting` で終わるテスト用の差し替え口（`providers/password/derive.ts` の `replaceDerivationForTesting` など）は、テスト・ベンチマーク以外から import・再 export・プロパティ参照できない。名前を検査できるよう、差し替え口を持つモジュールは本番コードから `import * as` で読み込まず、`export *` で再 export しない。対象のモジュールは `eslint.config.js` に列挙する。
 
 モデルの秘密値を扱う内部 import は `providers/password/argon2-password-provider.ts` と、その内部契約を検証する `models/password/values.test.ts` に限定する。旧 `src/password/`・`src/store/sqlite/` の経路と暫定規則は撤去済みで、`src/index.ts` を唯一の組み立て経路とする。
 
@@ -194,11 +199,16 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 | AuthService | 手書きの偽 Repository・Provider で手順・エラー変換を検証。`Password`・`EncodedHash` は `#` フィールドだけを持ち偽物から中身を読めず、`toEqual` では別の値も等しくなる。偽 `PasswordProvider` は受け取った値を記録して決めた結果を返し、渡した値は `toBe`（参照の同一性）、`EncodedHash` は `phc()` で比べる。正規化・PHC・再ハッシュの連携は、本物の低コスト Password Provider を注入するテストで検証する。本物の Provider を import できるのは `services/auth-service.test.ts` と `services/auth-service.integration.test.ts` だけとする |
 | SQLite Repository | 一時ディレクトリの実 DB でトランザクション・重複・対象なし・権限・BUSY を検証。対象 Node の `errcode` の形も固定 |
 | Schemas | `unknown` からの構造検証。空文字を意味検査の前に拒否しない |
-| HTTP 境界 | ポート 0 の実 `http.Server` と `fetch` でステータス・ヘッダー・本文・Problem Details・HEAD・静的配信・404/405 を確認 |
+| Error Middleware | 実際の `ServerResponse` と本文を記録する手書きの偽物で、全エラーのステータス・固定 Problem Details・原因の優先順位・ログ・応答不可を検証 |
+| HTTP 境界 | ポート 0 の実 `http.Server` で入力から各層への連携、ステータス・共通ヘッダー・副作用・HEAD・静的配信・404/405・本文転送を確認。固定 Problem Details の全項目は代表例で確認し、400・422 の意味を区別する detail は各経路に残す |
 | 要求のライフサイクル | 切断・応答期限時は応答なし、待機切れは要求継続可能なら 503、再ハッシュ失敗は要求継続可能なら成功、と区別。応答期限は Vitest の偽タイマーで進める。本文を読み終えた後も切断と判定しないことを確かめる |
 | Config・Logger | 環境変数を引数で渡し、メモリ上の出力先で検証 |
-| 依存規則 | 禁止 import、具体実装へのアクセス、モデル内部 API の例外範囲、動的 import などの回避を検証 |
+| 依存規則 | 依存・Node モジュール所有・import 指定・動的 import・モデル内部 API・差し替え口・共有補助コードについて、許可と拒否の代表例を検証 |
 
 登録・ログインの応答、ダミー検証、再ハッシュ失敗時の成功、秘密値の非公開は維持する。
+
+共有する偽物は用途ごとの契約を維持する。記録用 Repository、Routes の更新記録だけを行う Repository、結合テストの状態を保存する Repository を混同しない。各テストで新しいインスタンスを作り、起動通知や処理の保留を担う専用の偽物は対象テストに残す。単体の呼び出し回数・原因・参照の同一性・signal・ログを、本物の Provider を使う結合テストで代替しない。
+
+終了処理は実 HTTP と偽タイマーを組み合わせ、応答中は終了せず、応答完了後は仮想時間の 1 秒未満で接続を閉じることを確認する。実経過時間の性能保証は行わない。並行処理の開始は偽物からの通知を待ち、任意の反復回数や実時間の待機で推測しない。
 
 各実装段階で型検査・Lint・整形確認・テスト・カバレッジを確認する。ベンチマークは Provider 移行段階で既存の測定範囲を維持して確認し、性能や既定値を変える場合だけ [パスワード仕様の手順](password.md#テストと性能調整)で再測定する。Windows のブラウザーからの実接続確認は [README](../README.md#web-画面を使う) に従う。

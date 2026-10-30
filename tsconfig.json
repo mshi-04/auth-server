@@ -15,5 +15,10 @@
     "allowJs": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", ".github/scripts/**/*.ts", "vitest.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "tests/support/**/*.ts",
+    ".github/scripts/**/*.ts",
+    "vitest.config.ts"
+  ]
 }

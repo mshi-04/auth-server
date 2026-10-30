@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { caught } from "../../tests/support/errors.ts";
 import { ConfigError } from "../errors/index.ts";
 import { loadConfig } from "./index.ts";
 
@@ -81,8 +82,12 @@ describe("loadConfig", () => {
       if (databasePath !== undefined) {
         env.DATABASE_PATH = databasePath;
       }
-      expect(() => loadConfig(env)).toThrow(ConfigError);
-      expect(() => loadConfig(env)).toThrow("DATABASE_PATH is required");
+      const error = caught(() => loadConfig(env));
+      expect(error).toBeInstanceOf(ConfigError);
+      expect(error).toHaveProperty(
+        "message",
+        expect.stringContaining("DATABASE_PATH is required"),
+      );
     },
   );
 
@@ -129,16 +134,14 @@ describe("loadConfig", () => {
   });
 
   it("retains the cause of filesystem failures", () => {
-    try {
-      loadConfig({ DATABASE_PATH: join(directory, "missing", "auth.db") });
-      expect.fail("missing parent accepted");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ConfigError);
-      if (!(error instanceof ConfigError)) {
-        throw error;
-      }
-      expect(error.cause).toMatchObject({ code: "ENOENT" });
-    }
+    const error = caught(() =>
+      loadConfig({ DATABASE_PATH: join(directory, "missing", "auth.db") }),
+    );
+    expect(error).toBeInstanceOf(ConfigError);
+    expect(error).toHaveProperty(
+      "cause",
+      expect.objectContaining({ code: "ENOENT" }),
+    );
   });
 
   it.each(["", "auth.db"])(

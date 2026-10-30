@@ -5,6 +5,8 @@ import {
 } from "node:http";
 import { Socket } from "node:net";
 import { describe, expect, it } from "vitest";
+import { rejected } from "../../tests/support/errors.ts";
+import { listenOnLoopback } from "../../tests/support/http.ts";
 import { BadRequestError, PayloadTooLargeError } from "../errors/index.ts";
 import type { RequestContext } from "../models/index.ts";
 import { readJson } from "./read-json.ts";
@@ -82,13 +84,13 @@ describe("readJson", () => {
     "rejects malformed JSON without preserving parser content %j",
     async (body) => {
       const req = request([Buffer.from(body)]);
-      const promise = readJson(req, context());
-      await expect(promise).rejects.toMatchObject({
+      const error = await rejected(readJson(req, context()));
+      expect(error).toMatchObject({
         name: "BadRequestError",
         kind: "invalid-input",
         message: "Invalid request.",
       });
-      await expect(promise).rejects.not.toHaveProperty("cause");
+      expect(error).not.toHaveProperty("cause");
     },
   );
 
@@ -126,11 +128,12 @@ describe("readJson", () => {
       const req = new IncomingMessage(new Socket());
       const promise = readJson(req, context());
       req.emit(event, new Error("secret request payload"));
-      await expect(promise).rejects.toMatchObject({
+      const error = await rejected(promise);
+      expect(error).toMatchObject({
         kind: "read-failed",
         name: "BadRequestError",
       });
-      await expect(promise).rejects.not.toHaveProperty("cause");
+      expect(error).not.toHaveProperty("cause");
       req.push(null);
     },
   );
@@ -176,23 +179,11 @@ describe("readJson", () => {
     });
     let readResult: Promise<unknown> | undefined;
     const server = createServer((req) => {
-      readResult = readJson(req, context());
-      readResult.catch(() => undefined);
+      readResult = rejected(readJson(req, context()));
       req.once("data", markStarted);
       req.once("close", markClosed);
     });
-    const port = await new Promise<number>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", () => {
-        server.off("error", reject);
-        const address = server.address();
-        if (address === null || typeof address === "string") {
-          reject(new Error("Expected TCP listener."));
-          return;
-        }
-        resolve(address.port);
-      });
-    });
+    const port = await listenOnLoopback(server);
     const client = httpRequest({
       host: "127.0.0.1",
       port,
@@ -206,7 +197,7 @@ describe("readJson", () => {
       client.destroy();
       await closed;
       expect(readResult).toBeDefined();
-      await expect(readResult).rejects.toMatchObject({
+      expect(await readResult).toMatchObject({
         name: "BadRequestError",
         kind: "read-failed",
       });

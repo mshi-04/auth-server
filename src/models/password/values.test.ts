@@ -1,5 +1,6 @@
 import { format, inspect } from "node:util";
 import { describe, expect, it } from "vitest";
+import { caught } from "../../../tests/support/errors.ts";
 import { PolicyViolationError } from "../../errors/index.ts";
 import { EncodedHash, Password } from "../index.ts";
 import { createHash, readHash, readPassword } from "./values.ts";
@@ -26,13 +27,10 @@ describe("password values", () => {
     "\udfff",
     "a\ud800b",
   ])("rejects malformed or long input %j", (raw) => {
-    expect(() => Password.parse(raw)).toThrow(PolicyViolationError);
-    try {
-      Password.parse(raw);
-    } catch (error) {
-      if (error instanceof Error) {
-        expect(error.message).not.toContain(raw);
-      }
+    const error = caught(() => Password.parse(raw));
+    expect(error).toBeInstanceOf(PolicyViolationError);
+    if (error instanceof Error) {
+      expect(error.message).not.toContain(raw);
     }
   });
 

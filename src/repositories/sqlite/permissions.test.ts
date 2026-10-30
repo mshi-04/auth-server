@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { rejected } from "../../../tests/support/errors.ts";
 import { BusyError } from "../../errors/index.ts";
 import { prepareDatabaseFile, requirePrivateOwnership } from "./permissions.ts";
 
@@ -184,10 +185,9 @@ describe("sqlite database filesystem preparation", () => {
   it("does not create a database for an already aborted signal", async () => {
     const reason = new Error("client disconnected");
     const aborted = AbortSignal.abort(reason);
-    await expect(prepareDatabaseFile(path, aborted)).rejects.toBeInstanceOf(
-      BusyError,
-    );
-    await expect(prepareDatabaseFile(path, aborted)).rejects.toMatchObject({
+    const failure = await rejected(prepareDatabaseFile(path, aborted));
+    expect(failure).toBeInstanceOf(BusyError);
+    expect(failure).toMatchObject({
       cause: reason,
     });
     await expect(lstat(path)).rejects.toMatchObject({ code: "ENOENT" });
