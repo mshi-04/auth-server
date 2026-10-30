@@ -13,8 +13,10 @@ import {
 import { openDatabase } from "./initialization.ts";
 import { prepareDatabaseFile } from "./permissions.ts";
 
+const sqliteConstraintUnique = 2067;
+
 export class SqliteUserRepository implements UserRepository {
-  #db: Database;
+  readonly #db: Database;
 
   private constructor(db: Database) {
     this.#db = db;
@@ -64,7 +66,7 @@ export class SqliteUserRepository implements UserRepository {
             )
             .run(user.id, user.email, user.emailNormalized);
         } catch (error) {
-          if (sqliteCode(error) === 2067) {
+          if (sqliteCode(error) === sqliteConstraintUnique) {
             throw new EmailTakenError(undefined, {
               cause: withoutSqliteMessage(error),
             });

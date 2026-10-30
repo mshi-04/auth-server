@@ -1,5 +1,5 @@
 import { dirname, relative, sep } from "node:path";
-import { Linter } from "eslint";
+import { ESLint, Linter } from "eslint";
 import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -547,7 +547,7 @@ describe("model secrets and targeted test exceptions", () => {
     );
     rejects(
       "src/models/index.ts",
-      'export { inRange } from "./password/hash-parameters.ts";',
+      'export { isInRange } from "./password/hash-parameters.ts";',
     );
     rejects(
       "src/models/index.ts",
@@ -847,6 +847,138 @@ describe("forbidden syntax and bypasses", () => {
       'export { "replaceDerivationForTesting" as replace } from "./derive.ts";',
     ]) {
       allows(filename, code);
+    }
+  });
+
+  it("enforces coding-guideline rules in linter verification", () => {
+    for (const filename of [
+      "src/services/auth-service.ts",
+      "src/services/auth-service.test.ts",
+    ]) {
+      rejects(
+        filename,
+        "export function branch(flag: boolean): number { if (flag) { return 1; } else { return 2; } }",
+        "no-else-return",
+      );
+      rejects(
+        filename,
+        "export function branch(flag: boolean, next: boolean): number { if (flag) { return 1; } else if (next) { return 2; } return 3; }",
+        "no-else-return",
+      );
+      for (const comment of [
+        "// @ts-ignore",
+        "// @ts-nocheck",
+        "// @ts-expect-error -- not allowed",
+      ]) {
+        rejects(
+          filename,
+          comment + "\nexport const value = 1;",
+          "@typescript-eslint/ban-ts-comment",
+        );
+      }
+      const unusedDisable = messages(
+        filename,
+        "// eslint-disable-next-line no-else-return -- unnecessary\nexport const value = 1;",
+      );
+      expect(unusedDisable).toEqual([
+        expect.objectContaining({
+          ruleId: null,
+          severity: 2,
+        }),
+      ]);
+    }
+
+    rejects(
+      "src/services/auth-service.ts",
+      "export function missingReturnType() { return 1; }",
+      "@typescript-eslint/explicit-module-boundary-types",
+    );
+    expect(
+      messages(
+        "src/services/auth-service.test.ts",
+        "export function helperWithoutReturnType() { return 1; }",
+      ).map((message) => message.ruleId),
+    ).not.toContain("@typescript-eslint/explicit-module-boundary-types");
+    expect(
+      messages(
+        "src/providers/password/password.bench.ts",
+        "export function benchHelperWithoutReturnType() { return 1; }",
+      ).map((message) => message.ruleId),
+    ).not.toContain("@typescript-eslint/explicit-module-boundary-types");
+  });
+
+  it("configures type-checked coding-guideline rules for target scopes", async () => {
+    const eslint = new ESLint({ overrideConfigFile: "eslint.config.js" });
+    const prodConfig: unknown = await eslint.calculateConfigForFile(
+      "src/services/auth-service.ts",
+    );
+    const testConfig: unknown = await eslint.calculateConfigForFile(
+      "src/services/auth-service.test.ts",
+    );
+    const benchConfig: unknown = await eslint.calculateConfigForFile(
+      "src/providers/password/password.bench.ts",
+    );
+    const scriptConfig: unknown = await eslint.calculateConfigForFile(
+      ".github/scripts/eslint-config.test.ts",
+    );
+
+    for (const config of [prodConfig, testConfig, benchConfig, scriptConfig]) {
+      expect(config).toMatchObject({
+        linterOptions: {
+          reportUnusedDisableDirectives: 2,
+        },
+        rules: {
+          "no-else-return": [2, { allowElseIf: false }],
+          "@typescript-eslint/ban-ts-comment": [
+            2,
+            {
+              "ts-ignore": true,
+              "ts-nocheck": true,
+              "ts-expect-error": true,
+            },
+          ],
+          "@typescript-eslint/no-floating-promises": [2, { ignoreVoid: false }],
+          "@typescript-eslint/strict-boolean-expressions": [
+            2,
+            {
+              allowString: false,
+              allowNumber: false,
+              allowNullableObject: false,
+            },
+          ],
+        },
+      });
+    }
+
+    expect(prodConfig).toMatchObject({
+      rules: {
+        "@typescript-eslint/prefer-readonly": [2],
+        "@typescript-eslint/explicit-module-boundary-types": [2],
+      },
+    });
+    for (const config of [testConfig, benchConfig]) {
+      if (
+        typeof config !== "object" ||
+        config === null ||
+        !("rules" in config) ||
+        typeof config.rules !== "object" ||
+        config.rules === null
+      ) {
+        throw new Error("Expected resolved ESLint rules.");
+      }
+      expect(
+        "@typescript-eslint/prefer-readonly" in config.rules
+          ? Reflect.get(config.rules, "@typescript-eslint/prefer-readonly")
+          : undefined,
+      ).toBeUndefined();
+      expect(
+        "@typescript-eslint/explicit-module-boundary-types" in config.rules
+          ? Reflect.get(
+              config.rules,
+              "@typescript-eslint/explicit-module-boundary-types",
+            )
+          : undefined,
+      ).toBeUndefined();
     }
   });
 });

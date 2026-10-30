@@ -1,5 +1,5 @@
 export class ConfigError extends Error {
-  override name = "ConfigError";
+  override readonly name = "ConfigError";
 
   constructor(message = "Invalid configuration.", options?: ErrorOptions) {
     super(message, options);

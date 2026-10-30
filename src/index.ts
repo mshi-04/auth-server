@@ -23,6 +23,14 @@ import { SqliteUserRepository } from "./repositories/sqlite/index.ts";
 import { createRoutes } from "./routes/index.ts";
 import { AuthService } from "./services/index.ts";
 
+const responseDeadlineMs = 30_000;
+const headersTimeoutMs = 5_000;
+const requestTimeoutMs = 10_000;
+const keepAliveTimeoutMs = 60_000;
+const connectionsCheckingIntervalMs = 1_000;
+const idleSweepIntervalMs = 100;
+const shutdownTimeoutMs = 30_000;
+
 export async function loadWebAssets(): Promise<WebAssets> {
   const [html, css, js] = await Promise.all([
     readFile(new URL("../public/index.html", import.meta.url)),
@@ -43,7 +51,7 @@ export function createHttpServer(
   );
 
   function onRequest(req: IncomingMessage, res: ServerResponse): void {
-    const deadline = performance.now() + 30_000;
+    const deadline = performance.now() + responseDeadlineMs;
     setSecurityHeaders(res);
     const context = createRequestContext(res, deadline);
 
@@ -67,10 +75,10 @@ export function createHttpServer(
 
   const server = createServer(
     {
-      headersTimeout: 5_000,
-      requestTimeout: 10_000,
-      keepAliveTimeout: 60_000,
-      connectionsCheckingInterval: 1_000,
+      headersTimeout: headersTimeoutMs,
+      requestTimeout: requestTimeoutMs,
+      keepAliveTimeout: keepAliveTimeoutMs,
+      connectionsCheckingInterval: connectionsCheckingIntervalMs,
     },
     onRequest,
   );
@@ -100,12 +108,12 @@ export function shutdownServer(server: Server): Promise<void> {
     // close() は呼んだ時点の待機中の接続しか閉じないため、処理中だった接続も応答後に閉じる。
     const idleSweeper = setInterval(() => {
       server.closeIdleConnections();
-    }, 100);
+    }, idleSweepIntervalMs);
     const timer = setTimeout(() => {
       clearInterval(idleSweeper);
       server.closeAllConnections();
       resolve();
-    }, 30_000);
+    }, shutdownTimeoutMs);
     server.close((error?: Error) => {
       clearInterval(idleSweeper);
       clearTimeout(timer);

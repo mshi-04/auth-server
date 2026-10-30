@@ -72,7 +72,7 @@ class InMemoryUserRepository implements UserRepository {
     if (user === undefined) {
       return Promise.reject(new UserNotFoundError());
     }
-    user.passwordHash = passwordHash;
+    this.usersById.set(userId, { ...user, passwordHash });
     return Promise.resolve();
   }
 }

@@ -31,7 +31,7 @@ type Params = {
   waitTimeoutMs: number;
 };
 
-type Cost = Pick<Params, "memoryKiB" | "iterations" | "parallelism">;
+type Cost = Readonly<Pick<Params, "memoryKiB" | "iterations" | "parallelism">>;
 ```
 
 | 項目 | 初期値 | ベンチマーク後の採用値 |

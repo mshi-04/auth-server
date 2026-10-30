@@ -1,8 +1,8 @@
 export type AuthInput = {
-  email: string;
-  rawPassword: string;
+  readonly email: string;
+  readonly rawPassword: string;
 };
 
 export type AuthResult = {
-  userId: string;
+  readonly userId: string;
 };

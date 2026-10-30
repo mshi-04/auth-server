@@ -1,8 +1,8 @@
 import { BadRequestError } from "../errors/index.ts";
 
 export interface CredentialsRequest {
-  email: string;
-  password: string;
+  readonly email: string;
+  readonly password: string;
 }
 
 export function parseCredentials(value: unknown): CredentialsRequest {

@@ -1,5 +1,5 @@
 export class InvalidEmailError extends Error {
-  override name = "InvalidEmailError";
+  override readonly name = "InvalidEmailError";
 
   constructor(message = "Invalid email address.", options?: ErrorOptions) {
     super(message, options);
@@ -7,7 +7,7 @@ export class InvalidEmailError extends Error {
 }
 
 export class WeakPasswordError extends Error {
-  override name = "WeakPasswordError";
+  override readonly name = "WeakPasswordError";
 
   constructor(message = "Weak password.", options?: ErrorOptions) {
     super(message, options);
@@ -15,7 +15,7 @@ export class WeakPasswordError extends Error {
 }
 
 export class EmailTakenError extends Error {
-  override name = "EmailTakenError";
+  override readonly name = "EmailTakenError";
 
   constructor(message = "Email already registered.", options?: ErrorOptions) {
     super(message, options);
@@ -23,7 +23,7 @@ export class EmailTakenError extends Error {
 }
 
 export class InvalidCredentialsError extends Error {
-  override name = "InvalidCredentialsError";
+  override readonly name = "InvalidCredentialsError";
 
   constructor(message = "Invalid credentials.", options?: ErrorOptions) {
     super(message, options);
@@ -31,7 +31,7 @@ export class InvalidCredentialsError extends Error {
 }
 
 export class UserNotFoundError extends Error {
-  override name = "UserNotFoundError";
+  override readonly name = "UserNotFoundError";
 
   constructor(message = "User not found.", options?: ErrorOptions) {
     super(message, options);
@@ -39,7 +39,7 @@ export class UserNotFoundError extends Error {
 }
 
 export class BusyError extends Error {
-  override name = "BusyError";
+  override readonly name = "BusyError";
 
   constructor(message = "Authentication busy.", options?: ErrorOptions) {
     super(message, options);
