@@ -4,7 +4,7 @@
 
 TypeScript 実装の手順を正本とする。
 
-構成と現在の配置は [アーキテクチャ](architecture.md#現状と移行先)を正本とする。
+構成と現在の配置は [アーキテクチャ](architecture.md#現状の配置)を正本とする。
 
 ## 開発環境
 
@@ -72,7 +72,7 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 
 - Vitest の `passWithNoTests` は使わない。テストの移動や `include` の指定の誤りでテストが 0 件になったときに、`npm test` と CI を失敗させるため
 - `npm run bench` は既定パラメータの `hash`・`hash saturated` と飽和時のイベントループ遅延を測る。`AUTH_PASSWORD_BENCH_RUN=1 npm run bench` の番号を 1・2・3 と変えて 3 回実行すると、各回の JSON を `bench-results/password/` に残せる（`coverage/` はカバレッジの実行時に削除されるため使わない）。番号を省略した場合は `latest` として上書きする。既定値が [テストと性能調整](password.md#テストと性能調整) の目標から外れた場合は、`AUTH_PASSWORD_BENCH_CANDIDATES=1 npm run bench` で候補も比較する。Vitest 5 では `*.bench.ts` 内のテストコンテキストの `bench` を使い、通常の `npm test` ではベンチマークを実行しない
-- ESLint の設定は `eslint.config.js` に置き、`src/` と `tests/support/` の TS ファイル、CI のスクリプト（`.github/scripts/`）、ルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts`、`tests/support/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。`actions/github-script` から `require` する `.github/scripts/*.cjs` は、`@eslint/js` の推奨規則で検査し、テスト（`*.test.ts`）から読み込んで振る舞いを確かめる。ブラウザーで動く静的ファイルは移行後の `public/` も対象から外す
+- ESLint の設定は `eslint.config.js` に置き、`src/` と `tests/support/` の TS ファイル、CI のスクリプト（`.github/scripts/`）、ルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts`、`tests/support/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。`actions/github-script` から `require` する `.github/scripts/*.cjs` は、`@eslint/js` の推奨規則で検査し、テスト（`*.test.ts`）から読み込んで振る舞いを確かめる。ブラウザーで動く静的ファイル（`public/`）は対象から外す
 - `tsconfig.json` の `skipLibCheck` で依存パッケージの型定義は型検査しない。依存の更新で型定義どうしが食い違っても、このプロジェクトのコードと無関係に型検査が失敗しないようにするため
 - Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML と静的ファイル（`public/`）は `.prettierignore` で対象から外す
 
@@ -81,7 +81,7 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 ### レイヤー分離時の設定と検証
 
 - 層ごとの依存規則は [アーキテクチャ](architecture.md#import-の検査)に従う。
-- `.github/scripts/eslint-config.test.ts` は、依存・Node モジュール所有・import 指定・動的 import・モデル内部 API・差し替え口・共有補助コードについて、許可と拒否を各 1 例ずつ確認する。層の全組み合わせや回避構文、規約設定の全項目を網羅するテストではない。旧 `src/password/`・`src/store/sqlite/` の経路と暫定規則は撤去済みである
+- `.github/scripts/eslint-config.test.ts` は、依存・Node モジュール所有・import 指定・動的 import・モデル内部 API・差し替え口・共有補助コードについて、許可と拒否を各 1 例ずつ確認する。層の全組み合わせや回避構文、規約設定の全項目を網羅するテストではない
 - パスワード Provider・セマフォ・鍵導出のテストとベンチマークは `providers/password/` に置く。Service のテストでは、手書きの偽 `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、低コスト設定の本物の `Argon2PasswordProvider` と組み合わせる検証も残す
 - `src/repositories/sqlite/` のテストは、実 DB で SQL とトランザクション、再試行・中断・権限・エラー分類を検証する
 - `public/` は ESLint・Prettier の対象から外す。Vitest のカバレッジ対象は `src/**/*.ts` のため、`public/` とテスト専用の `tests/support/` は対象に入らない。`.github/scripts/**/*.test.ts` は coverage-comment のテストも使うため、テスト探索の対象から外さない
@@ -97,7 +97,7 @@ CI の実行条件と出力はこの節を正本とする。GitHub Actions の `
 | Test | `npm ci` の後に `npm test` |
 | Coverage | `npm ci` の後に `npm run coverage` と、カバレッジレポートの生成・保存 |
 
-Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテストを実行する。Coverage は `src/` 配下の TS ファイル（テストとベンチマークを除く）を計測対象にし、テストから読み込まれないファイルも集計に含める。ブラウザーで動く静的ファイルは計測せず、移行後の `public/` も対象に入らない。
+Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテストを実行する。Coverage は `src/` 配下の TS ファイル（テストとベンチマークを除く）を計測対象にし、テストから読み込まれないファイルも集計に含める。ブラウザーで動く静的ファイル（`public/`）は計測せず、対象に入らない。
 
 - 合計カバレッジは GitHub Actions の実行サマリーに表示する
 - 同じリポジトリのブランチから作った PR には、合計・ファイル別カバレッジ、計測したコミット、実行ログと artifact へのリンクをコメントする。初回だけ作成し、Coverage ジョブの再実行時は同じコメントを更新する。テストやレポート生成に失敗したときも、以前の数値を残さず失敗表示へ更新する。取り消された実行、現在の PR と異なるコミットの実行、すでにコメントした実行より古い実行は更新しない

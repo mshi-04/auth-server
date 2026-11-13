@@ -2,7 +2,7 @@
 
 採用技術と、その理由をまとめる。機能仕様の一覧は [README](../README.md#文書の正本と読む順序) を参照。プロジェクトのフォルダ名と npm のパッケージ名は `auth-server` とする。依存パッケージのバージョンは、実装後は `package.json` と `package-lock.json` を正本とする。Node のメジャーバージョンは `.nvmrc` を正本とし、`package.json` の `engines.node`（`>=26.11.0 <27`）は対象外の版で動かしていないかの検査に使う。
 
-本書は現在の採用方針を示す。構成と責務は [アーキテクチャ](architecture.md#現状と移行先)、起動・ベンチマークの実行方法は [開発ガイド](development.md#コマンド) を参照する。
+本書は現在の採用方針を示す。構成と責務は [アーキテクチャ](architecture.md#現状の配置)、起動・ベンチマークの実行方法は [開発ガイド](development.md#コマンド) を参照する。
 
 ## 言語・実行環境
 
@@ -10,7 +10,7 @@
 |---|---|---|
 | 言語 | TypeScript | 型で値オブジェクトとエラーの契約を表せる。Web 画面の JavaScript と言語をそろえられる |
 | 実行環境 | Node.js 26 系の 26.11.0 以上（2026-10-23 時点では Current。2026-10-28 から LTS の予定。LTS への移行後にこの表記を更新する） | 標準モジュールだけで HTTP サーバー、Argon2id、SQLite、乱数、正規化がそろう。26.11.0 は `node:sqlite` の `Database` クラスが入った版。26 系のサポート期限は 2029-04-30 |
-| TS の実行 | Node の型除去（type stripping）で `.ts` を直接実行する。移行後の起動は `node src/index.ts` | ビルドの工程と出力ファイルを持たない。型除去は Node 25.2 で安定版になった |
+| TS の実行 | Node の型除去（type stripping）で `.ts` を直接実行する。起動は `node src/index.ts` | ビルドの工程と出力ファイルを持たない。型除去は Node 25.2 で安定版になった |
 | 型検査 | TypeScript 7 の `tsc --noEmit` | 型の検査だけを行い、JavaScript は出力しない |
 | 静的検査 | ESLint と typescript-eslint（`strictTypeChecked`） | `tsc` の型情報を使って、`Promise` の誤用、`any`・型アサーション、union 型の `switch` の分岐漏れ、デコレーター、依存の向きの違反、`Math.random` などを検出する |
 | 整形 | Prettier（既定の設定） | 書式を手で揃えず、差分を意味のある変更だけにする |
