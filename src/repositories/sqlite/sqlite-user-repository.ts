@@ -5,15 +5,13 @@ import { EmailTakenError, UserNotFoundError } from "../../errors/index.ts";
 import type { Credential, NewUser } from "../../models/index.ts";
 import type { UserRepository } from "../index.ts";
 import {
+  isUniqueViolation,
   operationError,
-  sqliteCode,
   throwIfAborted,
   withoutSqliteMessage,
 } from "./errors.ts";
 import { openDatabase } from "./initialization.ts";
 import { prepareDatabaseFile } from "./permissions.ts";
-
-const sqliteConstraintUnique = 2067;
 
 export class SqliteUserRepository implements UserRepository {
   readonly #db: Database;
@@ -56,35 +54,7 @@ export class SqliteUserRepository implements UserRepository {
   createUser(user: NewUser, signal: AbortSignal): Promise<void> {
     try {
       throwIfAborted(signal);
-      this.#db.exec("BEGIN IMMEDIATE");
-      let committed = false;
-      try {
-        try {
-          this.#db
-            .prepare(
-              "INSERT INTO users (id, email, email_normalized) VALUES (?, ?, ?)",
-            )
-            .run(user.id, user.email, user.emailNormalized);
-        } catch (error) {
-          if (sqliteCode(error) === sqliteConstraintUnique) {
-            throw new EmailTakenError(undefined, {
-              cause: withoutSqliteMessage(error),
-            });
-          }
-          throw error;
-        }
-        this.#db
-          .prepare(
-            "INSERT INTO password_credentials (user_id, hash) VALUES (?, ?)",
-          )
-          .run(user.id, user.passwordHash);
-        this.#db.exec("COMMIT");
-        committed = true;
-      } finally {
-        if (!committed && this.#db.isTransaction) {
-          this.#db.exec("ROLLBACK");
-        }
-      }
+      this.#insertUserInTransaction(user);
       return Promise.resolve();
     } catch (error) {
       return Promise.reject(
@@ -146,6 +116,38 @@ export class SqliteUserRepository implements UserRepository {
       return Promise.reject(
         operationError(error, "Update SQLite password hash failed.", signal),
       );
+    }
+  }
+
+  #insertUserInTransaction(user: NewUser): void {
+    this.#db.exec("BEGIN IMMEDIATE");
+    let committed = false;
+    try {
+      try {
+        this.#db
+          .prepare(
+            "INSERT INTO users (id, email, email_normalized) VALUES (?, ?, ?)",
+          )
+          .run(user.id, user.email, user.emailNormalized);
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          throw new EmailTakenError(undefined, {
+            cause: withoutSqliteMessage(error),
+          });
+        }
+        throw error;
+      }
+      this.#db
+        .prepare(
+          "INSERT INTO password_credentials (user_id, hash) VALUES (?, ?)",
+        )
+        .run(user.id, user.passwordHash);
+      this.#db.exec("COMMIT");
+      committed = true;
+    } finally {
+      if (!committed && this.#db.isTransaction) {
+        this.#db.exec("ROLLBACK");
+      }
     }
   }
 }

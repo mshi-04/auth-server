@@ -31,3 +31,7 @@ export function isCausedBy(error: unknown, reason: unknown): boolean {
 
   return false;
 }
+
+export function isAbortedBy(error: unknown, signal: AbortSignal): boolean {
+  return signal.aborted && isCausedBy(error, signal.reason);
+}

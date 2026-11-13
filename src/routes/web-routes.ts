@@ -1,5 +1,5 @@
 import type { WebController } from "../controllers/index.ts";
-import type { Route } from "./index.ts";
+import type { Route } from "./route.ts";
 
 export function webRoutes(controller: WebController): Route[] {
   return [

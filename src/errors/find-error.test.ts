@@ -1,5 +1,10 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { causeChain, findError, isCausedBy } from "./find-error.ts";
+import {
+  causeChain,
+  findError,
+  isAbortedBy,
+  isCausedBy,
+} from "./find-error.ts";
 
 class ExpectedError extends Error {
   override name = "ExpectedError";
@@ -162,6 +167,41 @@ describe("isCausedBy", () => {
     first.cause = second;
 
     expect(isCausedBy(first, new Error("reason"))).toBe(false);
+  });
+});
+
+describe("isAbortedBy", () => {
+  it("matches the abort reason itself when the signal is aborted", () => {
+    const reason = new Error("aborted");
+    const signal = AbortSignal.abort(reason);
+
+    expect(isAbortedBy(reason, signal)).toBe(true);
+  });
+
+  it("matches the abort reason through nested causes", () => {
+    const reason = new Error("aborted");
+    const signal = AbortSignal.abort(reason);
+    const error = new Error("outer", {
+      cause: new Error("inner", { cause: reason }),
+    });
+
+    expect(isAbortedBy(error, signal)).toBe(true);
+  });
+
+  it("returns false when the signal is not aborted", () => {
+    const controller = new AbortController();
+
+    expect(isAbortedBy(controller.signal.reason, controller.signal)).toBe(
+      false,
+    );
+    expect(isAbortedBy(new Error("failure"), controller.signal)).toBe(false);
+  });
+
+  it("returns false when the signal was aborted with a different reason", () => {
+    const signal = AbortSignal.abort(new Error("aborted"));
+    const error = new Error("outer", { cause: new Error("aborted") });
+
+    expect(isAbortedBy(error, signal)).toBe(false);
   });
 });
 

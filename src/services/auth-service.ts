@@ -7,7 +7,7 @@ import {
   UserNotFoundError,
   WeakPasswordError,
   findError,
-  isCausedBy,
+  isAbortedBy,
 } from "../errors/index.ts";
 import {
   EncodedHash,
@@ -28,10 +28,6 @@ function passwordError(message: string, error: unknown): Error {
     return new BusyError(message, { cause: error });
   }
   return new Error(message, { cause: error });
-}
-
-function isAbortedBySignal(error: unknown, signal: AbortSignal): boolean {
-  return signal.aborted && isCausedBy(error, signal.reason);
 }
 
 export class AuthService {
@@ -213,7 +209,7 @@ export class AuthService {
     try {
       encoded = await this.#passwordProvider.rehash(parsedPassword, signal);
     } catch (error) {
-      if (!isAbortedBySignal(error, signal)) {
+      if (!isAbortedBy(error, signal)) {
         this.#logger.warn("rehash password failed", { userId, error });
       }
       return;
@@ -223,7 +219,7 @@ export class AuthService {
     try {
       await this.#repository.updatePasswordHash(userId, passwordHash, signal);
     } catch (error) {
-      if (!isAbortedBySignal(error, signal)) {
+      if (!isAbortedBy(error, signal)) {
         this.#logger.warn("save rehashed password failed", { userId, error });
       }
     }

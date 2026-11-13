@@ -2,6 +2,7 @@ import { BusyError } from "../../errors/index.ts";
 
 const sqlitePrimaryCodeMask = 0xff;
 const sqliteBusyCode = 5;
+const sqliteConstraintUnique = 2067;
 
 export function sqliteCode(error: unknown): number | undefined {
   if (
@@ -39,6 +40,10 @@ export function isBusy(error: unknown): boolean {
   return (
     code !== undefined && (code & sqlitePrimaryCodeMask) === sqliteBusyCode
   );
+}
+
+export function isUniqueViolation(error: unknown): boolean {
+  return sqliteCode(error) === sqliteConstraintUnique;
 }
 
 export function throwIfAborted(signal: AbortSignal): void {

@@ -7,9 +7,9 @@ const maxMemoryKiB = 262144;
 const minIterations = 1;
 const maxIterations = 10;
 const minGeneratedSaltBytes = 16;
-const maxSaltBytes = 64;
-const minKeyBytes = 4;
-const maxKeyBytes = 64;
+export const maxSaltBytes = 64;
+export const minKeyBytes = 4;
+export const maxKeyBytes = 64;
 const minPositive = 1;
 
 export type Params = {

@@ -6,7 +6,7 @@ import { loadConfig } from "./config/index.ts";
 import type { Config } from "./config/index.ts";
 import { AuthController, WebController } from "./controllers/index.ts";
 import type { WebAssets } from "./controllers/index.ts";
-import { isCausedBy } from "./errors/index.ts";
+import { isAbortedBy } from "./errors/index.ts";
 import {
   createRequestContext,
   handleError,
@@ -213,7 +213,7 @@ export async function run(
   try {
     await start(config, logger, signal);
   } catch (error) {
-    if (signal.aborted && isCausedBy(error, signal.reason)) {
+    if (isAbortedBy(error, signal)) {
       return;
     }
     throw error;

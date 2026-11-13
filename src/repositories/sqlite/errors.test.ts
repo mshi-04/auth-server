@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BusyError, findError } from "../../errors/index.ts";
 import {
   isBusy,
+  isUniqueViolation,
   operationError,
   sqliteCode,
   throwIfAborted,
@@ -12,6 +13,21 @@ describe("SQLite error classification", () => {
   it.each([5, 261, 517, 773])("recognizes busy code %i", (errcode) => {
     expect(isBusy({ code: "ERR_SQLITE_ERROR", errcode })).toBe(true);
   });
+
+  it("recognizes unique constraint code 2067", () => {
+    expect(isUniqueViolation({ code: "ERR_SQLITE_ERROR", errcode: 2067 })).toBe(
+      true,
+    );
+  });
+
+  it.each([1555, 19, 6, 5])(
+    "does not classify code %i as unique violation",
+    (errcode) => {
+      expect(isUniqueViolation({ code: "ERR_SQLITE_ERROR", errcode })).toBe(
+        false,
+      );
+    },
+  );
 
   it.each([
     undefined,
@@ -27,6 +43,7 @@ describe("SQLite error classification", () => {
   ])("does not classify malformed metadata %#", (error) => {
     expect(sqliteCode(error)).toBeUndefined();
     expect(isBusy(error)).toBe(false);
+    expect(isUniqueViolation(error)).toBe(false);
     expect(
       operationError(error, "operation failed", new AbortController().signal),
     ).not.toBeInstanceOf(BusyError);
