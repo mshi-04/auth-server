@@ -5,11 +5,13 @@ import {
   BusyError,
   causeChain,
   EmailTakenError,
+  ForbiddenError,
   InvalidCredentialsError,
   InvalidEmailError,
   MethodNotAllowedError,
   NotFoundError,
   PayloadTooLargeError,
+  UnsupportedMediaTypeError,
   WeakPasswordError,
 } from "../errors/index.ts";
 import type { RequestContext } from "../models/index.ts";
@@ -22,21 +24,35 @@ type Problem = {
   readonly closeConnection?: boolean;
 };
 
+function badRequestDetail(kind: BadRequestError["kind"]): string {
+  switch (kind) {
+    case "invalid-host":
+      return "Hostヘッダーが正しくありません";
+    case "read-failed":
+      return "リクエストボディを読み取れませんでした";
+    case "invalid-input":
+      return "リクエストのJSONが正しくありません";
+  }
+}
+
 function classify(error: unknown): Problem | undefined {
   for (const current of causeChain(error)) {
     if (current instanceof BadRequestError) {
       return {
         status: 400,
-        detail:
-          current.kind === "read-failed"
-            ? "リクエストボディを読み取れませんでした"
-            : "リクエストのJSONが正しくありません",
+        detail: badRequestDetail(current.kind),
       };
     }
     if (current instanceof InvalidCredentialsError) {
       return {
         status: 401,
         detail: "メールアドレスまたはパスワードが正しくありません",
+      };
+    }
+    if (current instanceof ForbiddenError) {
+      return {
+        status: 403,
+        detail: "クロスサイトのリクエストは許可されていません",
       };
     }
     if (current instanceof NotFoundError) {
@@ -57,6 +73,12 @@ function classify(error: unknown): Problem | undefined {
         status: 413,
         detail: "リクエストボディが上限を超えています",
         closeConnection: true,
+      };
+    }
+    if (current instanceof UnsupportedMediaTypeError) {
+      return {
+        status: 415,
+        detail: "Content-Typeはapplication/jsonを指定してください",
       };
     }
     if (current instanceof InvalidEmailError) {

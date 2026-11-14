@@ -102,7 +102,11 @@ async function createFixture() {
     });
   };
   const post = (path: string, value: unknown): Promise<WireResponse> =>
-    send(path, { method: "POST", body: JSON.stringify(value) });
+    send(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    });
   const raw = async (
     path: string,
     method = "GET",
@@ -326,6 +330,83 @@ describe("HTTP routes", () => {
     }
   });
 
+  it.each(["/healthz", "/", "/v1/users"])(
+    "rejects an non-loopback/non-IPv4 Host header on %s with 400",
+    async (path) => {
+      const fixture = await createFixture();
+      const response = await fixture.raw(path, "GET", undefined, {
+        Host: "evil.example.com",
+      });
+      expectProblem(
+        response,
+        400,
+        "Bad Request",
+        "Hostヘッダーが正しくありません",
+      );
+      expect(fixture.logger.errorCalls).toEqual([]);
+    },
+  );
+
+  it.each(["/v1/users", "/v1/sessions"])(
+    "rejects cross-site POST requests to %s with 403 and accepts same-origin",
+    async (path) => {
+      const fixture = await createFixture();
+      const body = Buffer.from(JSON.stringify(validInput));
+      for (const headers of [
+        {
+          "Content-Type": "application/json",
+          "Sec-Fetch-Site": "cross-site",
+        },
+        {
+          "Content-Type": "application/json",
+          Origin: "http://evil.example.com",
+        },
+      ]) {
+        const rejected = await fixture.raw(path, "POST", body, headers);
+        expectProblem(
+          rejected,
+          403,
+          "Forbidden",
+          "クロスサイトのリクエストは許可されていません",
+        );
+      }
+      expect(fixture.passwords.hashCalls).toHaveLength(1);
+      expect(fixture.repository.users).toEqual([]);
+
+      const sameOrigin = await fixture.raw(path, "POST", body, {
+        Host: "127.0.0.1",
+        Origin: "http://127.0.0.1",
+        "Sec-Fetch-Site": "same-origin",
+        "Content-Type": "application/json; charset=utf-8",
+      });
+      expect([201, 401]).toContain(sameOrigin.status);
+    },
+  );
+
+  it.each(["/v1/users", "/v1/sessions"])(
+    "rejects POST requests to %s without application/json Content-Type with 415",
+    async (path) => {
+      const fixture = await createFixture();
+      const body = Buffer.from(JSON.stringify(validInput));
+      for (const headers of [
+        undefined,
+        { "Content-Type": "text/plain" },
+        { "Content-Type": "application/x-www-form-urlencoded" },
+      ]) {
+        const rejected = await fixture.raw(path, "POST", body, headers);
+        expectProblem(
+          rejected,
+          415,
+          "Unsupported Media Type",
+          "Content-Typeはapplication/jsonを指定してください",
+        );
+      }
+      expect(fixture.passwords.hashCalls).toHaveLength(1);
+      expect(fixture.repository.users).toEqual([]);
+      expect(fixture.logger.errorCalls).toEqual([]);
+    },
+  );
+
   it.each([
     "{",
     '{"email":"user@example.com","password":"password","extra":1}',
@@ -335,6 +416,7 @@ describe("HTTP routes", () => {
       const fixture = await createFixture();
       const response = await fixture.send("/v1/users", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body,
       });
       expectProblemStatus(response, 400);
@@ -358,8 +440,14 @@ describe("HTTP routes", () => {
         "POST",
         body,
         chunked
-          ? { "Transfer-Encoding": "chunked" }
-          : { "Content-Length": String(body.length) },
+          ? {
+              "Content-Type": "application/json",
+              "Transfer-Encoding": "chunked",
+            }
+          : {
+              "Content-Type": "application/json",
+              "Content-Length": String(body.length),
+            },
       );
       expectProblemStatus(response, 413);
       expect(response.headers.connection).toBe("close");

@@ -1,8 +1,33 @@
 import type { IncomingMessage } from "node:http";
-import { BadRequestError, PayloadTooLargeError } from "../errors/index.ts";
+import {
+  BadRequestError,
+  PayloadTooLargeError,
+  UnsupportedMediaTypeError,
+} from "../errors/index.ts";
 import type { RequestContext } from "../models/index.ts";
 
 const maxBodyBytes = 16 * 1024;
+
+function isJsonContentType(contentType: string | undefined): boolean {
+  if (contentType === undefined) {
+    return false;
+  }
+  const [mediaType, parameter, ...rest] = contentType.split(";");
+  if (
+    rest.length > 0 ||
+    mediaType?.trim().toLowerCase() !== "application/json"
+  ) {
+    return false;
+  }
+  if (parameter !== undefined) {
+    const normalizedParameter = parameter.trim().toLowerCase();
+    return (
+      normalizedParameter === "charset=utf-8" ||
+      normalizedParameter === 'charset="utf-8"'
+    );
+  }
+  return true;
+}
 
 function drainRequest(req: IncomingMessage): void {
   if (req.destroyed || req.readableEnded) {
@@ -93,6 +118,10 @@ export async function readJson(
   context: RequestContext,
 ): Promise<unknown> {
   context.signal.throwIfAborted();
+  if (!isJsonContentType(req.headers["content-type"])) {
+    drainRequest(req);
+    throw new UnsupportedMediaTypeError();
+  }
   const contentLength = req.headers["content-length"];
   if (contentLength !== undefined && Number(contentLength) > maxBodyBytes) {
     drainRequest(req);

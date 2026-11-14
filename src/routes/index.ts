@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AuthController, WebController } from "../controllers/index.ts";
 import { MethodNotAllowedError, NotFoundError } from "../errors/index.ts";
+import { validateHost } from "../middlewares/index.ts";
 import type { RequestContext } from "../models/index.ts";
 import { authRoutes } from "./auth-routes.ts";
 import { healthRoutes } from "./health-routes.ts";
@@ -33,6 +34,7 @@ export function createRoutes(
     res: ServerResponse,
     context: RequestContext,
   ): Promise<void> => {
+    validateHost(req);
     const path = requestPath(req.url);
     const route = routes.find((candidate) => candidate.path === path);
     if (route === undefined) {

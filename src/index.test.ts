@@ -145,7 +145,7 @@ describe("HTTP server composition", () => {
       socket.on("data", (chunk: Buffer) => received.push(chunk));
       const ended = once(socket, "end");
       socket.write(
-        "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        "CONNECT 127.0.0.1:443 HTTP/1.1\r\nHost: 127.0.0.1:443\r\n\r\n",
       );
       await ended;
       const response = Buffer.concat(received).toString("utf8");
@@ -176,7 +176,7 @@ describe("HTTP server composition", () => {
     try {
       await once(socket, "connect");
       socket.write(
-        "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        "CONNECT 127.0.0.1:443 HTTP/1.1\r\nHost: 127.0.0.1:443\r\n\r\n",
       );
       await accepted.promise;
       socket.resetAndDestroy();
@@ -209,7 +209,7 @@ describe("HTTP server composition", () => {
     try {
       await once(socket, "connect");
       socket.write(
-        "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n",
+        "CONNECT 127.0.0.1:443 HTTP/1.1\r\nHost: 127.0.0.1:443\r\n\r\n",
       );
       await handled.promise;
       await closed.promise;
@@ -234,6 +234,7 @@ describe("HTTP server composition", () => {
       await expect(
         fetch(`http://127.0.0.1:${String(port)}/v1/users`, {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             email: "a@example.com",
             password: "correct horse battery staple",
@@ -264,6 +265,7 @@ describe("HTTP server composition", () => {
       host: "127.0.0.1",
       path: "/v1/sessions",
       method: "POST",
+      headers: { "Content-Type": "application/json" },
     });
     let responded = false;
     client.on("response", () => {

@@ -7,6 +7,7 @@ import {
   BadRequestError,
   BusyError,
   EmailTakenError,
+  ForbiddenError,
   InvalidCredentialsError,
   InvalidEmailError,
   InvalidHashError,
@@ -14,6 +15,7 @@ import {
   MethodNotAllowedError,
   NotFoundError,
   PayloadTooLargeError,
+  UnsupportedMediaTypeError,
   WeakPasswordError,
 } from "../errors/index.ts";
 import { handleError } from "./error-handler.ts";
@@ -70,9 +72,19 @@ describe("handleError", () => {
       detail: "リクエストボディを読み取れませんでした",
     },
     {
+      error: new BadRequestError("invalid-host"),
+      status: 400,
+      detail: "Hostヘッダーが正しくありません",
+    },
+    {
       error: new InvalidCredentialsError(),
       status: 401,
       detail: "メールアドレスまたはパスワードが正しくありません",
+    },
+    {
+      error: new ForbiddenError(),
+      status: 403,
+      detail: "クロスサイトのリクエストは許可されていません",
     },
     {
       error: new NotFoundError(),
@@ -93,6 +105,11 @@ describe("handleError", () => {
       error: new PayloadTooLargeError(),
       status: 413,
       detail: "リクエストボディが上限を超えています",
+    },
+    {
+      error: new UnsupportedMediaTypeError(),
+      status: 415,
+      detail: "Content-Typeはapplication/jsonを指定してください",
     },
     {
       error: new InvalidEmailError(),
