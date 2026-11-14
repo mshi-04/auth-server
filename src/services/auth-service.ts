@@ -222,6 +222,8 @@ export class AuthService {
       if (!isAbortedBy(error, signal)) {
         this.#logger.warn("save rehashed password failed", { userId, error });
       }
+      return;
     }
+    this.#logger.info("password hash rehashed", { userId });
   }
 }

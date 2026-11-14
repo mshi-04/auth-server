@@ -136,8 +136,11 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 |---|---|---|---|
 | `DATABASE_PATH` | 必須 | なし | SQLite ファイルのパス |
 | `PORT` | 任意 | `8080` | 待ち受けポート |
+| `PASSWORD_MEMORY_KIB` | 任意 | `131072` | Argon2id のメモリ量（KiB） |
+| `PASSWORD_ITERATIONS` | 任意 | `9` | Argon2id の反復回数 |
+| `PASSWORD_PARALLELISM` | 任意 | `2` | Argon2id の並列度 |
 
-`DATABASE_PATH` が空、または絶対パス化・リンク解決の前後で `/mnt/c` 配下なら起動エラーになる。親ディレクトリは先に用意する。`PORT` は未設定・空なら 8080、それ以外は十進数字の 1〜65535 に限る。サーバーは IPv4 の全インターフェースで待ち受け、SIGINT・SIGTERM で最大 30 秒の正常終了を待つ。
+`DATABASE_PATH` が空、または絶対パス化・リンク解決の前後で `/mnt/c` 配下なら起動エラーになる。親ディレクトリは先に用意する。`PORT` は未設定・空なら 8080、それ以外は十進数字の 1〜65535 に限る。`PASSWORD_MEMORY_KIB`・`PASSWORD_ITERATIONS`・`PASSWORD_PARALLELISM` は未設定・空なら既定値、それ以外は十進数字で [パスワード仕様の許容範囲](password.md#パラメータ)を満たす組合せに限る。サーバーは IPv4 の全インターフェースで待ち受け、SIGINT・SIGTERM で最大 30 秒の正常終了を待つ。
 
 ## Web 画面と Windows からの接続
 

@@ -5,7 +5,7 @@ import tseslint from "typescript-eslint";
 
 const sourceRoot = resolve(import.meta.dirname, "src");
 const layerDependencies = {
-  config: ["errors"],
+  config: ["models", "errors"],
   routes: ["controllers", "middlewares", "schemas", "models", "errors"],
   controllers: ["services", "schemas", "models", "errors"],
   middlewares: ["schemas", "models", "errors", "providers"],
@@ -304,7 +304,11 @@ const projectPlugin = {
               target !== "models/password/hash-parameters.ts" ||
               !(
                 isTypeOnlyNamedAccess(node, ["Params", "Cost"]) ||
-                isNamedAccess(node, ["validateParams"])
+                isNamedAccess(node, [
+                  "defaultCost",
+                  "isValidCost",
+                  "validateParams",
+                ])
               )
             ) {
               reject();
