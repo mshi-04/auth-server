@@ -4,11 +4,21 @@ import { monitorEventLoopDelay } from "node:perf_hooks";
 import { setImmediate, setTimeout } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import { Password } from "../../models/index.ts";
+import type { Cost } from "../../models/index.ts";
 import { defaultParams, Argon2PasswordProvider } from "./index.ts";
 
 const password = Password.parse("correct horse battery staple");
 const signal = new AbortController().signal;
 const hasher = Argon2PasswordProvider.create(defaultParams());
+const legacyCost: Cost = {
+  memoryKiB: 65536,
+  iterations: 3,
+  parallelism: 2,
+};
+const legacyHasher = Argon2PasswordProvider.create({
+  ...defaultParams(),
+  ...legacyCost,
+});
 const run = process.env.AUTH_PASSWORD_BENCH_RUN ?? "latest";
 const directory = "bench-results/password";
 const resolutionMs = 10;
@@ -36,6 +46,28 @@ it("hash saturated", { timeout: 120000 }, async ({ bench }) => {
       );
     },
   ).run({ ...options, iterations: 3 });
+});
+
+it("verify default", { timeout: 120000 }, async ({ bench }) => {
+  const encoded = await hasher.hash(password, signal);
+  await bench(
+    "verify default",
+    { writeResult: `${directory}/${run}-verify-default.json` },
+    async () => {
+      await hasher.verify(password, encoded, signal);
+    },
+  ).run(options);
+});
+
+it("verify legacy", { timeout: 120000 }, async ({ bench }) => {
+  const encoded = await legacyHasher.hash(password, signal);
+  await bench(
+    "verify legacy",
+    { writeResult: `${directory}/${run}-verify-legacy.json` },
+    async () => {
+      await hasher.verify(password, encoded, signal);
+    },
+  ).run(options);
 });
 
 it("event loop delay under saturation", { timeout: 120000 }, async () => {
