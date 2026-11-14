@@ -158,7 +158,7 @@ class Argon2PasswordProvider implements PasswordProvider {
 | ポリシー境界値 | 11 / 12 / 128 / 129 文字、NFKC で文字数が変わる入力、サロゲートペアを含む入力、ペアになっていないサロゲート。解析時の最大長検査と `hash` の最小長検査を分けて検証 |
 | 値オブジェクト | 解析済みの空文字、全出力経路（`toString`・`toJSON`・`util.inspect`・別のオブジェクトのプロパティ）での伏字、エラーに秘密を含めないこと |
 | セマフォ | 同時数を超えた呼び出しがタイムアウトで `PasswordBusyError` になる。中断済みの `signal` で計算を開始しない。Argon2id の計算中は枠を保持し、終了後に解放する |
-| ベンチマーク | `hash`（既定のパラメータ）、`hash saturated`（既定のパラメータで同時ハッシュ数いっぱいに並列実行したときの 1 回あたりの所要時間）、`hash candidates`（下記の候補）。`vitest bench` で計測 |
+| ベンチマーク | `hash`（既定のパラメータ）、`hash saturated`（既定のパラメータで同時ハッシュ数いっぱいに並列実行したときの 1 回あたりの所要時間）、`verify default`（既定のパラメータのハッシュに対する `verify`）、`verify legacy`（初期値の 64 MiB・反復 3・並列 2 の旧パラメータのハッシュに対する `verify`）、`verify difference`（2 つの `verify` の平均の差と比）。いずれも現行設定の Provider で検証し、誤ったパスワードでのログイン失敗（登録有無の推測に使われる経路）の `verify` 単体を測る。正しいパスワードでは再ハッシュと保存が加わるため対象外とする。2 つの差は、設定を強化した後（既存ユーザーが `verify legacy`、ダミー検証が `verify default`）と、弱めた後（既存ユーザーが `verify default`、ダミー検証が `verify legacy` 相当）の両方向の応答時間差を表す。`hash candidates`（下記の候補）。`vitest bench` で計測 |
 | イベントループ遅延 | 既定のパラメータで同時ハッシュ数いっぱいに並列実行している間、`node:perf_hooks` の `monitorEventLoopDelay` でイベントループの遅延を測る。遅延の最大値が 1 回のハッシュの所要時間より十分に小さく（目安は 50ms 未満）、計算中も他の処理が止まらないことを確かめる |
 | スレッドプール待ち | 非同期版の `randomBytes` など、要求の処理で Argon2id 以外の libuv スレッドプール処理を採用する場合だけ、同時ハッシュ数いっぱいの状態で、その処理の開始から完了までの時間を測る。対象となる処理が無ければ測定は不要とする。`monitorEventLoopDelay` とは別に測り、スレッドプールのキュー待ちによる遅延を確かめる |
 
