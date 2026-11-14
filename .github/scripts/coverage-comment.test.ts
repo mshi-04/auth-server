@@ -8,7 +8,6 @@ type Comment = { id: number; user: { login: string }; body: string };
 
 const headSha = "0123456789abcdef";
 const tsMarker = "<!-- auth-server-ts-coverage -->";
-const goMarker = "<!-- auth-server-coverage -->";
 
 function metrics(pct: number) {
   return {
@@ -89,7 +88,6 @@ beforeEach(async () => {
   process.chdir(workspace);
   vi.stubEnv("GITHUB_WORKSPACE", workspace);
   vi.stubEnv("GITHUB_RUN_ATTEMPT", "1");
-  vi.stubEnv("COVERAGE_LANGUAGE", "typescript");
   vi.stubEnv("COVERAGE_TEST_OUTCOME", "success");
   vi.stubEnv("COVERAGE_REPORT_OUTCOME", "success");
   vi.stubEnv("COVERAGE_ARTIFACT_URL", "");
@@ -132,10 +130,10 @@ describe("updateCoverageComment", () => {
     expect(body).toContain("計測コミット: `fedcba9`");
   });
 
-  it("updates its own comment and leaves the Go comment alone", async () => {
+  it("updates its own comment and leaves unrelated bot comments alone", async () => {
     await writeTypeScriptSummary(100);
     const comments = [
-      { id: 1, user: { login: "github-actions[bot]" }, body: `${goMarker}\n` },
+      { id: 1, user: { login: "github-actions[bot]" }, body: "other report\n" },
       { id: 2, user: { login: "github-actions[bot]" }, body: `${tsMarker}\n` },
     ];
     const { github, created, updated } = fakeGitHub({ comments });
@@ -210,33 +208,5 @@ describe("updateCoverageComment", () => {
 
     expect(failures).toEqual(["Could not read a valid coverage report."]);
     expect(created[0]).toContain("カバレッジを計測できませんでした");
-  });
-
-  it("reads the Go function coverage total", async () => {
-    vi.stubEnv("COVERAGE_LANGUAGE", "go");
-    await writeFile(
-      join(workspace, "coverage", "coverage.txt"),
-      "auth-server/internal/x.go:1:\tF\t50.0%\ntotal:\t(statements)\t62.5%\n",
-    );
-    const { github, created } = fakeGitHub();
-    const { core, failures } = fakeCore();
-
-    await updateCoverageComment({ github, context, core });
-
-    expect(failures).toEqual([]);
-    expect(created[0]?.startsWith(goMarker)).toBe(true);
-    expect(created[0]).toContain("## Go Coverage");
-    expect(created[0]).toContain("合計カバレッジ: **62.5%**");
-  });
-
-  it("rejects an unknown coverage language", async () => {
-    vi.stubEnv("COVERAGE_LANGUAGE", "rust");
-    const { github, created } = fakeGitHub();
-    const { core } = fakeCore();
-
-    await expect(
-      updateCoverageComment({ github, context, core }),
-    ).rejects.toThrow("Unknown coverage language");
-    expect(created).toEqual([]);
   });
 });

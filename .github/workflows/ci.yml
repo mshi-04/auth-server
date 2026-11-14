@@ -83,8 +83,6 @@ jobs:
 
       - name: Create coverage summary
         id: coverage_reports
-        env:
-          COVERAGE_LANGUAGE: typescript
         run: node .github/scripts/coverage-comment.cjs
 
       - name: Upload coverage reports
@@ -104,7 +102,6 @@ jobs:
               github.actor != 'dependabot[bot]' }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          COVERAGE_LANGUAGE: typescript
           COVERAGE_TEST_OUTCOME: ${{ steps.coverage_test.outcome }}
           COVERAGE_REPORT_OUTCOME: ${{ steps.coverage_reports.outcome }}
           COVERAGE_ARTIFACT_URL: ${{ steps.coverage_artifact.outputs.artifact-url }}
