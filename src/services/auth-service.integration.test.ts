@@ -190,6 +190,12 @@ describe("AuthService integration with Argon2PasswordProvider", () => {
       expect(currentProvider.needsRehash(EncodedHash.parse(updatedPhc))).toBe(
         false,
       );
+      expect(logger.infoCalls).toEqual([
+        {
+          message: "password hash upgraded",
+          attributes: { userId: "legacy-user" },
+        },
+      ]);
       expect(logger.warnCalls).toHaveLength(0);
       expect(logger.errorCalls).toHaveLength(0);
     },

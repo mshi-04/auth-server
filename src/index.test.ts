@@ -441,6 +441,21 @@ describe("server startup and shutdown", () => {
     await expect(
       run({}, new MemoryLogger(), new AbortController().signal),
     ).rejects.toThrow("DATABASE_PATH is required");
+    const directory = await mkdtemp(join(tmpdir(), "auth-server-config-"));
+    try {
+      await expect(
+        run(
+          {
+            DATABASE_PATH: join(directory, "auth.db"),
+            PASSWORD_ITERATIONS: "0",
+          },
+          new MemoryLogger(),
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow("Password cost parameters are out of range");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("finishes without an error when stopped during startup", async () => {
@@ -491,6 +506,9 @@ describe("server startup and shutdown", () => {
             ...process.env,
             DATABASE_PATH: join(directory, "auth.db"),
             PORT: String(port),
+            PASSWORD_MEMORY_KIB: "64",
+            PASSWORD_ITERATIONS: "1",
+            PASSWORD_PARALLELISM: "1",
           },
           stdio: ["ignore", "pipe", "pipe"],
         },

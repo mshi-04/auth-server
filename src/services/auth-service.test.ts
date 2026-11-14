@@ -540,6 +540,7 @@ describe("AuthService.login", () => {
     expect(passwordProvider.needsRehashCalls[0]).toBe(verifiedEncoded);
     expect(passwordProvider.rehashCalls).toHaveLength(0);
     expect(repository.updatePasswordHashCalls).toHaveLength(0);
+    expect(logger.infoCalls).toHaveLength(0);
     expect(logger.warnCalls).toHaveLength(0);
     expect(logger.errorCalls).toHaveLength(0);
   });
@@ -583,6 +584,9 @@ describe("AuthService.login", () => {
     expect(repository.updatePasswordHashCalls).toEqual([
       { userId: "user-1", passwordHash: rehashedPhc, signal },
     ]);
+    expect(logger.infoCalls).toEqual([
+      { message: "password hash upgraded", attributes: { userId: "user-1" } },
+    ]);
     expect(logger.warnCalls).toHaveLength(0);
     expect(logger.errorCalls).toHaveLength(0);
   });
@@ -602,6 +606,7 @@ describe("AuthService.login", () => {
 
       expect(result).toEqual({ userId: "user-1" });
       expect(repository.updatePasswordHashCalls).toHaveLength(0);
+      expect(logger.infoCalls).toHaveLength(0);
       expectSingleWarning(logger, "rehash password failed", rehashError);
     },
   );
@@ -622,6 +627,7 @@ describe("AuthService.login", () => {
 
       expect(result).toEqual({ userId: "user-1" });
       expect(repository.updatePasswordHashCalls).toHaveLength(1);
+      expect(logger.infoCalls).toHaveLength(0);
       expectSingleWarning(logger, "save rehashed password failed", updateError);
     },
   );

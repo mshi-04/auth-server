@@ -1,6 +1,8 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { ConfigError, hasCode } from "../errors/index.ts";
+import { defaultCost, isValidCost } from "../models/index.ts";
+import type { Cost } from "../models/index.ts";
 
 const defaultPort = 8080;
 const minPort = 1;
@@ -9,6 +11,7 @@ const maxPort = 65535;
 export type Config = {
   readonly databasePath: string;
   readonly port: number;
+  readonly passwordCost: Cost;
 };
 
 function isWindowsDrive(path: string): boolean {
@@ -81,9 +84,50 @@ function parsePort(raw: string | undefined): number {
   return port;
 }
 
+function parseDecimal(
+  raw: string | undefined,
+  defaultValue: number,
+  name: string,
+): number {
+  if (raw === undefined || raw === "") {
+    return defaultValue;
+  }
+
+  const value = Number(raw);
+  if (/[^0-9]/u.test(raw) || !Number.isSafeInteger(value)) {
+    throw new ConfigError(`${name} must be a valid decimal integer.`);
+  }
+  return value;
+}
+
+function parsePasswordCost(env: NodeJS.ProcessEnv): Cost {
+  const cost: Cost = {
+    memoryKiB: parseDecimal(
+      env.PASSWORD_MEMORY_KIB,
+      defaultCost.memoryKiB,
+      "PASSWORD_MEMORY_KIB",
+    ),
+    iterations: parseDecimal(
+      env.PASSWORD_ITERATIONS,
+      defaultCost.iterations,
+      "PASSWORD_ITERATIONS",
+    ),
+    parallelism: parseDecimal(
+      env.PASSWORD_PARALLELISM,
+      defaultCost.parallelism,
+      "PASSWORD_PARALLELISM",
+    ),
+  };
+  if (!isValidCost(cost)) {
+    throw new ConfigError("Password cost parameters are out of range.");
+  }
+  return cost;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
   return {
     databasePath: parseDatabasePath(env.DATABASE_PATH),
     port: parsePort(env.PORT),
+    passwordCost: parsePasswordCost(env),
   };
 }

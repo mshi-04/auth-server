@@ -179,7 +179,10 @@ async function start(
     signal,
   );
   try {
-    const passwordProvider = Argon2PasswordProvider.create(defaultParams());
+    const passwordProvider = Argon2PasswordProvider.create({
+      ...defaultParams(),
+      ...config.passwordCost,
+    });
     const idProvider = CryptoIdProvider.create();
     const service = await AuthService.create(
       repository,
