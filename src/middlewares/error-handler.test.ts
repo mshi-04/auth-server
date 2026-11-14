@@ -229,6 +229,28 @@ describe("handleError", () => {
     expect(response.getHeader("connection")).toBe("close");
   });
 
+  it.each([
+    [new BadRequestError("invalid-host"), 400],
+    [new ForbiddenError(), 403],
+    [new UnsupportedMediaTypeError(), 415],
+  ])(
+    "requests connection closure after rejecting unread body %o",
+    (error, status) => {
+      const { response } = runError(error);
+      expect(response.statusCode).toBe(status);
+      expect(response.getHeader("connection")).toBe("close");
+    },
+  );
+
+  it.each([
+    new BadRequestError("invalid-input"),
+    new BadRequestError("read-failed"),
+  ])("keeps the connection after a 400 for a read body %o", (error) => {
+    const { response } = runError(error);
+    expect(response.statusCode).toBe(400);
+    expect(response.getHeader("connection")).toBeUndefined();
+  });
+
   it.each([new BusyError(), new Error("aborted operation")])(
     "suppresses both logging and response when the context cannot respond",
     (error) => {

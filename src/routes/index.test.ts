@@ -278,7 +278,7 @@ describe("HTTP routes", () => {
     "/x/../healthz",
     "/%68ealthz",
     "*",
-    "http://example.com/missing",
+    "http://localhost/missing",
   ])("returns 404 without normalizing %s", async (path) => {
     const fixture = await createFixture();
     const response = await fixture.raw(path);
@@ -287,16 +287,26 @@ describe("HTTP routes", () => {
 
   it.each([
     ["http://127.0.0.1/healthz", 200],
-    ["HTTP://example.com/healthz?check=1", 200],
-    ["http://example.com", 200],
-    ["http://example.com/", 200],
-    ["http://example.com/HEALTHZ", 404],
+    ["HTTP://localhost/healthz?check=1", 200],
+    ["http://localhost", 200],
+    ["http://localhost/", 200],
+    ["http://localhost/HEALTHZ", 404],
   ])(
     "matches the path of an absolute-form target %s",
     async (target, status) => {
       const fixture = await createFixture();
       const response = await fixture.raw(target);
       expect(response.status).toBe(status);
+    },
+  );
+
+  it.each(["http://example.com/healthz", "http://localhost:0/healthz"])(
+    "rejects an absolute-form target with an invalid authority %s",
+    async (target) => {
+      const fixture = await createFixture();
+      const response = await fixture.raw(target);
+      expectProblemStatus(response, 400);
+      expect(response.headers.connection).toBe("close");
     },
   );
 

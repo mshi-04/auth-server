@@ -1,25 +1,19 @@
 import type { IncomingMessage } from "node:http";
+import { isIPv4 } from "node:net";
 import { BadRequestError, ForbiddenError } from "../errors/index.ts";
 
-function isIpv4(hostname: string): boolean {
-  const parts = hostname.split(".");
-  if (parts.length !== 4) {
-    return false;
-  }
-  return parts.every(
-    (part) => /^(?:0|[1-9][0-9]{0,2})$/u.test(part) && Number(part) <= 255,
-  );
-}
+export type RequestHost = {
+  readonly hostname: string;
+  readonly port: string;
+};
 
-function parseHost(
-  value: string | undefined,
-): { readonly hostname: string; readonly port: string } | null {
+function parseHost(value: string | undefined): RequestHost | undefined {
   if (value === undefined) {
-    return null;
+    return undefined;
   }
   const colonIndex = value.indexOf(":");
   if (colonIndex !== -1 && colonIndex !== value.lastIndexOf(":")) {
-    return null;
+    return undefined;
   }
   const hostname = colonIndex === -1 ? value : value.slice(0, colonIndex);
   const port = colonIndex === -1 ? "80" : value.slice(colonIndex + 1);
@@ -27,22 +21,39 @@ function parseHost(
     colonIndex !== -1 &&
     (!/^[1-9][0-9]{0,4}$/u.test(port) || Number(port) > 65535)
   ) {
-    return null;
+    return undefined;
   }
   const normalizedHost = hostname.toLowerCase();
-  if (normalizedHost !== "localhost" && !isIpv4(normalizedHost)) {
-    return null;
+  if (normalizedHost !== "localhost" && !isIPv4(normalizedHost)) {
+    return undefined;
   }
   return { hostname: normalizedHost, port };
 }
 
-export function validateHost(req: IncomingMessage): void {
-  if (parseHost(req.headers.host) === null) {
-    throw new BadRequestError("invalid-host");
-  }
+function targetAuthority(target: string | undefined): string | undefined {
+  return target?.split("?", 1)[0]?.match(/^https?:\/\/([^/]*)/iu)?.[1];
 }
 
-export function validateSameOrigin(req: IncomingMessage): void {
+export function validateHost(req: IncomingMessage): RequestHost {
+  const headerHost = parseHost(req.headers.host);
+  if (headerHost === undefined) {
+    throw new BadRequestError("invalid-host");
+  }
+  const authority = targetAuthority(req.url);
+  if (authority === undefined) {
+    return headerHost;
+  }
+  const targetHost = parseHost(authority);
+  if (targetHost === undefined) {
+    throw new BadRequestError("invalid-host");
+  }
+  return targetHost;
+}
+
+export function validateSameOrigin(
+  req: IncomingMessage,
+  requestHost: RequestHost,
+): void {
   const secFetchSite = req.headers["sec-fetch-site"];
   if (secFetchSite !== undefined) {
     const normalizedSite = secFetchSite.trim().toLowerCase();
@@ -53,12 +64,11 @@ export function validateSameOrigin(req: IncomingMessage): void {
 
   const origin = req.headers.origin;
   if (origin !== undefined) {
-    const requestHost = parseHost(req.headers.host);
-    const match = /^http:\/\/([^/?#@\s]+)$/iu.exec(origin.trim());
-    const originHost = match?.[1] === undefined ? null : parseHost(match[1]);
+    const originHost = parseHost(
+      /^http:\/\/([^/?#@\s]+)$/iu.exec(origin.trim())?.[1],
+    );
     if (
-      requestHost === null ||
-      originHost === null ||
+      originHost === undefined ||
       originHost.hostname !== requestHost.hostname ||
       originHost.port !== requestHost.port
     ) {

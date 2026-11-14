@@ -38,10 +38,10 @@ function badRequestDetail(kind: BadRequestError["kind"]): string {
 function classify(error: unknown): Problem | undefined {
   for (const current of causeChain(error)) {
     if (current instanceof BadRequestError) {
-      return {
-        status: 400,
-        detail: badRequestDetail(current.kind),
-      };
+      const problem = { status: 400, detail: badRequestDetail(current.kind) };
+      return current.kind === "invalid-host"
+        ? { ...problem, closeConnection: true }
+        : problem;
     }
     if (current instanceof InvalidCredentialsError) {
       return {
@@ -53,6 +53,7 @@ function classify(error: unknown): Problem | undefined {
       return {
         status: 403,
         detail: "クロスサイトのリクエストは許可されていません",
+        closeConnection: true,
       };
     }
     if (current instanceof NotFoundError) {
@@ -79,6 +80,7 @@ function classify(error: unknown): Problem | undefined {
       return {
         status: 415,
         detail: "Content-Typeはapplication/jsonを指定してください",
+        closeConnection: true,
       };
     }
     if (current instanceof InvalidEmailError) {

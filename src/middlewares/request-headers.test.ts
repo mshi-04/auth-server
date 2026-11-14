@@ -59,6 +59,35 @@ describe("validateHost", () => {
   );
 });
 
+describe("validateHost with an absolute-form target", () => {
+  it.each([
+    ["http://127.0.0.1:3000/v1/users", { hostname: "127.0.0.1", port: "3000" }],
+    ["HTTP://LOCALHOST/healthz?x=1", { hostname: "localhost", port: "80" }],
+  ])("returns the target authority of %s", (url, expected) => {
+    const req = makeRequest({ host: "127.0.0.1:8080" });
+    req.url = url;
+    expect(validateHost(req)).toEqual(expected);
+  });
+
+  it.each([
+    "http://example.com/v1/users",
+    "http://user@127.0.0.1/",
+    "http:///",
+  ])("rejects the target authority of %s", (url) => {
+    const req = makeRequest({ host: "127.0.0.1:8080" });
+    req.url = url;
+    expect(() => validateHost(req)).toThrow(
+      expect.objectContaining({ kind: "invalid-host" }),
+    );
+  });
+
+  it("uses the Host header for an origin-form target", () => {
+    const req = makeRequest({ host: "LOCALHOST:8080" });
+    req.url = "/v1/users";
+    expect(validateHost(req)).toEqual({ hostname: "localhost", port: "8080" });
+  });
+});
+
 describe("validateSameOrigin", () => {
   it.each([
     { host: "127.0.0.1:8080" },
@@ -84,7 +113,8 @@ describe("validateSameOrigin", () => {
     },
   ])("accepts non-browser or same-origin headers %j", (headers) => {
     expect(() => {
-      validateSameOrigin(makeRequest(headers));
+      const req = makeRequest(headers);
+      validateSameOrigin(req, validateHost(req));
     }).not.toThrow();
   });
 
@@ -98,10 +128,10 @@ describe("validateSameOrigin", () => {
     { host: "127.0.0.1:8080", origin: "http://localhost:8080" },
     { host: "127.0.0.1:8080", origin: "http://example.com" },
     { host: "127.0.0.1:8080", origin: "http://127.0.0.1:8080/" },
-    { host: undefined, origin: "http://127.0.0.1:8080" },
   ])("rejects cross-site headers %j with ForbiddenError", (headers) => {
     expect(() => {
-      validateSameOrigin(makeRequest(headers));
+      const req = makeRequest(headers);
+      validateSameOrigin(req, validateHost(req));
     }).toThrow(ForbiddenError);
   });
 });

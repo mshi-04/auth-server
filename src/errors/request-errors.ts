@@ -1,11 +1,10 @@
+type BadRequestKind = "invalid-input" | "read-failed" | "invalid-host";
+
 export class BadRequestError extends Error {
   override readonly name = "BadRequestError";
-  readonly kind: "invalid-input" | "read-failed" | "invalid-host";
+  readonly kind: BadRequestKind;
 
-  constructor(
-    kind: "invalid-input" | "read-failed" | "invalid-host" = "invalid-input",
-    options?: ErrorOptions,
-  ) {
+  constructor(kind: BadRequestKind = "invalid-input", options?: ErrorOptions) {
     super("Invalid request.", options);
     this.kind = kind;
   }

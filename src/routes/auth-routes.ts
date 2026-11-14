@@ -1,16 +1,11 @@
 import type { IncomingMessage } from "node:http";
 import type { AuthController } from "../controllers/index.ts";
-import {
-  readJson,
-  validateRequest,
-  validateSameOrigin,
-} from "../middlewares/index.ts";
+import { readJson, validateRequest } from "../middlewares/index.ts";
 import type { RequestContext } from "../models/index.ts";
 import { parseCredentials } from "../schemas/index.ts";
 import type { Route } from "./route.ts";
 
 async function readCredentials(req: IncomingMessage, context: RequestContext) {
-  validateSameOrigin(req);
   return validateRequest(await readJson(req, context), parseCredentials);
 }
 
@@ -19,6 +14,7 @@ export function authRoutes(controller: AuthController): Route[] {
     {
       path: "/v1/users",
       methods: ["POST"],
+      sameOrigin: true,
       async handle(req, res, context) {
         const input = await readCredentials(req, context);
         await controller.register(req, res, context, input);
@@ -27,6 +23,7 @@ export function authRoutes(controller: AuthController): Route[] {
     {
       path: "/v1/sessions",
       methods: ["POST"],
+      sameOrigin: true,
       async handle(req, res, context) {
         const input = await readCredentials(req, context);
         await controller.login(req, res, context, input);
