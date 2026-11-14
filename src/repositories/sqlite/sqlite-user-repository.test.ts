@@ -8,6 +8,7 @@ import {
   BusyError,
   EmailTakenError,
   UserNotFoundError,
+  causeChain,
   findError,
 } from "../../errors/index.ts";
 import type { NewUser } from "../../models/index.ts";
@@ -442,24 +443,20 @@ describe("SqliteUserRepository", () => {
 });
 
 function causeMessages(error: unknown): string[] {
-  const messages: string[] = [];
-  let current = error;
-  while (current instanceof Error && messages.length < 32) {
-    messages.push(current.message);
-    current = current.cause;
-  }
-  return messages;
+  return [...causeChain(error)]
+    .filter((current): current is Error => current instanceof Error)
+    .map((current) => current.message);
 }
 
 function findSqliteError(error: unknown): Error | undefined {
-  const seen = new Set<Error>();
-  let current = error;
-  while (current instanceof Error && !seen.has(current)) {
-    if ("code" in current && current.code === "ERR_SQLITE_ERROR") {
+  for (const current of causeChain(error)) {
+    if (
+      current instanceof Error &&
+      "code" in current &&
+      current.code === "ERR_SQLITE_ERROR"
+    ) {
       return current;
     }
-    seen.add(current);
-    current = current.cause;
   }
   return undefined;
 }

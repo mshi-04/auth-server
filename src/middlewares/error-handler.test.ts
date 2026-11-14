@@ -2,6 +2,7 @@ import { IncomingMessage, ServerResponse } from "node:http";
 import { Socket } from "node:net";
 import { describe, expect, it } from "vitest";
 import { RecordingLogger } from "../../tests/support/fakes/logger.ts";
+import { testRequestContext } from "../../tests/support/http.ts";
 import {
   BadRequestError,
   BusyError,
@@ -15,7 +16,6 @@ import {
   PayloadTooLargeError,
   WeakPasswordError,
 } from "../errors/index.ts";
-import type { RequestContext } from "../models/index.ts";
 import { handleError } from "./error-handler.ts";
 import { setSecurityHeaders } from "./security-headers.ts";
 
@@ -35,17 +35,6 @@ class RecordingResponse extends ServerResponse {
   }
 }
 
-function context(canRespond = true): RequestContext {
-  const signal = new AbortController().signal;
-  return {
-    signal,
-    disconnectedSignal: signal,
-    deadlineSignal: signal,
-    deadline: Infinity,
-    canRespond: () => canRespond,
-  };
-}
-
 function runError(error: unknown, method = "GET") {
   const logger = new RecordingLogger();
   const req = new IncomingMessage(new Socket());
@@ -53,7 +42,7 @@ function runError(error: unknown, method = "GET") {
   const response = new RecordingResponse(req);
   setSecurityHeaders(response);
   try {
-    handleError(error, req, response, context(), logger);
+    handleError(error, req, response, testRequestContext(), logger);
     expect(response.getHeader("cache-control")).toBe("no-store");
     expect(response.getHeader("x-content-type-options")).toBe("nosniff");
     expect(response.getHeader("content-security-policy")).toContain(
@@ -205,7 +194,7 @@ describe("handleError", () => {
     const logger = new RecordingLogger();
     const error = new NotFoundError();
     res.writeHead(200);
-    handleError(error, req, res, context(), logger);
+    handleError(error, req, res, testRequestContext(), logger);
     expect(logger.errorCalls).toEqual([
       {
         message: "request failed after response headers",
@@ -229,7 +218,13 @@ describe("handleError", () => {
       const req = new IncomingMessage(new Socket());
       const res = new ServerResponse(req);
       const logger = new RecordingLogger();
-      handleError(error, req, res, context(false), logger);
+      handleError(
+        error,
+        req,
+        res,
+        testRequestContext({ canRespond: false }),
+        logger,
+      );
       expect(res.headersSent).toBe(false);
       expect(res.writableEnded).toBe(false);
       expect(logger.errorCalls).toEqual([]);

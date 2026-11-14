@@ -6,7 +6,7 @@ import { SequentialIdProvider } from "../../tests/support/fakes/id-provider.ts";
 import { RecordingLogger } from "../../tests/support/fakes/logger.ts";
 import { RecordingPasswordProvider } from "../../tests/support/fakes/password-provider.ts";
 import { RouteUserRepository } from "../../tests/support/fakes/user-repository.ts";
-import { listenOnLoopback } from "../../tests/support/http.ts";
+import { closeServer, listenOnLoopback } from "../../tests/support/http.ts";
 import { AuthController, WebController } from "../controllers/index.ts";
 import { BusyError } from "../errors/index.ts";
 import {
@@ -36,17 +36,7 @@ const servers: Server[] = [];
 
 afterEach(async () => {
   for (const server of servers.splice(0)) {
-    const closed = new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error !== undefined) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
-    });
-    server.closeAllConnections();
-    await closed;
+    await closeServer(server);
   }
 });
 
