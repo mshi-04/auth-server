@@ -44,7 +44,7 @@ HTTP の結合テスト `routes/index.test.ts` は、本物の `AuthService` と
 
 | 層 | 責務 | 依存してよい先 |
 |---|---|---|
-| `config` | 環境変数の検証と `Config` | `errors`、Node 標準 |
+| `config` | 環境変数の検証と `Config` | `models`、`errors`、Node 標準 |
 | `routes` | メソッド・パスと Controller、Middleware の対応を定義 | `controllers`、`middlewares`、`schemas`、`models`、`errors` |
 | `controllers` | HTTP 入力と Service 入力の変換、Service 呼び出し、成功応答 | `services`、`schemas`、`models`、`errors` |
 | `middlewares` | 本文上限、JSON 読み込み、構造検証の実行、中断管理、共通ヘッダー、エラー応答 | `schemas`、`models`、`errors`、`LoggerProvider` の型 |
@@ -132,7 +132,7 @@ Interface は利用するメソッドだけに絞る。JWT・Cookie・リフレ�
 - ダミー用の値は `IdProvider.newDummyPassword()` から取得し、`Password.parse` と `PasswordProvider.hash` を経て保持する。ユーザー ID は `IdProvider.newUserId()` で生成する。
 - 保存済み PHC は `EncodedHash.parse` で 1 回解析し、同じ値を `verify`・`needsRehash` に渡す。保存時は `phc()` を明示する。
 - ユーザー不在・不一致・保存済み PHC 異常などは `InvalidCredentialsError` に統一する。保存済み PHC 異常はダミー検証を行い、秘密値を含めず Service で記録する。
-- 認証成功後の再ハッシュ生成・保存失敗は警告して成功とする。要求中断を原因とする失敗は警告せず、HTTP 境界で中断規則を優先する。
+- 認証成功後の再ハッシュ生成・保存に成功したら info ログを記録し、失敗は警告して成功とする。要求中断を原因とする失敗は警告せず、HTTP 境界で中断規則を優先する。
 
 ## HTTP 境界
 
@@ -172,7 +172,7 @@ HTTP フレームワークは使わず、`node:http` 向けの関数として構
 
 ## Config・Repository・起動処理
 
-`config/env.ts` の `loadConfig(env: NodeJS.ProcessEnv): Config` は `databasePath: string` と `port: number` を返す。環境変数、絶対パス化、`/mnt/c` とリンク解決後の検査は [横断的な要件](api.md#横断的な要件) に従う。不正な値は `errors/` の設定エラーとして投げる。`databasePath` は絶対パス化しただけのパスで返し、リンク解決の結果は `/mnt/c` の検査だけに使う。Repository の検査（[初期化と接続設定](database.md#初期化と接続設定)）がシンボリックリンクを拒否できるよう、渡すパスのリンクを解決しない。Config はファイルやディレクトリを作らず、Repository の所有者・権限検査を重複しない。
+`config/env.ts` の `loadConfig(env: NodeJS.ProcessEnv): Config` は `databasePath: string`、`port: number`、`passwordCost: Cost` を返す。環境変数、絶対パス化、`/mnt/c` とリンク解決後の検査、パスワードのコスト範囲の検査は [横断的な要件](api.md#横断的な要件) に従う。不正な値は `errors/` の設定エラーとして投げる。`databasePath` は絶対パス化しただけのパスで返し、リンク解決の結果は `/mnt/c` の検査だけに使う。Repository の検査（[初期化と接続設定](database.md#初期化と接続設定)）がシンボリックリンクを拒否できるよう、渡すパスのリンクを解決しない。Config はファイルやディレクトリを作らず、Repository の所有者・権限検査を重複しない。
 
 `SqliteUserRepository.open(path, signal)` は接続を 1 つだけ所有する具体実装を返す（`Promise`）。`open`・`close` は組み立て用の API で、Service 向けの `UserRepository` には含めない。接続確認・WAL・`init.sql` 初期化の失敗時は接続を閉じる。権限検査、新規 DB の `0o600`、WAL 切り替えだけの再試行は [DB 仕様の初期化と接続設定](database.md#初期化と接続設定)、`BEGIN IMMEDIATE` と SQLite エラーの `code`・数値 `errcode` による変換は [DB 仕様の書き込み](database.md#書き込み)を維持する。
 
@@ -183,7 +183,7 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 `index.ts` は次の順に組み立てる。
 
 1. Logger と Config を生成する。
-2. SQLite Repository を開き、Password・ID Provider を生成する。Password Provider はプロセス内で共用する。
+2. SQLite Repository を開き、Config のコスト設定を反映した Password Provider と ID Provider を生成する。Password Provider はプロセス内で共用する。
 3. `AuthService.create` へ各 interface を注入し、ダミーハッシュの初期化を完了する。
 4. `public/` の 3 ファイルを読み込み、Controller・Routes・Middleware を組み立てる。
 5. `http.Server` を生成し、[横断的な要件](api.md#横断的な要件)・[サーバータイムアウト](api.md#サーバータイムアウト) の待ち受け・タイムアウト・終了処理を設定して起動する。
