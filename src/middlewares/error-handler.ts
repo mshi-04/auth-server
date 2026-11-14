@@ -15,12 +15,12 @@ import {
 import type { RequestContext } from "../models/index.ts";
 import type { LoggerProvider } from "../providers/index.ts";
 
-interface Problem {
+type Problem = {
   readonly status: number;
   readonly detail: string;
   readonly allowedMethods?: readonly string[];
   readonly closeConnection?: boolean;
-}
+};
 
 function classify(error: unknown): Problem | undefined {
   for (const current of causeChain(error)) {

@@ -13,7 +13,13 @@ export {
   NotFoundError,
   PayloadTooLargeError,
 } from "./request-errors.ts";
-export { causeChain, findError, isCausedBy } from "./find-error.ts";
+export {
+  causeChain,
+  findError,
+  hasCode,
+  isAbortedBy,
+  isCausedBy,
+} from "./find-error.ts";
 export {
   InvalidHashError,
   InvalidParamsError,

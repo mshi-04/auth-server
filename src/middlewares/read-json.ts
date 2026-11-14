@@ -28,8 +28,8 @@ function readBody(req: IncomingMessage, signal: AbortSignal): Promise<Buffer> {
     function cleanup(): void {
       req.off("data", onData);
       req.off("end", onEnd);
-      req.off("error", onError);
-      req.off("aborted", onAborted);
+      req.off("error", onReadFailed);
+      req.off("aborted", onReadFailed);
       signal.removeEventListener("abort", onAbort);
     }
 
@@ -61,11 +61,7 @@ function readBody(req: IncomingMessage, signal: AbortSignal): Promise<Buffer> {
       resolve(Buffer.concat(chunks, size));
     }
 
-    function onError(): void {
-      fail(new BadRequestError("read-failed"));
-    }
-
-    function onAborted(): void {
+    function onReadFailed(): void {
       fail(new BadRequestError("read-failed"));
     }
 
@@ -75,8 +71,8 @@ function readBody(req: IncomingMessage, signal: AbortSignal): Promise<Buffer> {
 
     req.on("data", onData);
     req.once("end", onEnd);
-    req.once("error", onError);
-    req.once("aborted", onAborted);
+    req.once("error", onReadFailed);
+    req.once("aborted", onReadFailed);
     signal.addEventListener("abort", onAbort, { once: true });
     if (signal.aborted) {
       onAbort();
@@ -87,7 +83,7 @@ function readBody(req: IncomingMessage, signal: AbortSignal): Promise<Buffer> {
       return;
     }
     if (req.destroyed) {
-      onAborted();
+      onReadFailed();
     }
   });
 }

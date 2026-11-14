@@ -108,19 +108,17 @@ class RequestLifecycle implements RequestContext {
     this.#cleanup();
   }
 
-  #armDeadline(): void {
+  readonly #armDeadline = (): void => {
     const remaining = this.#deadline - performance.now();
     if (remaining <= 0) {
       this.#expire();
       return;
     }
     this.#timer = setTimeout(
-      () => {
-        this.#armDeadline();
-      },
+      this.#armDeadline,
       Math.min(remaining, maxTimerDelayMs),
     );
-  }
+  };
 }
 
 export function createRequestContext(

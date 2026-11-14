@@ -42,7 +42,6 @@ const cryptoFiles = [
   "providers/password/derive.ts",
   "providers/password/concurrency.test.ts",
   "providers/crypto-id-provider.ts",
-  "providers/crypto-id-provider.test.ts",
 ];
 const supportTypeDependencies = [
   "providers/index.ts",

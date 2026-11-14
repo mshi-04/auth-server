@@ -2,19 +2,19 @@
 
 採用技術と、その理由をまとめる。機能仕様の一覧は [README](../README.md#文書の正本と読む順序) を参照。プロジェクトのフォルダ名と npm のパッケージ名は `auth-server` とする。依存パッケージのバージョンは、実装後は `package.json` と `package-lock.json` を正本とする。Node のメジャーバージョンは `.nvmrc` を正本とし、`package.json` の `engines.node`（`>=26.11.0 <27`）は対象外の版で動かしていないかの検査に使う。
 
-本書は現在の採用方針を示す。構成と責務は [アーキテクチャ](architecture.md#現状と移行先)、起動・ベンチマークの実行方法は [開発ガイド](development.md#コマンド) を参照する。
+本書は現在の採用方針を示す。構成と責務は [アーキテクチャ](architecture.md#現状の配置)、起動・ベンチマークの実行方法は [開発ガイド](development.md#コマンド) を参照する。
 
 ## 言語・実行環境
 
 | 項目 | 採用 | 理由 |
 |---|---|---|
 | 言語 | TypeScript | 型で値オブジェクトとエラーの契約を表せる。Web 画面の JavaScript と言語をそろえられる |
-| 実行環境 | Node.js 26 系の 26.11.0 以上（2026-10-23 時点では Current。2026-10-28 から LTS の予定。LTS への移行後にこの表記を更新する） | 標準モジュールだけで HTTP サーバー、Argon2id、SQLite、乱数、正規化がそろう。26.11.0 は `node:sqlite` の `Database` クラスが入った版。26 系のサポート期限は 2029-04-30 |
-| TS の実行 | Node の型除去（type stripping）で `.ts` を直接実行する。移行後の起動は `node src/index.ts` | ビルドの工程と出力ファイルを持たない。型除去は Node 25.2 で安定版になった |
+| 実行環境 | Node.js 26 系の 26.11.0 以上（LTS） | 標準モジュールだけで HTTP サーバー、Argon2id、SQLite、乱数、正規化がそろう。26.11.0 は `node:sqlite` の `Database` クラスが入った版。26 系のサポート期限は 2029-04-30 |
+| TS の実行 | Node の型除去（type stripping）で `.ts` を直接実行する。起動は `node src/index.ts` | ビルドの工程と出力ファイルを持たない。型除去は Node 25.2 で安定版になった |
 | 型検査 | TypeScript 7 の `tsc --noEmit` | 型の検査だけを行い、JavaScript は出力しない |
 | 静的検査 | ESLint と typescript-eslint（`strictTypeChecked`） | `tsc` の型情報を使って、`Promise` の誤用、`any`・型アサーション、union 型の `switch` の分岐漏れ、デコレーター、依存の向きの違反、`Math.random` などを検出する |
 | 整形 | Prettier（既定の設定） | 書式を手で揃えず、差分を意味のある変更だけにする |
-| tsconfig | `erasableSyntaxOnly`、`verbatimModuleSyntax`、`rewriteRelativeImportExtensions`、`module: nodenext`、`target: esnext`、`noEmit`、`strict`、`noImplicitReturns`、`noFallthroughCasesInSwitch`、`noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`、`skipLibCheck`、`allowJs`。`include` は `src/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` | Node の型除去が扱えない構文（`enum`、実行時コードを持つ `namespace`、パラメータプロパティ）を型検査で拒否する（デコレーターは ESLint で拒否する）。全経路での戻り値と `switch` の通り抜け防止を強制する。添字アクセスの結果に `undefined` を含め、PHC 形式などの分割結果の要素数の検査漏れを防ぐ。省略可能な項目への `undefined` の代入を拒否する。import には `.ts` の拡張子を書く |
+| tsconfig | `erasableSyntaxOnly`、`verbatimModuleSyntax`、`rewriteRelativeImportExtensions`、`module: nodenext`、`target: esnext`、`noEmit`、`strict`、`noImplicitReturns`、`noFallthroughCasesInSwitch`、`noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`、`skipLibCheck`、`allowJs`。`include` は `src/**/*.ts`、`tests/support/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` | Node の型除去が扱えない構文（`enum`、実行時コードを持つ `namespace`、パラメータプロパティ）を型検査で拒否する（デコレーターは ESLint で拒否する）。全経路での戻り値と `switch` の通り抜け防止を強制する。添字アクセスの結果に `undefined` を含め、PHC 形式などの分割結果の要素数の検査漏れを防ぐ。省略可能な項目への `undefined` の代入を拒否する。import には `.ts` の拡張子を書く |
 | モジュール形式 | ES Modules（`package.json` の `"type": "module"`） | Node の型除去と `import.meta.url` をそのまま使う |
 | npm の設定 | `.npmrc` の `engine-strict=true` | `engines.node` の範囲外の Node（WSL の `PATH` に含まれる Windows 側の Node など）で `npm ci` を実行したら失敗させ、別のプラットフォーム向けの依存が入るのを防ぐ |
 | 開発環境 | WSL2（Ubuntu 24.04） | Node は WSL にだけ入れる。ソースは Windows 側のフォルダに置く |

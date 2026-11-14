@@ -6,16 +6,6 @@ import { authRoutes } from "./auth-routes.ts";
 import { healthRoutes } from "./health-routes.ts";
 import { webRoutes } from "./web-routes.ts";
 
-export interface Route {
-  readonly path: string;
-  readonly methods: readonly string[];
-  handle(
-    req: IncomingMessage,
-    res: ServerResponse,
-    context: RequestContext,
-  ): void | Promise<void>;
-}
-
 function requestPath(target: string | undefined): string | undefined {
   const path = target?.split("?", 1)[0];
   const absoluteForm = path?.match(/^https?:\/\/[^/]*(\/.*)?$/iu);

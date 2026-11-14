@@ -52,6 +52,55 @@ function serializeProperty(
   return serialize(readProperty(value, key), budget, depth);
 }
 
+function serializeError(
+  value: Error,
+  budget: Budget,
+  depth: number,
+): JsonValue {
+  const entries: [string, JsonValue][] = [
+    ["name", serializeProperty(value, "name", budget, depth + 1)],
+    ["message", serializeProperty(value, "message", budget, depth + 1)],
+  ];
+  const cause = readProperty(value, "cause");
+  if (cause !== undefined) {
+    entries.push(["cause", serialize(cause, budget, depth + 1)]);
+  }
+  return Object.fromEntries(entries);
+}
+
+function serializeArray(
+  value: readonly unknown[],
+  budget: Budget,
+  depth: number,
+): JsonValue {
+  if (value.length > budget.remaining) {
+    return unsupported;
+  }
+  return Array.from({ length: value.length }, (_, index) =>
+    serialize(readProperty(value, String(index)), budget, depth + 1),
+  );
+}
+
+function serializeObject(
+  value: object,
+  budget: Budget,
+  depth: number,
+): JsonValue {
+  const keys = Object.keys(value);
+  if (keys.length > budget.remaining) {
+    return unsupported;
+  }
+  if (keys.length === 0 && !isPlainObject(value)) {
+    return unsupported;
+  }
+  return Object.fromEntries(
+    keys.map((key): [string, JsonValue] => [
+      key,
+      serializeProperty(value, key, budget, depth + 1),
+    ]),
+  );
+}
+
 function serialize(value: unknown, budget: Budget, depth: number): JsonValue {
   try {
     if (budget.remaining <= 0) {
@@ -84,18 +133,7 @@ function serialize(value: unknown, budget: Budget, depth: number): JsonValue {
     budget.ancestors.add(value);
     try {
       if (value instanceof Error) {
-        const entries: [string, JsonValue][] = [
-          ["name", serialize(readProperty(value, "name"), budget, depth + 1)],
-          [
-            "message",
-            serialize(readProperty(value, "message"), budget, depth + 1),
-          ],
-        ];
-        const cause = readProperty(value, "cause");
-        if (cause !== undefined) {
-          entries.push(["cause", serialize(cause, budget, depth + 1)]);
-        }
-        return Object.fromEntries(entries);
+        return serializeError(value, budget, depth);
       }
       if (value instanceof Date) {
         return Number.isFinite(Date.prototype.getTime.call(value))
@@ -103,26 +141,9 @@ function serialize(value: unknown, budget: Budget, depth: number): JsonValue {
           : unsupported;
       }
       if (Array.isArray(value)) {
-        if (value.length > budget.remaining) {
-          return unsupported;
-        }
-        return Array.from({ length: value.length }, (_, index) =>
-          serialize(readProperty(value, String(index)), budget, depth + 1),
-        );
+        return serializeArray(value, budget, depth);
       }
-      const keys = Object.keys(value);
-      if (keys.length > budget.remaining) {
-        return unsupported;
-      }
-      if (keys.length === 0 && !isPlainObject(value)) {
-        return unsupported;
-      }
-      return Object.fromEntries(
-        keys.map((key): [string, JsonValue] => [
-          key,
-          serializeProperty(value, key, budget, depth + 1),
-        ]),
-      );
+      return serializeObject(value, budget, depth);
     } finally {
       budget.ancestors.delete(value);
     }

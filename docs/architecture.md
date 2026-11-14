@@ -2,7 +2,7 @@
 
 レイヤードアーキテクチャ、依存関係の注入（DI）、Provider 分離を定める。目的・スコープと文書の入口は [README](../README.md)、機能の振る舞いは [パスワード](password.md)・[DB](database.md)・[API・認証・サーバー](api.md)の各仕様書、採用技術は [tech-stack.md](tech-stack.md)、型と実装の規則は [coding-guidelines.md](coding-guidelines.md) を参照。
 
-## 現状と移行先
+## 現状の配置
 
 この文書は全体の設計を定める。ハッシュ計算は `src/providers/password/` の `Argon2PasswordProvider` にあり、ID 生成と JSON ログは `src/providers/` の `CryptoIdProvider`・`JsonLoggerProvider` が担当する。SQLite 実装は `src/repositories/sqlite/` の `SqliteUserRepository`、認証サービスは `src/services/auth-service.ts` の `AuthService` にある。HTTP 境界は `schemas`・`middlewares`・`controllers`・`routes`、起動と終了は `src/index.ts` に実装し、`npm start` で起動する。静的画面は `public/` から起動時に読み込む。
 
@@ -68,7 +68,7 @@ HTTP の結合テスト `routes/index.test.ts` は、本物の `AuthService` と
 
 `eslint.config.js` で上の依存規則と共有補助コードの境界を検査する。`.github/scripts/eslint-config.test.ts` は、ルールが違反を報告し、正当な利用を拒否しないことを代表例で確認する最小限のテストとする。層の全組み合わせや回避構文を網羅するものではない。新ディレクトリを追加するだけで依存検査が機能したとは扱わない。Service から具体実装への型 import、実装用公開口へのアクセス、再 export や動的 import による回避も禁止する。名前が `ForTesting` で終わるテスト用の差し替え口（`providers/password/derive.ts` の `replaceDerivationForTesting` など）は、テスト・ベンチマーク以外から import・再 export・プロパティ参照できない。名前を検査できるよう、差し替え口を持つモジュールは本番コードから `import * as` で読み込まず、`export *` で再 export しない。対象のモジュールは `eslint.config.js` に列挙する。
 
-モデルの秘密値を扱う内部 import は `providers/password/argon2-password-provider.ts` と、その内部契約を検証する `models/password/values.test.ts` に限定する。旧 `src/password/`・`src/store/sqlite/` の経路と暫定規則は撤去済みで、`src/index.ts` を唯一の組み立て経路とする。
+モデルの秘密値を扱う内部 import は `providers/password/argon2-password-provider.ts` と、その内部契約を検証する `models/password/values.test.ts` に限定する。`src/index.ts` を唯一の組み立て経路とする。
 
 ## 型と Interface の契約
 
@@ -211,4 +211,4 @@ SQLite のメソッドは同期 API を使うが、interface は `Promise` を�
 
 終了処理は実 HTTP と偽タイマーを組み合わせ、応答中は終了せず、応答完了後は仮想時間の 1 秒未満で接続を閉じることを確認する。実経過時間の性能保証は行わない。並行処理の開始は偽物からの通知を待ち、任意の反復回数や実時間の待機で推測しない。
 
-各実装段階で型検査・Lint・整形確認・テスト・カバレッジを確認する。ベンチマークは Provider 移行段階で既存の測定範囲を維持して確認し、性能や既定値を変える場合だけ [パスワード仕様の手順](password.md#テストと性能調整)で再測定する。Windows のブラウザーからの実接続確認は [README](../README.md#web-画面を使う) に従う。
+各実装段階で型検査・Lint・整形確認・テスト・カバレッジを確認する。ベンチマークは性能や既定値を変える場合だけ [パスワード仕様の手順](password.md#テストと性能調整)で再測定する。Windows のブラウザーからの実接続確認は [README](../README.md#web-画面を使う) に従う。

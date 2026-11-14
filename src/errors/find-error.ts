@@ -31,3 +31,11 @@ export function isCausedBy(error: unknown, reason: unknown): boolean {
 
   return false;
 }
+
+export function isAbortedBy(error: unknown, signal: AbortSignal): boolean {
+  return signal.aborted && isCausedBy(error, signal.reason);
+}
+
+export function hasCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
+}

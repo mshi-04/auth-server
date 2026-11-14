@@ -5,7 +5,7 @@
 
 本書の「する」「しない」は必須規約とし、例外は明記した範囲だけに認める。本番コードを主な対象とし、TypeScript のテスト・ベンチマーク・CI スクリプト・設定ファイルにも型安全性・Promise・後始末の規則を適用する。テスト固有の例外は「テスト」と「検査と整形」に定める。
 
-配置は [アーキテクチャの現状と移行先](architecture.md#現状と移行先)、import 規則は [import の検査](architecture.md#import-の検査)、有効な検査設定と適用範囲は「[現在の検査設定](#現在の検査設定)」に従う。
+配置は [アーキテクチャの現状の配置](architecture.md#現状の配置)、import 規則は [import の検査](architecture.md#import-の検査)、有効な検査設定と適用範囲は「[現在の検査設定](#現在の検査設定)」に従う。
 
 ## 構成
 
@@ -30,6 +30,7 @@
 - `readonly` はプロパティの再代入を防ぐだけで、参照先の配列・`Set`・`Buffer` の変更や実行時の不変性を保証しない。参照を保持する側が所有者を明確にし、呼び出し元の変更から守る必要がある値はコピーする。内部の可変な値を外へ公開しない
 - 添字アクセス（`parts[3]`、`record[key]`）の結果は `undefined` を含む。分割した文字列の要素数などは、使う前に検査して弾く
 - Node の型除去が扱えない構文（`enum`、実行時コードを持つ `namespace`、パラメータプロパティ、デコレーター）を使わない。デコレーターは ESLint の `no-restricted-syntax`、それ以外は `erasableSyntaxOnly` で検査する
+- データの形（モデル、DTO、設定、内部の構造）は `type` で定義する。`interface` は、Repository・Provider の契約や `RequestContext`・`Route` のような、実装が満たす振る舞いの契約に限る
 - 列挙は文字列リテラルの union 型で表す。union 型を `switch` で分岐するときはすべての値を `case` で扱う。ESLint の `switch-exhaustiveness-check` で検査する
 - import の書き方（`index.ts` 経由、`.ts` の拡張子、`import type`）は [アーキテクチャの構成と依存の向き](architecture.md#構成と依存の向き)に従う
 - `null` と `undefined` を混ぜない。値が無いことは `undefined` で表し、省略可能な項目は `?` で表す。`?` の項目に `undefined` を代入せず、項目ごと省く
@@ -117,7 +118,7 @@
 
 - 書式は Prettier に任せ、手で揃えない。整形だけの変更を、ほかの変更と同じコミットに混ぜない
 - ESLint は typescript-eslint の `strictTypeChecked` を基本にする。AGENTS.md の禁止事項（乱数 API の制限など）、イベントループを止める `argon2Sync`、依存規則を回避する動的 import と `createRequire` も禁止する
-- 層や共有補助コードの構成を変えるときは `eslint.config.js` を合わせ、設定テストの代表例を見直す。`services` の HTTP・DB・暗号モジュールへの直接依存、`repositories/sqlite` 以外の `node:sqlite`、具体的な Provider 以外の暗号呼び出し、逆向きの import を禁止する。旧 `src/store/sqlite/` の経路と暫定規則は撤去済みである。モデル内部へのアクセスは上記の秘密値契約だけを例外とし、`src/index.ts` は全体を組み立てる唯一の入口にする
+- 層や共有補助コードの構成を変えるときは `eslint.config.js` を合わせ、設定テストの代表例を見直す。`services` の HTTP・DB・暗号モジュールへの直接依存、`repositories/sqlite` 以外の `node:sqlite`、具体的な Provider 以外の暗号呼び出し、逆向きの import を禁止する。モデル内部へのアクセスは上記の秘密値契約だけを例外とし、`src/index.ts` は全体を組み立てる唯一の入口にする
 - `eslint.config.js` は層ごとの依存規則を検査する。`.github/scripts/eslint-config.test.ts` は許可・拒否の代表例による最小限の確認とし、層の全組み合わせや回避構文は網羅しない。禁止する名前やパターンの実際の一覧は `eslint.config.js` を正本とする
 - ESLint の指摘はコードを直して解消し、本番コードで抑制しない。例外は `*.test.ts` で、規則が禁止する書き方自体を試す必要がある場合だけとする。例として、秘密値をテンプレートリテラルへ埋め込んでも伏字になることを確かめるテストがある。この例外で `any`・型アサーション・TypeScript の抑制禁止を回避しない
 - 例外には対象行だけの `eslint-disable-next-line` を使い、規則名と検証のために必要な理由を同じ行に書く。ファイル全体・範囲全体の抑制、規則名や理由の省略を認めない

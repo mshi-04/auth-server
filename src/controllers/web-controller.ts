@@ -1,11 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { RequestContext } from "../models/index.ts";
 
-export interface WebAssets {
+export type WebAssets = {
   readonly html: Buffer;
   readonly css: Buffer;
   readonly js: Buffer;
-}
+};
 
 export class WebController {
   readonly #assets: WebAssets;

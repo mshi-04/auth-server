@@ -15,6 +15,7 @@ const userIDRow = document.getElementById("user-id-row");
 const userID = document.getElementById("user-id");
 const connectionStatus = document.getElementById("connection-status");
 const checkConnection = document.getElementById("check-connection");
+const formControls = [email, password, loginMode, registerMode, togglePassword, submitButton];
 let mode = "login";
 let pending = false;
 
@@ -26,11 +27,15 @@ function clearResult() {
   userIDRow.hidden = true;
 }
 
+function setPasswordVisible(visible) {
+  password.type = visible ? "text" : "password";
+  togglePassword.textContent = visible ? "隠す" : "表示";
+  togglePassword.setAttribute("aria-pressed", String(visible));
+  togglePassword.setAttribute("aria-label", visible ? "パスワードを隠す" : "パスワードを表示");
+}
+
 function hidePassword() {
-  password.type = "password";
-  togglePassword.textContent = "表示";
-  togglePassword.setAttribute("aria-pressed", "false");
-  togglePassword.setAttribute("aria-label", "パスワードを表示");
+  setPasswordVisible(false);
 }
 
 function setMode(nextMode) {
@@ -92,7 +97,7 @@ form.addEventListener("submit", async (event) => {
   const registering = mode === "register";
   const body = JSON.stringify({ email: email.value, password: password.value });
   const focused = document.activeElement;
-  for (const control of [email, password, loginMode, registerMode, togglePassword, submitButton]) control.disabled = true;
+  for (const control of formControls) control.disabled = true;
   form.setAttribute("aria-busy", "true");
   submitLabel.textContent = registering ? "登録しています…" : "照合しています…";
   const controller = new AbortController();
@@ -125,7 +130,7 @@ form.addEventListener("submit", async (event) => {
     password.value = "";
     hidePassword();
     pending = false;
-    for (const control of [email, password, loginMode, registerMode, togglePassword, submitButton]) control.disabled = false;
+    for (const control of formControls) control.disabled = false;
     form.setAttribute("aria-busy", "false");
     submitLabel.textContent = registering ? "ユーザーを登録する" : "ログインする";
     if (focused instanceof HTMLElement) focused.focus();
@@ -135,11 +140,7 @@ form.addEventListener("submit", async (event) => {
 loginMode.addEventListener("click", () => setMode("login"));
 registerMode.addEventListener("click", () => setMode("register"));
 togglePassword.addEventListener("click", () => {
-  const visible = password.type === "password";
-  password.type = visible ? "text" : "password";
-  togglePassword.textContent = visible ? "隠す" : "表示";
-  togglePassword.setAttribute("aria-pressed", String(visible));
-  togglePassword.setAttribute("aria-label", visible ? "パスワードを隠す" : "パスワードを表示");
+  setPasswordVisible(password.type === "password");
 });
 checkConnection.addEventListener("click", checkHealth);
 window.addEventListener("pageshow", () => { password.value = ""; hidePassword(); });

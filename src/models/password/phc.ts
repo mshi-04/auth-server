@@ -1,14 +1,17 @@
 import { InvalidHashError } from "../../errors/index.ts";
-import { isInRange, isValidCost } from "./hash-parameters.ts";
+import {
+  isInRange,
+  isValidCost,
+  maxKeyBytes,
+  maxSaltBytes,
+  minKeyBytes,
+} from "./hash-parameters.ts";
 import type { Cost } from "./hash-parameters.ts";
 
 const bitsPerByte = 8;
 const bitsPerBase64Char = 6;
 const costFieldCount = 3;
 const minStoredSaltBytes = 8;
-const maxSaltBytes = 64;
-const minKeyBytes = 4;
-const maxKeyBytes = 64;
 
 export type DecodedHash = {
   readonly cost: Cost;
@@ -45,10 +48,10 @@ function decodePart(encoded: string, minimum: number, maximum: number): Buffer {
 
 function parseCost(encoded: string): Cost {
   const fields = encoded.split(",");
-  const values = new Map<string, number>();
   if (fields.length !== costFieldCount) {
     throw new InvalidHashError();
   }
+  const values = new Map<string, number>();
   for (const field of fields) {
     const [name, raw, extra] = field.split("=");
     if (

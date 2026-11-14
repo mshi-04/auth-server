@@ -1,38 +1,10 @@
 const fs = require("node:fs");
 
-function coverageTarget(language) {
-  if (language === "go") {
-    return {
-      marker: "<!-- auth-server-coverage -->",
-      runMarker: "auth-server-coverage-run",
-      heading: "Go Coverage",
-    };
-  }
-  if (language === "typescript") {
-    return {
-      marker: "<!-- auth-server-ts-coverage -->",
-      runMarker: "auth-server-ts-coverage-run",
-      heading: "TypeScript Coverage",
-    };
-  }
-  throw new Error("Unknown coverage language");
-}
+const marker = "<!-- auth-server-ts-coverage -->";
+const runMarker = "auth-server-ts-coverage-run";
+const heading = "TypeScript Coverage";
 
-function readCoverageReport(language) {
-  if (language === "go") {
-    const details = fs.readFileSync("coverage/coverage.txt", "utf8").trim();
-    const total = details.match(
-      /^total:\s+\(statements\)\s+(\d+(?:\.\d+)?)%\s*$/m,
-    );
-    if (!total || Number(total[1]) > 100) {
-      throw new Error("Invalid Go coverage total");
-    }
-    return { total: total[1], details, label: "関数別カバレッジ" };
-  }
-
-  if (language !== "typescript") {
-    throw new Error("Unknown coverage language");
-  }
+function readCoverageReport() {
   const report = JSON.parse(
     fs.readFileSync("coverage/coverage-summary.json", "utf8"),
   );
@@ -68,8 +40,6 @@ function readCoverageReport(language) {
 }
 
 async function updateCoverageComment({ github, context, core }) {
-  const language = process.env.COVERAGE_LANGUAGE;
-  const { marker, runMarker, heading } = coverageTarget(language);
   const pr = context.payload.pull_request;
   const runNumber = context.runNumber;
   const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
@@ -102,7 +72,7 @@ async function updateCoverageComment({ github, context, core }) {
     process.env.COVERAGE_REPORT_OUTCOME === "success"
   ) {
     try {
-      const report = readCoverageReport(language);
+      const report = readCoverageReport();
       const details =
         report.details.length > 48000
           ? `${report.details.slice(0, 48000)}\n...（全文は artifact を参照）`
@@ -161,9 +131,7 @@ async function updateCoverageComment({ github, context, core }) {
 module.exports = updateCoverageComment;
 
 if (require.main === module) {
-  const language = process.env.COVERAGE_LANGUAGE;
-  const { heading } = coverageTarget(language);
-  const report = readCoverageReport(language);
+  const report = readCoverageReport();
   fs.appendFileSync(
     process.env.GITHUB_STEP_SUMMARY,
     `## ${heading}\n\n合計カバレッジ: **${report.total}%**\n`,
