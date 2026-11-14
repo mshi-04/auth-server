@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   BadRequestError,
+  ForbiddenError,
   MethodNotAllowedError,
   NotFoundError,
   PayloadTooLargeError,
+  UnsupportedMediaTypeError,
 } from "./index.ts";
 
 describe("request errors", () => {
@@ -14,6 +16,7 @@ describe("request errors", () => {
     expect(error.name).toBe("BadRequestError");
     expect(error.kind).toBe("read-failed");
     expect(error.cause).toBe(cause);
+    expect(new BadRequestError("invalid-host").kind).toBe("invalid-host");
     expect(new BadRequestError().kind).toBe("invalid-input");
   });
   it("copies the allow list instead of retaining mutable input", () => {
@@ -25,11 +28,13 @@ describe("request errors", () => {
     expect(error.cause).toBe(cause);
     expect(error.name).toBe("MethodNotAllowedError");
   });
-  it.each([new NotFoundError(), new PayloadTooLargeError()])(
-    "does not attach HTTP status to $name",
-    (error) => {
-      expect(error).toBeInstanceOf(Error);
-      expect(error).not.toHaveProperty("status");
-    },
-  );
+  it.each([
+    new ForbiddenError(),
+    new NotFoundError(),
+    new PayloadTooLargeError(),
+    new UnsupportedMediaTypeError(),
+  ])("does not attach HTTP status to $name", (error) => {
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toHaveProperty("status");
+  });
 });

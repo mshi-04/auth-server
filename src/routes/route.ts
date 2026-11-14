@@ -4,6 +4,7 @@ import type { RequestContext } from "../models/index.ts";
 export interface Route {
   readonly path: string;
   readonly methods: readonly string[];
+  readonly sameOrigin?: boolean;
   handle(
     req: IncomingMessage,
     res: ServerResponse,

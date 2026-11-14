@@ -14,6 +14,7 @@ export function authRoutes(controller: AuthController): Route[] {
     {
       path: "/v1/users",
       methods: ["POST"],
+      sameOrigin: true,
       async handle(req, res, context) {
         const input = await readCredentials(req, context);
         await controller.register(req, res, context, input);
@@ -22,6 +23,7 @@ export function authRoutes(controller: AuthController): Route[] {
     {
       path: "/v1/sessions",
       methods: ["POST"],
+      sameOrigin: true,
       async handle(req, res, context) {
         const input = await readCredentials(req, context);
         await controller.login(req, res, context, input);

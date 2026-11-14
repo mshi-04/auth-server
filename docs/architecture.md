@@ -47,7 +47,7 @@ HTTP の結合テスト `routes/index.test.ts` は、本物の `AuthService` と
 | `config` | 環境変数の検証と `Config` | `models`、`errors`、Node 標準 |
 | `routes` | メソッド・パスと Controller、Middleware の対応を定義 | `controllers`、`middlewares`、`schemas`、`models`、`errors` |
 | `controllers` | HTTP 入力と Service 入力の変換、Service 呼び出し、成功応答 | `services`、`schemas`、`models`、`errors` |
-| `middlewares` | 本文上限、JSON 読み込み、構造検証の実行、中断管理、共通ヘッダー、エラー応答 | `schemas`、`models`、`errors`、`LoggerProvider` の型 |
+| `middlewares` | リクエストヘッダー検査、本文上限、JSON 読み込み、構造検証の実行、中断管理、共通ヘッダー、エラー応答 | `schemas`、`models`、`errors`、`LoggerProvider` の型 |
 | `schemas` | HTTP の入出力 DTO、`unknown` から DTO への構造検証 | `errors` |
 | `services` | 登録・ログイン・再ハッシュの手順と失敗時の方針 | `models`、`errors`、Repository・Provider の interface |
 | `repositories` | DB 操作の契約、SQLite 接続・SQL・トランザクション・DB エラー変換 | `models`、`errors` |
@@ -139,10 +139,11 @@ Interface は利用するメソッドだけに絞る。JWT・Cookie・リフレ�
 HTTP フレームワークは使わず、`node:http` 向けの関数として構成する。
 
 - Routes は API・ヘルスチェック・静的ファイルの対応表を持つ。未知パスと非対応メソッドはカスタムエラーにし、エラー本文は Error Middleware だけで生成する。405 の許可メソッドもエラーの情報として渡す。
-- `index.ts` は要求ごとに、外側から `security-headers` → `request-lifecycle` → `error-handler` → ルート解決（未知パス・405 を含む）→ `read-json` → `validate-request` → Controller の順に組み立てる。共通ヘッダーと中断管理はルートの一致より外側で行い、404・405・エラー応答にも適用する。`error-handler` は `read-json` を含む内側のすべての失敗を受ける。
+- `index.ts` は要求ごとに、外側から `security-headers` → `request-lifecycle` → `error-handler` → ルート解決（`Host` 検査・未知パス・405 を含む）→ 同一オリジン検査 → `read-json` → `validate-request` → Controller の順に組み立てる。共通ヘッダーと中断管理はルートの一致より外側で行い、404・405・エラー応答にも適用する。`error-handler` は `read-json` を含む内側のすべての失敗を受ける。
 - 各 Middleware と Controller は `req`・`res` と、`request-lifecycle.ts` が作る要求の文脈を受け取る。文脈は下位層へ渡す `signal`、切断と応答期限のそれぞれの signal、単調時計で表す要求の期限、応答を書けるかの判定を持つ。
-- `read-json.ts` は Content-Length と実際に読んだバイト数を確認し、16 KiB を超えたら拒否する。JSON の解析結果は `unknown` として扱い、読み込み失敗と JSON 不正を区別する。JSON の解析エラーは本文の一部を含みうるため、`BadRequestError` の `cause` に入れない。
-- `credentials-schema.ts` はオブジェクト・必須の文字列項目・未知項目の有無だけを検証する。Content-Type の必須化、空文字の拒否、メール形式、パスワード最小長の検査は追加しない。
+- `read-json.ts` は `Content-Type`（`application/json`、任意の `charset=utf-8`）と `Content-Length`、実際に読んだバイト数を確認し、`Content-Type` 不正は 415、16 KiB 超過は 413 として拒否する。JSON の解析結果は `unknown` として扱い、読み込み失敗と JSON 不正を区別する。JSON の解析エラーは本文の一部を含みうるため、`BadRequestError` の `cause` に入れない。
+- `request-headers.ts` は `validateHost` と `validateSameOrigin` を提供する。`routes/index.ts` のルート解決が最初に `validateHost` を呼び、Host ヘッダー（absolute-form では要求対象の authority も）を検査して要求のホストを返す。ルートが `sameOrigin` を指定している場合（登録・ログイン）は、405 の判定後にその要求のホストで `validateSameOrigin` を呼び、`Sec-Fetch-Site`・`Origin` を検査する。Host 不正の 400、クロスサイトの 403、`Content-Type` 不正の 415 は、413 と同じく応答後に接続を閉じる。
+- `credentials-schema.ts` はオブジェクト・必須の文字列項目・未知項目の有無だけを検証する。空文字の拒否、メール形式、パスワード最小長の検査は追加しない。
 - `validate-request.ts` が Schema を実行し、型が確定した DTO を Controller へ渡す。Controller に入力形式の検査や業務ロジックを重複させない。
 - `index.ts` は `request` イベントのコールバックの入口（ヘッダー受信後・本文読み込み前）で `performance.now() + 30000` を要求の期限として記録し、`request-lifecycle.ts` へ渡す。`request-lifecycle.ts` は切断と応答期限をまとめた `AbortSignal` を作り、Controller を通して下位層へ渡す。クライアントの切断は `res` の `close` で `res.writableFinished` が `false` の場合に判定する。`req` の `close` は本文を読み終えた時点でも発火するため、切断の判定に使わない。応答期限は [サーバータイムアウト](api.md#サーバータイムアウト) に従い、期限までの残り時間を使う `setTimeout` で中断する `AbortController` から作る。本文の受信完了で期限を延長しない。タイマー・イベント購読を後始末する。
 - Controller の成功応答と `error-handler` のエラー応答は、文脈の判定で応答を書けることを確かめてから書く。切断済みなら応答を書かず、応答期限を超えていれば接続を破棄する。この判定は文脈の signal の状態と、`performance.now()` が期限に達していないことの両方で行い、エラーの `cause` の連鎖には依存しない。同期の SQLite 処理でタイマーの発火が遅れた場合も、期限後の応答を書かない。
@@ -155,11 +156,13 @@ HTTP フレームワークは使わず、`node:http` 向けの関数として構
 
 | エラー・状況 | Error Middleware の扱い |
 |---|---|
-| `BadRequestError` | 400。本文読み込み失敗と入力不正は固定の detail で区別 |
+| `BadRequestError` | 400。`Host` 不正、本文読み込み失敗、入力不正を固定の detail で区別 |
 | `InvalidCredentialsError` | 401。原因を公開しない |
+| `ForbiddenError` | 403 |
 | `NotFoundError`・`MethodNotAllowedError` | 404・405。405 は `Allow` も設定 |
 | `EmailTakenError` | 409 |
 | `PayloadTooLargeError` | 413 |
+| `UnsupportedMediaTypeError` | 415 |
 | `InvalidEmailError`・`WeakPasswordError` | 422 |
 | `BusyError` | 要求が有効で応答を書ける場合だけ 503 |
 | 予期しないエラー | 500。内部原因を応答へ含めず、1 回だけ記録 |

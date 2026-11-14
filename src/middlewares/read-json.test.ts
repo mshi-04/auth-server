@@ -11,11 +11,19 @@ import {
   listenOnLoopback,
   testRequestContext,
 } from "../../tests/support/http.ts";
-import { BadRequestError, PayloadTooLargeError } from "../errors/index.ts";
+import {
+  BadRequestError,
+  PayloadTooLargeError,
+  UnsupportedMediaTypeError,
+} from "../errors/index.ts";
 import { readJson } from "./read-json.ts";
 
-function request(chunks: readonly Buffer[]): IncomingMessage {
+function request(
+  chunks: readonly Buffer[],
+  contentType = "application/json",
+): IncomingMessage {
   const req = new IncomingMessage(new Socket());
+  req.headers["content-type"] = contentType;
   for (const chunk of chunks) {
     req.push(chunk);
   }
@@ -25,9 +33,15 @@ function request(chunks: readonly Buffer[]): IncomingMessage {
 }
 
 describe("readJson", () => {
-  it("reads chunked UTF-8 without requiring a content type", async () => {
+  it.each([
+    "application/json",
+    "Application/JSON",
+    "application/json; charset=utf-8",
+    "application/json;charset=UTF-8",
+    'application/json; charset="UTF-8"',
+  ])("reads chunked UTF-8 with Content-Type %s", async (contentType) => {
     const body = Buffer.from('{"email":"日本語","password":""}');
-    const req = request([body.subarray(0, 12), body.subarray(12)]);
+    const req = request([body.subarray(0, 12), body.subarray(12)], contentType);
     await expect(readJson(req, testRequestContext())).resolves.toEqual({
       email: "日本語",
       password: "",
@@ -35,6 +49,29 @@ describe("readJson", () => {
     expect(req.listenerCount("data")).toBe(0);
     expect(req.listenerCount("error")).toBe(0);
   });
+
+  it.each([
+    undefined,
+    "",
+    "text/plain",
+    "application/x-www-form-urlencoded",
+    "application/json;",
+    "application/json; charset=shift_jis",
+    "application/json; charset=utf-8; boundary=x",
+  ])(
+    "rejects unsupported Content-Type %s before reading the body",
+    async (contentType) => {
+      const req = new IncomingMessage(new Socket());
+      if (contentType !== undefined) {
+        req.headers["content-type"] = contentType;
+      }
+      await expect(readJson(req, testRequestContext())).rejects.toBeInstanceOf(
+        UnsupportedMediaTypeError,
+      );
+      expect(req.listenerCount("data")).toBe(0);
+      req.push(null);
+    },
+  );
 
   it("accepts the entire 16 KiB body including trailing whitespace", async () => {
     const body = Buffer.from("{}" + " ".repeat(16 * 1024 - 2));
@@ -45,6 +82,7 @@ describe("readJson", () => {
 
   it("rejects an excessive declared length before reading the body", async () => {
     const req = new IncomingMessage(new Socket());
+    req.headers["content-type"] = "application/json";
     req.headers["content-length"] = String(16 * 1024 + 1);
     await expect(readJson(req, testRequestContext())).rejects.toBeInstanceOf(
       PayloadTooLargeError,
@@ -124,6 +162,7 @@ describe("readJson", () => {
     "classifies a body %s separately without retaining transport secrets",
     async (event) => {
       const req = new IncomingMessage(new Socket());
+      req.headers["content-type"] = "application/json";
       const promise = readJson(req, testRequestContext());
       req.emit(event, new Error("secret request payload"));
       const error = await rejected(promise);
@@ -139,6 +178,7 @@ describe("readJson", () => {
   it("rejects promptly and removes its listeners when aborted mid-body", async () => {
     const controller = new AbortController();
     const req = new IncomingMessage(new Socket());
+    req.headers["content-type"] = "application/json";
     const promise = readJson(
       req,
       testRequestContext({ signal: controller.signal }),
@@ -163,6 +203,7 @@ describe("readJson", () => {
 
   it("classifies an already destroyed body as unreadable", async () => {
     const req = new IncomingMessage(new Socket());
+    req.headers["content-type"] = "application/json";
     req.destroy();
     await expect(readJson(req, testRequestContext())).rejects.toBeInstanceOf(
       BadRequestError,
@@ -189,7 +230,10 @@ describe("readJson", () => {
       host: "127.0.0.1",
       port,
       method: "POST",
-      headers: { "Content-Length": "100" },
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": "100",
+      },
     });
     client.on("error", () => undefined);
     try {

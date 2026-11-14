@@ -1,13 +1,20 @@
+type BadRequestKind = "invalid-input" | "read-failed" | "invalid-host";
+
 export class BadRequestError extends Error {
   override readonly name = "BadRequestError";
-  readonly kind: "invalid-input" | "read-failed";
+  readonly kind: BadRequestKind;
 
-  constructor(
-    kind: "invalid-input" | "read-failed" = "invalid-input",
-    options?: ErrorOptions,
-  ) {
+  constructor(kind: BadRequestKind = "invalid-input", options?: ErrorOptions) {
     super("Invalid request.", options);
     this.kind = kind;
+  }
+}
+
+export class ForbiddenError extends Error {
+  override readonly name = "ForbiddenError";
+
+  constructor(message = "Forbidden request.", options?: ErrorOptions) {
+    super(message, options);
   }
 }
 
@@ -15,6 +22,14 @@ export class PayloadTooLargeError extends Error {
   override readonly name = "PayloadTooLargeError";
 
   constructor(message = "Request body too large.", options?: ErrorOptions) {
+    super(message, options);
+  }
+}
+
+export class UnsupportedMediaTypeError extends Error {
+  override readonly name = "UnsupportedMediaTypeError";
+
+  constructor(message = "Unsupported media type.", options?: ErrorOptions) {
     super(message, options);
   }
 }
