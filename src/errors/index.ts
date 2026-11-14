@@ -16,6 +16,7 @@ export {
 export {
   causeChain,
   findError,
+  hasCode,
   isAbortedBy,
   isCausedBy,
 } from "./find-error.ts";

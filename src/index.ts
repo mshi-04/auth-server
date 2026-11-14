@@ -6,7 +6,7 @@ import { loadConfig } from "./config/index.ts";
 import type { Config } from "./config/index.ts";
 import { AuthController, WebController } from "./controllers/index.ts";
 import type { WebAssets } from "./controllers/index.ts";
-import { isAbortedBy } from "./errors/index.ts";
+import { hasCode, isAbortedBy } from "./errors/index.ts";
 import {
   createRequestContext,
   handleError,
@@ -117,10 +117,7 @@ export function shutdownServer(server: Server): Promise<void> {
     server.close((error?: Error) => {
       clearInterval(idleSweeper);
       clearTimeout(timer);
-      if (
-        error !== undefined &&
-        !("code" in error && error.code === "ERR_SERVER_NOT_RUNNING")
-      ) {
+      if (error !== undefined && !hasCode(error, "ERR_SERVER_NOT_RUNNING")) {
         reject(new Error("Shut down HTTP server failed.", { cause: error }));
         return;
       }

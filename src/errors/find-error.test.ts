@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   causeChain,
   findError,
+  hasCode,
   isAbortedBy,
   isCausedBy,
 } from "./find-error.ts";
@@ -217,5 +218,21 @@ describe("causeChain", () => {
   it("yields a non-Error value once without following it", () => {
     expect([...causeChain("reason")]).toEqual(["reason"]);
     expect([...causeChain(undefined)]).toEqual([]);
+  });
+});
+
+describe("hasCode", () => {
+  it("matches an Error with the expected code", () => {
+    expect(hasCode(new ExpectedError("expected"), "EXPECTED")).toBe(true);
+  });
+
+  it("rejects an Error without code or with a different code", () => {
+    expect(hasCode(new Error("plain"), "EXPECTED")).toBe(false);
+    expect(hasCode(new ExpectedError("expected"), "OTHER")).toBe(false);
+  });
+
+  it("rejects non-Error values even when they have a code property", () => {
+    expect(hasCode({ code: "EXPECTED" }, "EXPECTED")).toBe(false);
+    expect(hasCode(undefined, "EXPECTED")).toBe(false);
   });
 });

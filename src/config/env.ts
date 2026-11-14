@@ -1,6 +1,6 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
-import { ConfigError } from "../errors/index.ts";
+import { ConfigError, hasCode } from "../errors/index.ts";
 
 const defaultPort = 8080;
 const minPort = 1;
@@ -10,10 +10,6 @@ export type Config = {
   readonly databasePath: string;
   readonly port: number;
 };
-
-function hasCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
-}
 
 function isWindowsDrive(path: string): boolean {
   return path === "/mnt/c" || path.startsWith("/mnt/c/");

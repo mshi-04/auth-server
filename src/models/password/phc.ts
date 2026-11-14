@@ -48,10 +48,10 @@ function decodePart(encoded: string, minimum: number, maximum: number): Buffer {
 
 function parseCost(encoded: string): Cost {
   const fields = encoded.split(",");
-  const values = new Map<string, number>();
   if (fields.length !== costFieldCount) {
     throw new InvalidHashError();
   }
+  const values = new Map<string, number>();
   for (const field of fields) {
     const [name, raw, extra] = field.split("=");
     if (

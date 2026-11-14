@@ -30,6 +30,7 @@
 - `readonly` はプロパティの再代入を防ぐだけで、参照先の配列・`Set`・`Buffer` の変更や実行時の不変性を保証しない。参照を保持する側が所有者を明確にし、呼び出し元の変更から守る必要がある値はコピーする。内部の可変な値を外へ公開しない
 - 添字アクセス（`parts[3]`、`record[key]`）の結果は `undefined` を含む。分割した文字列の要素数などは、使う前に検査して弾く
 - Node の型除去が扱えない構文（`enum`、実行時コードを持つ `namespace`、パラメータプロパティ、デコレーター）を使わない。デコレーターは ESLint の `no-restricted-syntax`、それ以外は `erasableSyntaxOnly` で検査する
+- データの形（モデル、DTO、設定、内部の構造）は `type` で定義する。`interface` は、Repository・Provider の契約や `RequestContext`・`Route` のような、実装が満たす振る舞いの契約に限る
 - 列挙は文字列リテラルの union 型で表す。union 型を `switch` で分岐するときはすべての値を `case` で扱う。ESLint の `switch-exhaustiveness-check` で検査する
 - import の書き方（`index.ts` 経由、`.ts` の拡張子、`import type`）は [アーキテクチャの構成と依存の向き](architecture.md#構成と依存の向き)に従う
 - `null` と `undefined` を混ぜない。値が無いことは `undefined` で表し、省略可能な項目は `?` で表す。`?` の項目に `undefined` を代入せず、項目ごと省く
