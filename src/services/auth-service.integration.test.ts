@@ -192,7 +192,7 @@ describe("AuthService integration with Argon2PasswordProvider", () => {
       );
       expect(logger.infoCalls).toEqual([
         {
-          message: "password hash upgraded",
+          message: "password hash rehashed",
           attributes: { userId: "legacy-user" },
         },
       ]);

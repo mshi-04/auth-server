@@ -82,7 +82,7 @@ HTTP の結合テスト `routes/index.test.ts` は、本物の `AuthService` と
 | `Credential` | `models/credential.ts`。`userId`、`passwordHash` は文字列 |
 | `Password` | `models/password/values.ts`。正規化・最大長検査済みの生パスワード |
 | `EncodedHash` | 同上。検証済み PHC。保存時だけ `phc()` で文字列を取り出す |
-| `Params`・`Cost` | `models/password/hash-parameters.ts`。設定・PHC のコスト型と純粋な範囲検証 |
+| `Params`・`Cost` | `models/password/hash-parameters.ts`。設定・PHC のコスト型、コストの採用値 `defaultCost`（凍結済み）、純粋な範囲検証（`isValidCost`・`validateParams`） |
 | HTTP 入出力 DTO | `schemas/`。要求の `CredentialsRequest` は `{email, password}`、成功応答の `UserIdResponse` は `{user_id}` |
 
 Controller が HTTP の `password` を Service の `rawPassword` へ、Service の `userId` を HTTP の `user_id` へ変換する。Domain・DB の型に HTTP の項目名やステータスを持たせない。DB の `passwordHash` は PHC 文字列であることを名前と保存境界で明示し、既存の文字列契約を維持する。
@@ -113,7 +113,7 @@ Interface は利用するメソッドだけに絞る。JWT・Cookie・リフレ�
 
 ## Password Model と Provider の分離
 
-`Password.parse` と `EncodedHash.parse`、伏字、PHC 構文解析は Models、非同期 Argon2id・ソルト生成・定数時間比較・セマフォは Provider に置く。`Argon2PasswordProvider.create(params)` が検証済み設定のコピーとセマフォを保持し、公開コンストラクタは設けない。`defaultParams()` は Provider の `params.ts` で現行の採用値を返す。詳細は [パスワード仕様](password.md#公開契約)に従う。
+`Password.parse` と `EncodedHash.parse`、伏字、PHC 構文解析は Models、非同期 Argon2id・ソルト生成・定数時間比較・セマフォは Provider に置く。`Argon2PasswordProvider.create(params)` が検証済み設定のコピーとセマフォを保持し、公開コンストラクタは設けない。`defaultParams()` は Provider の `params.ts` で、Models の `defaultCost`（memory・iterations・parallelism の採用値。Config の既定値と共用する）に Provider 固有の採用値を加えて返す。詳細は [パスワード仕様](password.md#公開契約)に従う。
 
 `Password`・`EncodedHash` の秘密フィールドを公開せずに暗号計算へ渡すため、値の読み取り・生成に必要な内部関数を `models/password/values.ts` 内にまとめ、具体的な `providers/password/argon2-password-provider.ts` だけに内部 import を許可する。Provider が使う PHC の内部（解析済みのコスト・ソルト・鍵の読み取り、正規の PHC 文字列の生成、保存済みの表記が正規かの判定）も `values.ts` の内部関数として提供し、Provider は `models/password/phc.ts` を直接 import しない。例外の対象は `values.ts` の 1 ファイルだけとし、ESLint とそのテストで固定する。
 

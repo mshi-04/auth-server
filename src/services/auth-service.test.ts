@@ -585,7 +585,7 @@ describe("AuthService.login", () => {
       { userId: "user-1", passwordHash: rehashedPhc, signal },
     ]);
     expect(logger.infoCalls).toEqual([
-      { message: "password hash upgraded", attributes: { userId: "user-1" } },
+      { message: "password hash rehashed", attributes: { userId: "user-1" } },
     ]);
     expect(logger.warnCalls).toHaveLength(0);
     expect(logger.errorCalls).toHaveLength(0);

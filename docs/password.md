@@ -45,6 +45,7 @@ type Cost = Readonly<Pick<Params, "memoryKiB" | "iterations" | "parallelism">>;
 | セマフォ待機タイムアウト | 5 秒 | 5 秒 |
 
 - `defaultParams()` が採用値を返す。省略した項目の暗黙補完は行わない
+- memory・iterations・parallelism の採用値は `models` の `defaultCost` に置き、`defaultParams()` と Config の既定値で共用する。共有値のため実行時に凍結する
 - 採用値は [Go の性能調整結果](password-benchmarks.md#go-tuning-2026-10-18)で決めた値を出発点とし、TS 実装で再測定して 1 回 200〜500ms 程度に収まるか確認する
 - 参考：RFC 9106 の推奨第 2 案は m=64 MiB、t=3、p=4。OWASP の最低ラインは m=19 MiB、t=2、p=1
 
@@ -83,6 +84,8 @@ salt と hash は base64（パディングなし。標準のアルファベッ�
 
 ```ts
 function defaultParams(): Params;
+const defaultCost: Cost;
+function isValidCost(cost: Cost): boolean;
 
 class Password {
   static parse(raw: string): Password;
@@ -163,4 +166,4 @@ class Argon2PasswordProvider implements PasswordProvider {
 - コマンドの現在の参照先と移行時の変更は [開発ガイド](development.md#コマンド)に従う。ベンチマークは WSL の Node 26 で `npm run bench`（`vitest bench --run src/providers/password`）を 3 回実行し、各回の平均の中央値を使う
 - TS 実装ではまず既定値（128 MiB・反復 9・並列 2）の `hash` を測り、中央値が 200〜500ms に入るか確認する。入れば既定パラメータは変更しない
 - 目標から外れた場合は、64 MiB と 128 MiB の反復 2〜10 を候補として測る。候補に入る設定が無ければ、速すぎる場合は 128→256 MiB、遅すぎる場合は 32→19 MiB の順に評価する。最初に目標に入るメモリ設定で、中央値が 300ms に最も近い反復数を採用する。同差なら反復数が多い方を採用する
-- 採用値を本書へ、測定結果を [性能測定と調査記録](password-benchmarks.md)へ記録してから `defaultParams()` を変更する。候補内で目標を達成できなければ、未達を報告し、次段階へ進む前に調整方針を確認する
+- 採用値を本書へ、測定結果を [性能測定と調査記録](password-benchmarks.md)へ記録してから `defaultCost`・`defaultParams()` を変更する。候補内で目標を達成できなければ、未達を報告し、次段階へ進む前に調整方針を確認する

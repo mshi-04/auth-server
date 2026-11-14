@@ -26,11 +26,11 @@ export type Cost = Readonly<
   Pick<Params, "memoryKiB" | "iterations" | "parallelism">
 >;
 
-export const defaultCost: Cost = {
+export const defaultCost: Cost = Object.freeze({
   memoryKiB: 131072,
   iterations: 9,
   parallelism: 2,
-};
+});
 
 export function isInRange(
   value: number,

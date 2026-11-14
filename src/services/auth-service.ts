@@ -224,6 +224,6 @@ export class AuthService {
       }
       return;
     }
-    this.#logger.info("password hash upgraded", { userId });
+    this.#logger.info("password hash rehashed", { userId });
   }
 }

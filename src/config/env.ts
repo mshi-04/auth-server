@@ -72,18 +72,6 @@ function parseDatabasePath(raw: string | undefined): string {
   return path;
 }
 
-function parsePort(raw: string | undefined): number {
-  if (raw === undefined || raw === "") {
-    return defaultPort;
-  }
-
-  const port = Number(raw);
-  if (/[^0-9]/u.test(raw) || port < minPort || port > maxPort) {
-    throw new ConfigError("PORT must be decimal digits between 1 and 65535.");
-  }
-  return port;
-}
-
 function parseDecimal(
   raw: string | undefined,
   defaultValue: number,
@@ -93,11 +81,18 @@ function parseDecimal(
     return defaultValue;
   }
 
-  const value = Number(raw);
-  if (/[^0-9]/u.test(raw) || !Number.isSafeInteger(value)) {
-    throw new ConfigError(`${name} must be a valid decimal integer.`);
+  if (/[^0-9]/u.test(raw)) {
+    throw new ConfigError(`${name} must be decimal digits.`);
   }
-  return value;
+  return Number(raw);
+}
+
+function parsePort(raw: string | undefined): number {
+  const port = parseDecimal(raw, defaultPort, "PORT");
+  if (port < minPort || port > maxPort) {
+    throw new ConfigError("PORT must be decimal digits between 1 and 65535.");
+  }
+  return port;
 }
 
 function parsePasswordCost(env: NodeJS.ProcessEnv): Cost {
@@ -119,7 +114,9 @@ function parsePasswordCost(env: NodeJS.ProcessEnv): Cost {
     ),
   };
   if (!isValidCost(cost)) {
-    throw new ConfigError("Password cost parameters are out of range.");
+    throw new ConfigError(
+      `Password cost parameters are out of range: PASSWORD_MEMORY_KIB=${String(cost.memoryKiB)}, PASSWORD_ITERATIONS=${String(cost.iterations)}, PASSWORD_PARALLELISM=${String(cost.parallelism)}. Allowed: parallelism 1-16, memory 8 x parallelism-262144 KiB, iterations 1-10.`,
+    );
   }
   return cost;
 }
