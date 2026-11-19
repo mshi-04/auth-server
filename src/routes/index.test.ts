@@ -8,6 +8,7 @@ import { RecordingPasswordProvider } from "../../tests/support/fakes/password-pr
 import { RouteUserRepository } from "../../tests/support/fakes/user-repository.ts";
 import { closeServer, listenOnLoopback } from "../../tests/support/http.ts";
 import { AuthController, WebController } from "../controllers/index.ts";
+import type { WebAssets } from "../controllers/index.ts";
 import { BusyError } from "../errors/index.ts";
 import { createRequestHandler } from "../middlewares/index.ts";
 import { EncodedHash } from "../models/index.ts";
@@ -22,11 +23,11 @@ const validInput = {
 const csp =
   "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-interface WireResponse {
+type WireResponse = {
   status: number;
   headers: IncomingHttpHeaders;
   body: string;
-}
+};
 
 const servers: Server[] = [];
 
@@ -195,16 +196,11 @@ describe("HTTP routes", () => {
     ["/", "html", "text/html; charset=utf-8"],
     ["/assets/app.css", "css", "text/css; charset=utf-8"],
     ["/assets/app.js", "js", "text/javascript; charset=utf-8"],
-  ])(
+  ] satisfies [string, keyof WebAssets, string][])(
     "serves the copied asset %s with UTF-8 metadata and HEAD",
     async (path, asset, contentType) => {
       const fixture = await createFixture();
-      const bytes =
-        asset === "html"
-          ? fixture.assets.html
-          : asset === "css"
-            ? fixture.assets.css
-            : fixture.assets.js;
+      const bytes = fixture.assets[asset];
       const response = await fixture.send(path);
       expect(response.status).toBe(200);
       expect(response.headers["content-type"]).toBe(contentType);
@@ -308,10 +304,7 @@ describe("HTTP routes", () => {
     for (const [path, status] of [
       ["/v1/users", 405],
       ["/missing", 404],
-    ]) {
-      if (typeof path !== "string" || typeof status !== "number") {
-        throw new Error("Invalid test case.");
-      }
+    ] satisfies [string, number][]) {
       const response = await fixture.send(path, { method: "HEAD" });
       expect(response.status).toBe(status);
       expect(response.body).toBe("");
