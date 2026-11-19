@@ -15,13 +15,7 @@ export {
   PayloadTooLargeError,
   UnsupportedMediaTypeError,
 } from "./request-errors.ts";
-export {
-  causeChain,
-  findError,
-  hasCode,
-  isAbortedBy,
-  isCausedBy,
-} from "./find-error.ts";
+export { causeChain, findError, hasCode, isAbortedBy } from "./find-error.ts";
 export {
   InvalidHashError,
   InvalidParamsError,

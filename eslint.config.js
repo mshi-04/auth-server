@@ -384,7 +384,7 @@ const forbiddenDecorators = {
   selector: "Decorator",
   message: "Node type stripping does not support decorators.",
 };
-const forbiddenNamedImports = [
+const forbiddenApis = [
   {
     source: "node:crypto",
     names: ["argon2Sync"],
@@ -406,16 +406,19 @@ const forbiddenNamedImports = [
     names: ["createRequire"],
     message: "Use static imports so module dependencies can be checked.",
   },
-].map(({ source, names, message }) => {
-  const pattern = `/^(?:${names.join("|")})$/`;
-  return {
-    selector: [
-      `ImportDeclaration[source.value='${source}'] > ImportSpecifier[imported.name=${pattern}]`,
-      `ExportNamedDeclaration[source.value='${source}'] > ExportSpecifier[local.name=${pattern}]`,
-    ].join(", "),
-    message,
-  };
-});
+];
+const forbiddenNamedImports = forbiddenApis.map(
+  ({ source, names, message }) => {
+    const pattern = `/^(?:${names.join("|")})$/`;
+    return {
+      selector: [
+        `ImportDeclaration[source.value='${source}'] > ImportSpecifier[imported.name=${pattern}]`,
+        `ExportNamedDeclaration[source.value='${source}'] > ExportSpecifier[local.name=${pattern}]`,
+      ].join(", "),
+      message,
+    };
+  },
+);
 const forbiddenSyntax = [
   forbiddenAssertions,
   forbiddenDecorators,
@@ -432,21 +435,9 @@ const forbiddenProperties = [
     property: "random",
     message: "Use node:crypto randomness.",
   },
-  { property: "argon2Sync", message: "Use asynchronous crypto.argon2." },
-  ...["getRandomValues", "randomFill", "randomFillSync", "randomInt"].map(
-    (property) => ({
-      property,
-      message: "Use randomBytes or randomUUID from node:crypto.",
-    }),
+  ...forbiddenApis.flatMap(({ names, message }) =>
+    names.map((property) => ({ property, message })),
   ),
-  {
-    property: "webcrypto",
-    message: "Use randomBytes or randomUUID from node:crypto.",
-  },
-  {
-    property: "createRequire",
-    message: "Use static imports so module dependencies can be checked.",
-  },
   {
     property: "getBuiltinModule",
     message: "Use static imports so module dependencies can be checked.",

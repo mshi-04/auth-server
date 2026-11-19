@@ -9,11 +9,7 @@ import { RouteUserRepository } from "../../tests/support/fakes/user-repository.t
 import { closeServer, listenOnLoopback } from "../../tests/support/http.ts";
 import { AuthController, WebController } from "../controllers/index.ts";
 import { BusyError } from "../errors/index.ts";
-import {
-  createRequestContext,
-  handleError,
-  setSecurityHeaders,
-} from "../middlewares/index.ts";
+import { createRequestHandler } from "../middlewares/index.ts";
 import { EncodedHash } from "../models/index.ts";
 import { AuthService } from "../services/index.ts";
 import { createRoutes } from "./index.ts";
@@ -68,24 +64,7 @@ async function createFixture() {
     AuthController.create(service),
     WebController.create(assets),
   );
-  const server = createServer((req, res) => {
-    const deadline = performance.now() + 30000;
-    setSecurityHeaders(res);
-    const context = createRequestContext(res, deadline);
-    const run = async (): Promise<void> => {
-      try {
-        await routes(req, res, context);
-      } catch (error) {
-        handleError(error, req, res, context, logger);
-      } finally {
-        context.dispose();
-      }
-    };
-    run().catch((error: unknown) => {
-      logger.error("test request failed", { error });
-      res.destroy();
-    });
-  });
+  const server = createServer(createRequestHandler(routes, logger));
   const port = await listenOnLoopback(server);
   servers.push(server);
   const url = `http://127.0.0.1:${String(port)}`;
