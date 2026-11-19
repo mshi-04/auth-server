@@ -88,9 +88,9 @@ describe("JsonLoggerProvider", () => {
 
   it("writes metadata before attributes", () => {
     const { logger, lines } = capture();
-    logger.info("ready", { requestId: "request-1" });
+    logger.info("ready", { "0": "first", requestId: "request-1" });
     expect(lines[0]).toBe(
-      `{"time":"${time}","level":"info","msg":"ready","requestId":"request-1"}\n`,
+      `{"time":"${time}","level":"info","msg":"ready","0":"first","requestId":"request-1"}\n`,
     );
   });
 
