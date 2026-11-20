@@ -10,11 +10,11 @@ import {
   findError,
 } from "./index.ts";
 
-interface AuthErrorCase {
+type AuthErrorCase = {
   name: string;
   defaultMessage: string;
   ErrorClass: new (message?: string, options?: ErrorOptions) => Error;
-}
+};
 
 const authErrorCases: AuthErrorCase[] = [
   {

@@ -1,20 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AuthController, WebController } from "../controllers/index.ts";
 import { MethodNotAllowedError, NotFoundError } from "../errors/index.ts";
+import { validateHost, validateSameOrigin } from "../middlewares/index.ts";
 import type { RequestContext } from "../models/index.ts";
 import { authRoutes } from "./auth-routes.ts";
 import { healthRoutes } from "./health-routes.ts";
 import { webRoutes } from "./web-routes.ts";
-
-export interface Route {
-  path: string;
-  methods: readonly string[];
-  handle(
-    req: IncomingMessage,
-    res: ServerResponse,
-    context: RequestContext,
-  ): void | Promise<void>;
-}
 
 function requestPath(target: string | undefined): string | undefined {
   const path = target?.split("?", 1)[0];
@@ -28,7 +19,11 @@ function requestPath(target: string | undefined): string | undefined {
 export function createRoutes(
   authController: AuthController,
   webController: WebController,
-) {
+): (
+  req: IncomingMessage,
+  res: ServerResponse,
+  context: RequestContext,
+) => Promise<void> {
   const routes = [
     ...authRoutes(authController),
     ...healthRoutes(),
@@ -39,6 +34,7 @@ export function createRoutes(
     res: ServerResponse,
     context: RequestContext,
   ): Promise<void> => {
+    const requestHost = validateHost(req);
     const path = requestPath(req.url);
     const route = routes.find((candidate) => candidate.path === path);
     if (route === undefined) {
@@ -46,6 +42,9 @@ export function createRoutes(
     }
     if (req.method === undefined || !route.methods.includes(req.method)) {
       throw new MethodNotAllowedError(route.methods);
+    }
+    if (route.sameOrigin === true) {
+      validateSameOrigin(req, requestHost);
     }
     await route.handle(req, res, context);
   };

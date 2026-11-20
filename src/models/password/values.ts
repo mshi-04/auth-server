@@ -4,16 +4,17 @@ import type { Cost } from "./hash-parameters.ts";
 import { encodeHash, parseHash } from "./phc.ts";
 import type { DecodedHash } from "./phc.ts";
 
-type PasswordSecret = { value: string; length: number };
-type HashSecret = { encoded: string; decoded: DecodedHash };
+type PasswordSecret = { readonly value: string; readonly length: number };
+type HashSecret = { readonly encoded: string; readonly decoded: DecodedHash };
 const redacted = "[REDACTED]";
+const maxPasswordCodePoints = 128;
 
 let readPasswordSecret: (password: Password) => PasswordSecret;
 let readHashSecret: (encoded: EncodedHash) => HashSecret;
 let createEncodedHash: (encoded: string, decoded: DecodedHash) => EncodedHash;
 
 export class Password {
-  #secret: PasswordSecret;
+  readonly #secret: PasswordSecret;
 
   private constructor(secret: PasswordSecret) {
     this.#secret = secret;
@@ -30,9 +31,9 @@ export class Password {
     const value = raw.normalize("NFKC");
     const codePoints = value[Symbol.iterator]();
     let length = 0;
-    while (!codePoints.next().done) {
+    while (codePoints.next().done !== true) {
       length++;
-      if (length > 128) {
+      if (length > maxPasswordCodePoints) {
         throw new PolicyViolationError();
       }
     }
@@ -53,7 +54,7 @@ export class Password {
 }
 
 export class EncodedHash {
-  #secret: HashSecret;
+  readonly #secret: HashSecret;
 
   private constructor(secret: HashSecret) {
     this.#secret = secret;
@@ -86,16 +87,24 @@ export class EncodedHash {
   }
 }
 
+function copyDecodedHash(decoded: DecodedHash): DecodedHash {
+  return {
+    cost: { ...decoded.cost },
+    salt: Buffer.from(decoded.salt),
+    key: Buffer.from(decoded.key),
+  };
+}
+
 export function readPassword(password: Password): PasswordSecret {
-  return readPasswordSecret(password);
+  return { ...readPasswordSecret(password) };
 }
 
 export function readHash(encoded: EncodedHash): DecodedHash {
-  return readHashSecret(encoded).decoded;
+  return copyDecodedHash(readHashSecret(encoded).decoded);
 }
 
 export function createHash(cost: Cost, salt: Buffer, key: Buffer): EncodedHash {
-  const decoded = { cost, salt, key };
+  const decoded = copyDecodedHash({ cost, salt, key });
   return createEncodedHash(encodeHash(decoded), decoded);
 }
 

@@ -1,12 +1,12 @@
 # パスワードの性能測定と調査記録
 
-現行の採用パラメータと性能調整の判定手順は [パスワード仕様](specs/password.md#テストと性能調整)、コマンドは [開発ガイド](development.md#コマンド)を正本とする。以下の結果は各測定条件での観測であり、現在のコードや別の環境での性能を保証しない。
+現行の採用パラメータと性能調整の判定手順は [パスワード仕様](password.md#テストと性能調整)、コマンドは [開発ガイド](development.md#コマンド)を正本とする。以下の結果は各測定条件での観測であり、現在のコードや別の環境での性能を保証しない。
 
 ## Node の実行経路
 
-- Node 26.11.0 と 26.12.1 の非同期 `crypto.argon2` は、`Argon2Job(kCryptoJobAsync)` の `run()` から `ScheduleWork()`、`uv_queue_work()` を経て libuv のスレッドプールに計算を投入する（[26.11.0 の入口](https://github.com/nodejs/node/blob/v26.11.0/lib/internal/crypto/argon2.js#L68-L87)、[26.12.1 の入口](https://github.com/nodejs/node/blob/v26.12.1/lib/internal/crypto/argon2.js#L68-L87)、[ジョブの実行](https://github.com/nodejs/node/blob/v26.12.1/src/crypto/crypto_util.h#L458-L477)、[libuv への投入](https://github.com/nodejs/node/blob/v26.12.1/src/threadpoolwork-inl.h#L33-L44)）。実行経路の確認と、[テストと性能調整](specs/password.md#テストと性能調整) の並行実行・イベントループ遅延・別処理の待ち時間の測定を区別する
+- Node 26.11.0 と 26.12.1 の非同期 `crypto.argon2` は、`Argon2Job(kCryptoJobAsync)` の `run()` から `ScheduleWork()`、`uv_queue_work()` を経て libuv のスレッドプールに計算を投入する（[26.11.0 の入口](https://github.com/nodejs/node/blob/v26.11.0/lib/internal/crypto/argon2.js#L68-L87)、[26.12.1 の入口](https://github.com/nodejs/node/blob/v26.12.1/lib/internal/crypto/argon2.js#L68-L87)、[ジョブの実行](https://github.com/nodejs/node/blob/v26.12.1/src/crypto/crypto_util.h#L458-L477)、[libuv への投入](https://github.com/nodejs/node/blob/v26.12.1/src/threadpoolwork-inl.h#L33-L44)）。実行経路の確認と、[テストと性能調整](password.md#テストと性能調整) の並行実行・イベントループ遅延・別処理の待ち時間の測定を区別する
 - 26.11.0 のリリースノートにある「derive Argon2 without worker threads」は、OpenSSL の内部スレッドが利用できない場合に Argon2 の lane を順次計算する変更であり、Node の libuv への投入を廃止する変更ではない（[変更本体](https://github.com/nodejs/node/commit/5e04680036a5ae35a94952f73d620bd7cc88b923)）
-- 非同期版がメインのイベントループで鍵導出を行っていた不具合（nodejs/node#62861）は、2026-04 に nodejs/node#62863 で修正され、v24 系にもバックポートされている。対象の 26.11.0 以上は修正を含む想定だが、[テストと性能調整](specs/password.md#テストと性能調整) でイベントループの遅延を測って確かめる
+- 非同期版がメインのイベントループで鍵導出を行っていた不具合（nodejs/node#62861）は、2026-04 に nodejs/node#62863 で修正され、v24 系にもバックポートされている。対象の 26.11.0 以上は修正を含む想定だが、[テストと性能調整](password.md#テストと性能調整) でイベントループの遅延を測って確かめる
 
 <a id="go-tuning-2026-10-18"></a>
 
@@ -102,4 +102,24 @@ Go 実装（`golang.org/x/crypto/argon2`）で採用値を決めたときの記�
 | `hash` | 368.301 | 372.509 | 386.376 | **372.509** |
 | `hash saturated` | 906.270 | 876.678 | 948.552 | **906.270** |
 
-イベントループの超過遅延は、各回の最大が 0.445 / 0.617 / 1.100ms、平均が 0.090 / 0.102 / 0.319ms だった。同じコードで中央値が 372.509ms と 430.791ms に分かれるため、上の差は WSL・ホストの状態による測定のぶれと判断する。3 回の記録を通じた `hash saturated` の最大の中央値は 1113.306ms で、[応答期限の予算](specs/api.md#サーバータイムアウト)の「競合時のハッシュ 1 回を約 1 秒」とした見積もりに当てはめても、`verify` と再ハッシュの合計は約 22.2 秒であり、約 22 秒・本文受信を含めて約 32 秒という結論は変わらない。
+イベントループの超過遅延は、各回の最大が 0.445 / 0.617 / 1.100ms、平均が 0.090 / 0.102 / 0.319ms だった。同じコードで中央値が 372.509ms と 430.791ms に分かれるため、上の差は WSL・ホストの状態による測定のぶれと判断する。3 回の記録を通じた `hash saturated` の最大の中央値は 1113.306ms で、[応答期限の予算](api.md#サーバータイムアウト)の「競合時のハッシュ 1 回を約 1 秒」とした見積もりに当てはめても、`verify` と再ハッシュの合計は約 22.2 秒であり、約 22 秒・本文受信を含めて約 32 秒という結論は変わらない。
+
+<a id="verify-timing-2026-11-14"></a>
+
+## 現行コストと旧コストの `verify` 応答時間差の測定（2026-11-14）
+
+ハッシュ設定を引き上げた後、まだ再ハッシュされていない既存ユーザー（旧コストの保存済みハッシュ）と、存在しないユーザーに対する現行コストのダミー検証で、`Argon2PasswordProvider.verify` の所要時間にどの程度の差が生じるかを測定した。
+
+環境：WSL Ubuntu 24.04、Node.js 26.12.1、Vitest 5.0.5、linux/x64、Intel Core i7-12700。`UV_THREADPOOL_SIZE` は未設定（既定の 4）。`AUTH_PASSWORD_BENCH_RUN=verify-timing-1 npm run bench` の末尾を 1・2・3 に変え、順番に 3 回実行した。`Password.parse`・`Argon2PasswordProvider.create`・検証対象ハッシュの事前生成（`hash`）と誤パスワードで `false` を返すことの確認は計測外に置いた。`verify default` と `verify legacy` は各回ウォームアップ 1 回と計測 5 回。
+
+| 計測 | 第 1 回 (ms) | 第 2 回 (ms) | 第 3 回 (ms) | 平均の中央値 (ms) |
+|---|---|---|---|---|
+| `hash`（128 MiB・反復 9・並列 2） | 358.753 | 346.900 | 352.339 | **352.339** |
+| `hash saturated`（同一インスタンスで 4 件を並列実行） | 861.808 | 946.955 | 870.201 | **870.201** |
+| `verify default`（現行コスト：128 MiB・反復 9・並列 2） | 351.168 | 343.983 | 345.475 | **345.475** |
+| `verify legacy`（初期値の旧コスト：64 MiB・反復 3・並列 2） | 61.215 | 62.480 | 61.641 | **61.641** |
+
+- イベントループの超過遅延（分解能 10ms を差し引いた値）は、各回の最大が 6.810 / 0.322 / 4.664ms、平均が 0.173 / 0.085 / 0.114ms だった。
+- 現行設定のダミー検証に相当する `verify default`（中央値 **345.475 ms**）に対し、旧設定（64 MiB・反復 3・並列 2）の保存済みハッシュを照合する `verify legacy`（中央値 **61.641 ms**）は約 **284 ms** 速く完了した（約 5.6 倍の差）。誤パスワードでログインを試みた場合、再ハッシュ前の既存ユーザーは不在ユーザーのダミー検証より明確に速く 401 を返すため、[既知の制限](../README.md#既知の制限)にあるとおり応答時間から登録有無を推測されうることを数値で確認した。
+- 同じ 2 つの値は、設定を弱めた場合（例：既定値で登録済みのまま 64 MiB・反復 3・並列 2 で起動した場合）の差も表す。このとき既存ユーザーの `verify` は `verify default` 相当、ダミー検証は `verify legacy` 相当になり、既存ユーザーは約 284 ms 遅く 401 を返す。
+- どちらの値も `verify` 単体の時間であり、正しいパスワードでのログインに加わる再ハッシュと保存の時間は含まない。2 つの差と比は、以後 `verify difference` が `<番号>-verify-difference.json` に出力する。

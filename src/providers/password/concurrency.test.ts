@@ -1,5 +1,6 @@
 import type { Argon2Parameters } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { rejected } from "../../../tests/support/errors.ts";
 import { PasswordBusyError } from "../../errors/index.ts";
 import { EncodedHash, Password } from "../../models/index.ts";
 import { replaceDerivationForTesting } from "./derive.ts";
@@ -29,15 +30,24 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function holdDerivations(): Pending[] {
+function holdDerivations() {
   const pending: Pending[] = [];
+  const starts: (() => void)[] = [];
   restore = replaceDerivationForTesting(
     (parameters) =>
       new Promise((resolve, reject) => {
         pending.push({ parameters, resolve, reject });
+        starts.shift()?.();
       }),
   );
-  return pending;
+  const nextStart = () => {
+    const started = Promise.withResolvers<undefined>();
+    starts.push(() => {
+      started.resolve(undefined);
+    });
+    return started.promise;
+  };
+  return { pending, nextStart };
 }
 
 function take(pending: Pending[]): Pending {
@@ -46,16 +56,6 @@ function take(pending: Pending[]): Pending {
     throw new Error("Expected a pending derivation.");
   }
   return item;
-}
-
-async function waitForPending(
-  pending: Pending[],
-  count: number,
-): Promise<void> {
-  for (let turn = 0; turn < 100 && pending.length < count; turn++) {
-    await Promise.resolve();
-  }
-  expect(pending).toHaveLength(count);
 }
 
 describe("hasher slot ownership", () => {
@@ -80,23 +80,25 @@ describe("hasher slot ownership", () => {
       vi.useFakeTimers({
         toFake: ["setTimeout", "clearTimeout", "performance"],
       });
-      const pending = holdDerivations();
+      const { pending, nextStart } = holdDerivations();
       const hasher = Argon2PasswordProvider.create(params);
       const controller = new AbortController();
+      const started = nextStart();
       const running = operation(hasher, controller.signal);
-      await waitForPending(pending, 1);
+      await started;
+      expect(pending).toHaveLength(1);
       controller.abort();
-      const blocked = hasher
-        .hash(password, signal)
-        .catch((error: unknown) => error);
+      const blocked = rejected(hasher.hash(password, signal));
       await vi.advanceTimersByTimeAsync(params.waitTimeoutMs);
       expect(await blocked).toBeInstanceOf(PasswordBusyError);
       expect(pending).toHaveLength(1);
       const task = take(pending);
       task.resolve(Buffer.alloc(task.parameters.tagLength));
       await running;
+      const followingStarted = nextStart();
       const next = hasher.hash(password, signal);
-      await waitForPending(pending, 1);
+      await followingStarted;
+      expect(pending).toHaveLength(1);
       const following = take(pending);
       following.resolve(Buffer.alloc(following.parameters.tagLength));
       await next;
@@ -107,7 +109,7 @@ describe("hasher slot ownership", () => {
   it.each(operations)(
     "%s never starts derivation for a pre-aborted request",
     async (_, operation) => {
-      const pending = holdDerivations();
+      const { pending } = holdDerivations();
       const controller = new AbortController();
       const reason = new Error("closed");
       controller.abort(reason);
@@ -119,15 +121,17 @@ describe("hasher slot ownership", () => {
   );
 
   it("handles abort between immediate acquisition and continuation", async () => {
-    const pending = holdDerivations();
+    const { pending, nextStart } = holdDerivations();
     const hasher = Argon2PasswordProvider.create(params);
     const controller = new AbortController();
     const running = hasher.hash(password, controller.signal);
     controller.abort();
     await expect(running).rejects.toBeInstanceOf(PasswordBusyError);
     expect(pending).toHaveLength(0);
+    const started = nextStart();
     const next = hasher.hash(password, signal);
-    await waitForPending(pending, 1);
+    await started;
+    expect(pending).toHaveLength(1);
     const task = take(pending);
     task.resolve(Buffer.alloc(task.parameters.tagLength));
     await next;
@@ -136,17 +140,19 @@ describe("hasher slot ownership", () => {
   it.each(operations)(
     "%s releases the slot after a derivation failure",
     async (_, operation) => {
-      const pending = holdDerivations();
+      const { pending, nextStart } = holdDerivations();
       const hasher = Argon2PasswordProvider.create(params);
       const failure = new Error("derivation failed");
-      const running = operation(hasher, signal).catch(
-        (error: unknown) => error,
-      );
+      const started = nextStart();
+      const followingStarted = nextStart();
+      const running = rejected(operation(hasher, signal));
       const following = hasher.hash(password, signal);
-      await waitForPending(pending, 1);
+      await started;
+      expect(pending).toHaveLength(1);
       take(pending).reject(failure);
       expect(await running).toBe(failure);
-      await waitForPending(pending, 1);
+      await followingStarted;
+      expect(pending).toHaveLength(1);
       const next = take(pending);
       next.resolve(Buffer.alloc(next.parameters.tagLength));
       await following;

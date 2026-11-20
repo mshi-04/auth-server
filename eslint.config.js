@@ -5,7 +5,7 @@ import tseslint from "typescript-eslint";
 
 const sourceRoot = resolve(import.meta.dirname, "src");
 const layerDependencies = {
-  config: ["errors"],
+  config: ["models", "errors"],
   routes: ["controllers", "middlewares", "schemas", "models", "errors"],
   controllers: ["services", "schemas", "models", "errors"],
   middlewares: ["schemas", "models", "errors", "providers"],
@@ -42,8 +42,14 @@ const cryptoFiles = [
   "providers/password/derive.ts",
   "providers/password/concurrency.test.ts",
   "providers/crypto-id-provider.ts",
-  "providers/crypto-id-provider.test.ts",
 ];
+const supportTypeDependencies = [
+  "providers/index.ts",
+  "repositories/index.ts",
+  "models/index.ts",
+  "node:http",
+];
+const supportValueDependencies = ["errors/index.ts", "node:events"];
 
 function sourcePath(filename) {
   return relative(sourceRoot, resolve(filename)).split(sep).join("/");
@@ -80,24 +86,53 @@ function importedName(specifier) {
   );
 }
 
-function namedAccess(node, names, typeOnly = false) {
+function isNamedAccess(node, names) {
   return (
     (node.specifiers?.length ?? 0) > 0 &&
     node.specifiers.every(
       (specifier) =>
         ["ImportSpecifier", "ExportSpecifier"].includes(specifier.type) &&
-        names.includes(importedName(specifier)) &&
-        (!typeOnly ||
-          node.importKind === "type" ||
-          node.exportKind === "type" ||
-          specifier.importKind === "type" ||
-          specifier.exportKind === "type"),
+        names.includes(importedName(specifier)),
     )
   );
 }
 
-function implementationModule(module) {
+function isTypeOnlyNamedAccess(node, names) {
+  return (
+    isNamedAccess(node, names) &&
+    node.specifiers.every(
+      (specifier) =>
+        node.importKind === "type" ||
+        node.exportKind === "type" ||
+        specifier.importKind === "type" ||
+        specifier.exportKind === "type",
+    )
+  );
+}
+
+function isImplementationModule(module) {
   return implementationModules.includes(module);
+}
+
+function supportName(filename) {
+  const prefix = "../tests/support/";
+  return filename.startsWith(prefix)
+    ? filename.slice(prefix.length)
+    : undefined;
+}
+
+function canImportFromSupport(node, target) {
+  if (node.type !== "ImportDeclaration") {
+    return false;
+  }
+  const names = node.specifiers.map(importedName);
+  if (supportValueDependencies.includes(target)) {
+    return isNamedAccess(node, names);
+  }
+  return (
+    supportTypeDependencies.includes(target) &&
+    isTypeOnlyNamedAccess(node, names)
+  );
 }
 
 const projectPlugin = {
@@ -115,6 +150,7 @@ const projectPlugin = {
         const filename = sourcePath(context.filename);
         const module = moduleName(filename);
         const layer = layerName(module);
+        const helper = supportName(filename);
         const testing = /\.(?:test|bench)\.ts$/.test(filename);
         const composition =
           filename === "index.ts" || filename === "index.test.ts";
@@ -162,9 +198,9 @@ const projectPlugin = {
           }
           if (
             (filename === "providers/index.ts" &&
-              !namedAccess(node, providerInterfaces, true)) ||
+              !isTypeOnlyNamedAccess(node, providerInterfaces)) ||
             (filename === "repositories/index.ts" &&
-              !namedAccess(node, ["UserRepository"], true))
+              !isTypeOnlyNamedAccess(node, ["UserRepository"]))
           ) {
             reject();
             return;
@@ -172,6 +208,16 @@ const projectPlugin = {
 
           const source = node.source?.value;
           if (typeof source !== "string") {
+            return;
+          }
+
+          if (helper !== undefined) {
+            const target = source.startsWith(".")
+              ? sourcePath(resolve(dirname(context.filename), source))
+              : source;
+            if (!canImportFromSupport(node, target)) {
+              reject();
+            }
             return;
           }
 
@@ -196,6 +242,12 @@ const projectPlugin = {
           }
 
           const target = sourcePath(resolve(dirname(context.filename), source));
+          if (supportName(target) !== undefined) {
+            if (!testing) {
+              reject();
+            }
+            return;
+          }
           const targetModule = moduleName(target);
           const targetLayer = layerName(targetModule);
           if (filename === "index.test.ts" && target === "index.ts") {
@@ -227,13 +279,13 @@ const projectPlugin = {
               filename === "models/index.ts" ||
               (filename.startsWith("models/password/") && !secretCaller)
             ) {
-              if (!namedAccess(node, ["Password", "EncodedHash"])) {
+              if (!isNamedAccess(node, ["Password", "EncodedHash"])) {
                 reject();
               }
               return;
             }
             if (secretCaller) {
-              if (!namedAccess(node, modelSecretFunctions)) {
+              if (!isNamedAccess(node, modelSecretFunctions)) {
                 reject();
                 return;
               }
@@ -251,8 +303,12 @@ const projectPlugin = {
             if (
               target !== "models/password/hash-parameters.ts" ||
               !(
-                namedAccess(node, ["Params", "Cost"], true) ||
-                namedAccess(node, ["validateParams"])
+                isTypeOnlyNamedAccess(node, ["Params", "Cost"]) ||
+                isNamedAccess(node, [
+                  "defaultCost",
+                  "isValidCost",
+                  "validateParams",
+                ])
               )
             ) {
               reject();
@@ -264,7 +320,7 @@ const projectPlugin = {
             serviceIntegrationTests.includes(filename) &&
             targetModule === "providers/password";
           if (
-            implementationModule(targetModule) &&
+            isImplementationModule(targetModule) &&
             !composition &&
             module !== targetModule &&
             !serviceIntegration
@@ -285,14 +341,14 @@ const projectPlugin = {
           if (target === "providers/index.ts") {
             const allowed =
               layer === "middlewares" ? ["LoggerProvider"] : providerInterfaces;
-            if (!namedAccess(node, allowed, true)) {
+            if (!isTypeOnlyNamedAccess(node, allowed)) {
               reject();
               return;
             }
           }
           if (
             target === "repositories/index.ts" &&
-            !namedAccess(node, ["UserRepository"], true)
+            !isTypeOnlyNamedAccess(node, ["UserRepository"])
           ) {
             reject();
             return;
@@ -328,7 +384,7 @@ const forbiddenDecorators = {
   selector: "Decorator",
   message: "Node type stripping does not support decorators.",
 };
-const forbiddenNamedImports = [
+const forbiddenApis = [
   {
     source: "node:crypto",
     names: ["argon2Sync"],
@@ -350,16 +406,19 @@ const forbiddenNamedImports = [
     names: ["createRequire"],
     message: "Use static imports so module dependencies can be checked.",
   },
-].map(({ source, names, message }) => {
-  const pattern = `/^(?:${names.join("|")})$/`;
-  return {
-    selector: [
-      `ImportDeclaration[source.value='${source}'] > ImportSpecifier[imported.name=${pattern}]`,
-      `ExportNamedDeclaration[source.value='${source}'] > ExportSpecifier[local.name=${pattern}]`,
-    ].join(", "),
-    message,
-  };
-});
+];
+const forbiddenNamedImports = forbiddenApis.map(
+  ({ source, names, message }) => {
+    const pattern = `/^(?:${names.join("|")})$/`;
+    return {
+      selector: [
+        `ImportDeclaration[source.value='${source}'] > ImportSpecifier[imported.name=${pattern}]`,
+        `ExportNamedDeclaration[source.value='${source}'] > ExportSpecifier[local.name=${pattern}]`,
+      ].join(", "),
+      message,
+    };
+  },
+);
 const forbiddenSyntax = [
   forbiddenAssertions,
   forbiddenDecorators,
@@ -376,21 +435,9 @@ const forbiddenProperties = [
     property: "random",
     message: "Use node:crypto randomness.",
   },
-  { property: "argon2Sync", message: "Use asynchronous crypto.argon2." },
-  ...["getRandomValues", "randomFill", "randomFillSync", "randomInt"].map(
-    (property) => ({
-      property,
-      message: "Use randomBytes or randomUUID from node:crypto.",
-    }),
+  ...forbiddenApis.flatMap(({ names, message }) =>
+    names.map((property) => ({ property, message })),
   ),
-  {
-    property: "webcrypto",
-    message: "Use randomBytes or randomUUID from node:crypto.",
-  },
-  {
-    property: "createRequire",
-    message: "Use static imports so module dependencies can be checked.",
-  },
   {
     property: "getBuiltinModule",
     message: "Use static imports so module dependencies can be checked.",
@@ -413,24 +460,25 @@ const forbiddenGlobals = [
   },
 ];
 
+const forbiddenSourceReentry = {
+  regex: "^(?:\\.\\.?/)+(?:[^/]+/)*src(?:/|$)",
+  message: "Use a direct relative path within src without re-entering src.",
+};
+const restrictedImportPatterns = [
+  {
+    regex: "[^./][^/]*/\\.{1,2}(?:/|$)|//",
+    message: "Use a direct relative path without redundant segments.",
+  },
+  forbiddenSourceReentry,
+  {
+    regex: "^(?!node:|vitest(?:/|$))[^./]",
+    message: "Runtime imports must use Node standard modules with node:.",
+  },
+];
 const restrictedImports = [
   "error",
   {
-    patterns: [
-      {
-        regex: "[^./][^/]*/\\.{1,2}(?:/|$)|//",
-        message: "Use a direct relative path without redundant segments.",
-      },
-      {
-        regex: "^(?:\\.\\.?/)+(?:[^/]+/)*src(?:/|$)",
-        message:
-          "Use a direct relative path within src without re-entering src.",
-      },
-      {
-        regex: "^(?!node:|vitest(?:/|$))[^./]",
-        message: "Runtime imports must use Node standard modules with node:.",
-      },
-    ],
+    patterns: restrictedImportPatterns,
   },
 ];
 
@@ -450,11 +498,15 @@ export default defineConfig(
   {
     files: [
       "src/**/*.ts",
+      "tests/support/**/*.ts",
       ".github/scripts/**/*.ts",
       "vitest.config.ts",
       "eslint.config.js",
     ],
     extends: [js.configs.recommended, tseslint.configs.strictTypeChecked],
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+    },
     languageOptions: {
       parserOptions: {
         projectService: true,
@@ -462,11 +514,32 @@ export default defineConfig(
       },
     },
     rules: {
+      "no-else-return": ["error", { allowElseIf: false }],
+      "@typescript-eslint/ban-ts-comment": [
+        "error",
+        {
+          "ts-ignore": true,
+          "ts-nocheck": true,
+          "ts-expect-error": true,
+        },
+      ],
       "@typescript-eslint/consistent-type-assertions": [
         "error",
         { assertionStyle: "never" },
       ],
       "@typescript-eslint/consistent-type-imports": "error",
+      "@typescript-eslint/no-floating-promises": [
+        "error",
+        { ignoreVoid: false },
+      ],
+      "@typescript-eslint/strict-boolean-expressions": [
+        "error",
+        {
+          allowString: false,
+          allowNumber: false,
+          allowNullableObject: false,
+        },
+      ],
       "@typescript-eslint/switch-exhaustiveness-check": "error",
       "no-restricted-syntax": ["error", ...forbiddenSyntax],
       "no-restricted-properties": ["error", ...forbiddenProperties],
@@ -480,6 +553,9 @@ export default defineConfig(
   {
     files: [".github/scripts/**/*.cjs"],
     extends: [js.configs.recommended],
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+    },
     languageOptions: {
       sourceType: "commonjs",
       globals: {
@@ -493,6 +569,8 @@ export default defineConfig(
     files: ["src/**/*.ts"],
     ignores: ["src/**/*.test.ts", "src/**/*.bench.ts"],
     rules: {
+      "@typescript-eslint/explicit-module-boundary-types": "error",
+      "@typescript-eslint/prefer-readonly": "error",
       "no-restricted-syntax": [
         "error",
         ...forbiddenSyntax,
@@ -510,11 +588,24 @@ export default defineConfig(
     },
   },
   {
-    files: ["src/**/*.ts"],
+    files: ["src/**/*.ts", "tests/support/**/*.ts"],
     plugins: { project: projectPlugin },
     rules: {
       "no-restricted-imports": restrictedImports,
       "project/dependencies": "error",
+    },
+  },
+  {
+    files: ["tests/support/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: restrictedImportPatterns.filter(
+            (pattern) => pattern !== forbiddenSourceReentry,
+          ),
+        },
+      ],
     },
   },
 );

@@ -4,7 +4,7 @@
 
 TypeScript 実装の手順を正本とする。
 
-構成と現在の配置は [アーキテクチャ](architecture.md#現状と移行先)を正本とする。
+構成と現在の配置は [アーキテクチャ](architecture.md#現状の配置)を正本とする。
 
 ## 開発環境
 
@@ -45,7 +45,7 @@ wsl -d Ubuntu-24.04 --exec bash -lc '. "$HOME/.nvm/nvm.sh" && nvm use --silent &
 
 SQLite はファイル 1 つで動作し、別途 DB サーバーを起動する必要はない。
 
-- `@types/node` 26.6.5 には Node 26.11 の `Database` への改名がまだ反映されていないため、`src/repositories/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。実行時は `Database` を直接使い、型定義が対応したら補助宣言を削除する
+- 現在の `@types/node` には Node 26.11 の `Database` への改名がまだ反映されていないため、`src/repositories/sqlite/node-sqlite.d.ts` で型宣言だけを補っている。実行時は `Database` を直接使い、型定義が対応したら補助宣言を削除する
 - DB ファイルは `/mnt/c` 配下に置かない。WSL 側（例：`~/.local/share/auth-server/auth.db`）に置く
 - 親ディレクトリは自動で作られないため、初回は `mkdir -p -m 700 ~/.local/share/auth-server` で所有者専用に作っておく
 - 既存の親ディレクトリは `chmod 700 ~/.local/share/auth-server` で権限を制限する。DB と既存の `-wal`・`-shm`・`-journal` ファイルにも所有者以外の権限があれば、該当ファイルを `chmod 600` にしてから起動する。親とファイルの所有者は実行ユーザーと一致させる。シンボリックリンクは使わない
@@ -67,23 +67,25 @@ WSL 上のリポジトリのルートで実行する。`npm run` の名前は `p
 | 整形確認 | `npm run format:check` | `prettier --check .`（ファイルは書き換えない） |
 | テスト | `npm test` | `vitest run` |
 | カバレッジ | `npm run coverage` | `vitest run --coverage` |
-| ベンチマーク（ハッシュ 1 回の所要時間） | `npm run bench` | `vitest bench --run src/providers/password` |
+| ベンチマーク（ハッシュ・検証の所要時間） | `npm run bench` | `vitest bench --run src/providers/password` |
 | 起動 | `DATABASE_PATH=~/.local/share/auth-server/auth.db npm start` | `node src/index.ts` |
 
 - Vitest の `passWithNoTests` は使わない。テストの移動や `include` の指定の誤りでテストが 0 件になったときに、`npm test` と CI を失敗させるため
-- `npm run bench` は既定パラメータの `hash`・`hash saturated` と飽和時のイベントループ遅延を測る。`AUTH_PASSWORD_BENCH_RUN=1 npm run bench` の番号を 1・2・3 と変えて 3 回実行すると、各回の JSON を `bench-results/password/` に残せる（`coverage/` はカバレッジの実行時に削除されるため使わない）。番号を省略した場合は `latest` として上書きする。既定値が [テストと性能調整](specs/password.md#テストと性能調整) の目標から外れた場合は、`AUTH_PASSWORD_BENCH_CANDIDATES=1 npm run bench` で候補も比較する。Vitest 5 では `*.bench.ts` 内のテストコンテキストの `bench` を使い、通常の `npm test` ではベンチマークを実行しない
-- ESLint の設定は `eslint.config.js` に置き、`src/` の TS ファイル、CI のスクリプト（`.github/scripts/`）、ルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。`actions/github-script` から `require` する `.github/scripts/*.cjs` は、`@eslint/js` の推奨規則で検査し、テスト（`*.test.ts`）から読み込んで振る舞いを確かめる。ブラウザーで動く静的ファイルは移行後の `public/` も対象から外す
+- `npm run bench` は既定パラメータの `hash`・`hash saturated`・`verify default`、旧コスト（64 MiB・反復 3・並列 2）の `verify legacy`、2 つの `verify` の差と比（`verify difference`）、および飽和時のイベントループ遅延を測る。`AUTH_PASSWORD_BENCH_RUN=1 npm run bench` の番号を 1・2・3 と変えて 3 回実行すると、各回の JSON を `bench-results/password/` に残せる（`coverage/` はカバレッジの実行時に削除されるため使わない）。番号を省略した場合は `latest` として上書きする。既定値が [テストと性能調整](password.md#テストと性能調整) の目標から外れた場合は、`AUTH_PASSWORD_BENCH_CANDIDATES=1 npm run bench` で候補も比較する。Vitest 5 では `*.bench.ts` 内のテストコンテキストの `bench` を使い、通常の `npm test` ではベンチマークを実行しない
+- ESLint の設定は `eslint.config.js` に置き、`src/` と `tests/support/` の TS ファイル、CI のスクリプト（`.github/scripts/`）、ルートの設定ファイル（`eslint.config.js`・`vitest.config.ts`）を対象にする。型情報を使う規則のため、typescript-eslint の `projectService` で `tsconfig.json` を読む。`tsconfig.json` の `include` は `src/**/*.ts`、`tests/support/**/*.ts`、`.github/scripts/**/*.ts`、`vitest.config.ts` とし、`tsconfig.json` に含めない `eslint.config.js` には typescript-eslint の `disableTypeChecked` を適用する。`actions/github-script` から `require` する `.github/scripts/*.cjs` は、`@eslint/js` の推奨規則で検査し、テスト（`*.test.ts`）から読み込んで振る舞いを確かめる。ブラウザーで動く静的ファイル（`public/`）は対象から外す
 - `tsconfig.json` の `skipLibCheck` で依存パッケージの型定義は型検査しない。依存の更新で型定義どうしが食い違っても、このプロジェクトのコードと無関係に型検査が失敗しないようにするため
 - Prettier は既定の設定で使い、設定ファイルは置かない。Markdown、GitHub Actions の YAML と静的ファイル（`public/`）は `.prettierignore` で対象から外す
+
+コーディング規約の必須条件・適用範囲・例外と、有効な検査設定の一覧は、[コーディング方針](coding-guidelines.md#現在の検査設定)を正本とする。`tsconfig.json` と `eslint.config.js` は同節の検査設定に合わせて構成し、ESLint の重大度はすべて `error` とする。検査設定を変更するときは、対象と例外に合わせて設定とテストを更新し、同じ変更で一覧の記載も更新する。検査コマンドが成功しても、自動検査できない関数分割・命名、値オブジェクトが保証する条件、入力・結果の `readonly`、可変な参照の所有権、テスト用の抑制理由まで確認できたとは扱わず、レビューでも確認する。
 
 ### レイヤー分離時の設定と検証
 
 - 層ごとの依存規則は [アーキテクチャ](architecture.md#import-の検査)に従う。
-- `.github/scripts/eslint-config.test.ts` は、上の依存規則に合わせて、許可する import と拒否する import の両方を検証する。旧 `src/password/`・`src/store/sqlite/` の経路と暫定規則は撤去済みである
+- `.github/scripts/eslint-config.test.ts` は、依存・Node モジュール所有・import 指定・動的 import・モデル内部 API・差し替え口・共有補助コードについて、許可と拒否を各 1 例ずつ確認する。層の全組み合わせや回避構文、規約設定の全項目を網羅するテストではない
 - パスワード Provider・セマフォ・鍵導出のテストとベンチマークは `providers/password/` に置く。Service のテストでは、手書きの偽 `UserRepository`・`PasswordProvider`・`IdProvider`・`LoggerProvider` を注入し、低コスト設定の本物の `Argon2PasswordProvider` と組み合わせる検証も残す
 - `src/repositories/sqlite/` のテストは、実 DB で SQL とトランザクション、再試行・中断・権限・エラー分類を検証する
-- `public/` は ESLint・Prettier の対象から外す。Vitest のカバレッジ対象は `src/**/*.ts` のため、`public/` は対象に入らない
-- コードや設定を変更する各段階で `npm run typecheck`、`npm run lint`、`npm run format:check`、`npm test`、`npm run coverage` を確認し、CI・CodeQL も通ってから次へ進む。文書だけの変更では、文書間の構成・パス・手順・参照先の整合性と差分を確認する。Markdown は Prettier の対象外なので、`format:check` の成功を文書の検証の代わりにしない
+- `public/` は ESLint・Prettier の対象から外す。Vitest のカバレッジ対象は `src/**/*.ts` のため、`public/` とテスト専用の `tests/support/` は対象に入らない。`.github/scripts/**/*.test.ts` は coverage-comment のテストも使うため、テスト探索の対象から外さない
+- コードや設定を変更する各段階で `npm run typecheck`、`npm run lint`、`npm run format:check`、`npm test`、`npm run coverage` を確認し、CI・CodeQL も通ってから次へ進む。文書だけの変更では、文書間の構成・パス・手順・見出し参照の整合性、記載した検査状態と実設定の対応を確認し、`git diff --check` と最終差分で変更範囲を確認する。アプリのテスト・カバレッジは実行しない。Markdown は Prettier の対象外なので、`format:check` の成功を文書の検証の代わりにしない
 
 ## CI
 
@@ -95,7 +97,7 @@ CI の実行条件と出力はこの節を正本とする。GitHub Actions の `
 | Test | `npm ci` の後に `npm test` |
 | Coverage | `npm ci` の後に `npm run coverage` と、カバレッジレポートの生成・保存 |
 
-Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテストを実行する。Coverage は `src/` 配下の TS ファイル（テストとベンチマークを除く）を計測対象にし、テストから読み込まれないファイルも集計に含める。ブラウザーで動く静的ファイルは計測せず、移行後の `public/` も対象に入らない。
+Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテストを実行する。Coverage は `src/` 配下の TS ファイル（テストとベンチマークを除く）を計測対象にし、テストから読み込まれないファイルも集計に含める。ブラウザーで動く静的ファイル（`public/`）は計測せず、対象に入らない。
 
 - 合計カバレッジは GitHub Actions の実行サマリーに表示する
 - 同じリポジトリのブランチから作った PR には、合計・ファイル別カバレッジ、計測したコミット、実行ログと artifact へのリンクをコメントする。初回だけ作成し、Coverage ジョブの再実行時は同じコメントを更新する。テストやレポート生成に失敗したときも、以前の数値を残さず失敗表示へ更新する。取り消された実行、現在の PR と異なるコミットの実行、すでにコメントした実行より古い実行は更新しない
@@ -122,6 +124,7 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 - 更新はエコシステムごとに 1 件の PR にまとめる（`groups`）
 - npm パッケージはルートの `package.json`・`package-lock.json`、GitHub Actions は `.github/workflows/` と `.github/actions/setup-node/action.yml` を対象にする。共通アクション内の依存も更新できるよう、GitHub Actions の確認先に `/` と `/.github/actions/setup-node` を指定する
 - Node のメジャーバージョン（`.nvmrc`）は Dependabot の対象外とし、手で更新する
+- TypeScript は [tech-stack.md の開発用の依存](tech-stack.md#開発用の依存)に従い、型検査用の `@typescript/native`（`typescript` 7 系の npm alias）と、ESLint の API 用の `typescript`（`@typescript/typescript6` の npm alias）を併用する。更新時は alias の対象パッケージの安定版と typescript-eslint の対応範囲を確認し、`npm ci`・型検査・Lint がすべて通る組み合わせにする。`npm ci` の後に `npm exec -- tsc --version` が 7 系を示すことも確認する
 - Dependabot は既定ブランチの設定ファイルを読むため、定期更新はこの設定が `main` に入ってから有効になる。設定ファイルの配置先と、更新 PR のマージ先の `develop` は異なる
 - GitHub の自動セキュリティ更新 PR は `target-branch` に従わず既定ブランチの `main` 向けになるため、リポジトリ設定で無効にする。Dependabot alerts（脆弱性の通知）は有効のまま残す。[GitHub の target-branch 仕様](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#target-branch)を参照
 - 通知された脆弱性は、修正 PR を手で `develop` 向けに作るか、週次の更新 PR で直す。通知は `main` の依存関係から計算されるため、修正が `main` に入るまで通知は残り、`main` には脆弱な版が残る。急ぐ場合は、修正後すぐに `develop` を `main` へマージする
@@ -133,16 +136,20 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 |---|---|---|---|
 | `DATABASE_PATH` | 必須 | なし | SQLite ファイルのパス |
 | `PORT` | 任意 | `8080` | 待ち受けポート |
+| `PASSWORD_MEMORY_KIB` | 任意 | `131072` | Argon2id のメモリ量（KiB） |
+| `PASSWORD_ITERATIONS` | 任意 | `9` | Argon2id の反復回数 |
+| `PASSWORD_PARALLELISM` | 任意 | `2` | Argon2id の並列度 |
 
-`DATABASE_PATH` が空、または絶対パス化・リンク解決の前後で `/mnt/c` 配下なら起動エラーになる。親ディレクトリは先に用意する。`PORT` は未設定・空なら 8080、それ以外は十進数字の 1〜65535 に限る。サーバーは IPv4 の全インターフェースで待ち受け、SIGINT・SIGTERM で最大 30 秒の正常終了を待つ。
+`DATABASE_PATH` が空、または絶対パス化・リンク解決の前後で `/mnt/c` 配下なら起動エラーになる。親ディレクトリは先に用意する。`PORT` は未設定・空なら 8080、それ以外は十進数字の 1〜65535 に限る。`PASSWORD_MEMORY_KIB`・`PASSWORD_ITERATIONS`・`PASSWORD_PARALLELISM` は未設定・空なら既定値、それ以外は十進数字で [パスワード仕様の許容範囲](password.md#パラメータ)を満たす組合せに限る。サーバーは IPv4 の全インターフェースで待ち受け、SIGINT・SIGTERM で最大 30 秒の正常終了を待つ。
 
 ## Web 画面と Windows からの接続
 
 - Node サーバーの起動後、Windows のブラウザーで `http://127.0.0.1:8080/` を開く。画面と API は同じサーバーが配信するため、フロントエンド用の起動コマンドや依存のインストールは不要
-- `src/index.ts` の組み立て時に `public/` の 3 ファイルをメモリへ読み込み、Web Controller へ渡す。読み込みに失敗したら起動しない。配信するのは `/`・`/assets/app.css`・`/assets/app.js` の明示パスだけとし、ディレクトリ全体は公開しない。配信の振る舞いは [API 仕様](specs/api.md#web-画面)を参照する。変更後はサーバーを再起動する
+- `src/index.ts` の組み立て時に `public/` の 3 ファイルをメモリへ読み込み、Web Controller へ渡す。読み込みに失敗したら起動しない。配信するのは `/`・`/assets/app.css`・`/assets/app.js` の明示パスだけとし、ディレクトリ全体は公開しない。配信の振る舞いは [API 仕様](api.md#web-画面)を参照する。変更後はサーバーを再起動する
 - WSL 2.4.11.0 のこの開発環境では、IPv6 の全アドレスで待ち受けると Windows 側に IPv6 のループバックだけが転送され、IPv4 の `127.0.0.1` が失敗した。サーバーは `0.0.0.0` で待ち受け、この差を避ける。IPv6 の接続は対象外
 - 接続確認は通常の Windows PowerShell またはブラウザーで行う。エージェントの実行サンドボックスからの失敗だけでは、Windows ホストから到達できないとは判断しない
 - 起動直後の転送待ちと、WSL 内・Windows 側の切り分け手順は [README](../README.md#接続できない場合) を参照
+- Windows のブラウザーから WSL 上のサーバーへ接続し、Web 画面で登録・ログイン・重複登録・誤パスワードの応答を確認する。操作は [README](../README.md#web-画面を使う)に従う
 
 ## Git
 
@@ -164,8 +171,8 @@ Test と Coverage はそれぞれ別に、`src/` と `.github/scripts/` のテ�
 
 ### 並行するブランチの統合
 
-- design.md の版数は、`develop` へマージする順に付ける
-- 並行するブランチが同じ版数や同じファイル（`.gitignore` など）を変えている場合は、先にマージするブランチを決める。後のブランチは `develop` を取り込んで衝突を解消する。そのとき版数を繰り上げ、`.gitignore` は両方の行を残す
+- 設計書に一元管理していた版数は廃止する。仕様書ごとの版数は設けず、仕様変更の履歴と `develop` への統合順は Git のコミット履歴と PR の履歴で管理する
+- 並行するブランチが同じファイル（`.gitignore` など）を変えている場合は、先にマージするブランチを決める。後のブランチは `develop` を取り込んで衝突を解消し、必要な変更を両方残す
 
 ### リモート
 

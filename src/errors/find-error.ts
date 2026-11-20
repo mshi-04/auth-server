@@ -1,4 +1,6 @@
-export function* causeChain(error: unknown): Generator {
+export function* causeChain(
+  error: unknown,
+): Generator<unknown, void, undefined> {
   const seen = new Set<unknown>();
   let current = error;
 
@@ -30,4 +32,12 @@ export function isCausedBy(error: unknown, reason: unknown): boolean {
   }
 
   return false;
+}
+
+export function isAbortedBy(error: unknown, signal: AbortSignal): boolean {
+  return signal.aborted && isCausedBy(error, signal.reason);
+}
+
+export function hasCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
 }

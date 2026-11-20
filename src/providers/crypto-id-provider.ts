@@ -1,6 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { IdProvider } from "./index.ts";
 
+const dummyPasswordBytes = 32;
+
 export class CryptoIdProvider implements IdProvider {
   private constructor() {}
 
@@ -13,6 +15,6 @@ export class CryptoIdProvider implements IdProvider {
   }
 
   newDummyPassword(): string {
-    return randomBytes(32).toString("hex");
+    return randomBytes(dummyPasswordBytes).toString("hex");
   }
 }

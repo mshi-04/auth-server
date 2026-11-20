@@ -41,23 +41,11 @@ describe("JsonLoggerProvider", () => {
     vi.useRealTimers();
   });
 
-  it.each(["info", "warn", "error"])(
+  it.each(["info", "warn", "error"] satisfies ("info" | "warn" | "error")[])(
     "writes one structured %s event",
     (level) => {
       const { logger, lines } = capture();
-      switch (level) {
-        case "info":
-          logger.info("event\nmessage", { requestId: "request-1", count: 3 });
-          break;
-        case "warn":
-          logger.warn("event\nmessage", { requestId: "request-1", count: 3 });
-          break;
-        case "error":
-          logger.error("event\nmessage", { requestId: "request-1", count: 3 });
-          break;
-        default:
-          throw new Error("Unexpected level.");
-      }
+      logger[level]("event\nmessage", { requestId: "request-1", count: 3 });
       expect(entry(lines)).toEqual({
         time,
         level,
@@ -88,9 +76,9 @@ describe("JsonLoggerProvider", () => {
 
   it("writes metadata before attributes", () => {
     const { logger, lines } = capture();
-    logger.info("ready", { requestId: "request-1" });
+    logger.info("ready", { "0": "first", requestId: "request-1" });
     expect(lines[0]).toBe(
-      `{"time":"${time}","level":"info","msg":"ready","requestId":"request-1"}\n`,
+      `{"time":"${time}","level":"info","msg":"ready","0":"first","requestId":"request-1"}\n`,
     );
   });
 

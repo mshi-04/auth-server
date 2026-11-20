@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { caught } from "../../../tests/support/errors.ts";
 import { InvalidHashError } from "../../errors/index.ts";
 import { EncodedHash } from "../index.ts";
 import { encodeBase64 } from "./phc.ts";
@@ -102,14 +103,10 @@ describe("PHC parsing", () => {
       "A".repeat(42) + "B",
     ].map((tag) => phc(undefined, undefined, tag)),
   ])("rejects malformed PHC %j", (encoded) => {
-    expect(() => EncodedHash.parse(encoded)).toThrow(InvalidHashError);
-    try {
-      EncodedHash.parse(encoded);
-    } catch (error) {
-      expect(error).toBeInstanceOf(InvalidHashError);
-      if (error instanceof Error && encoded !== "") {
-        expect(error.message).not.toContain(encoded);
-      }
+    const error = caught(() => EncodedHash.parse(encoded));
+    expect(error).toBeInstanceOf(InvalidHashError);
+    if (error instanceof Error && encoded !== "") {
+      expect(error.message).not.toContain(encoded);
     }
   });
 });

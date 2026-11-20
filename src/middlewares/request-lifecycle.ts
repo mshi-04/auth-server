@@ -1,12 +1,14 @@
 import type { ServerResponse } from "node:http";
 import type { RequestContext } from "../models/index.ts";
 
+const maxTimerDelayMs = 2_147_483_647;
+
 class RequestLifecycle implements RequestContext {
-  #response: ServerResponse;
-  #deadline: number;
-  #disconnected = new AbortController();
-  #expired = new AbortController();
-  #signal: AbortSignal;
+  readonly #response: ServerResponse;
+  readonly #deadline: number;
+  readonly #disconnected = new AbortController();
+  readonly #expired = new AbortController();
+  readonly #signal: AbortSignal;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #disposed = false;
 
@@ -80,19 +82,19 @@ class RequestLifecycle implements RequestContext {
     this.#cleanup();
   }
 
-  #onClose = (): void => {
+  readonly #onClose = (): void => {
     if (!this.#response.writableFinished && !this.#expired.signal.aborted) {
       this.#disconnected.abort(new Error("Client connection closed."));
     }
     this.#cleanup();
   };
 
-  #onError = (): void => {
+  readonly #onError = (): void => {
     this.#onClose();
     this.#response.destroy();
   };
 
-  #cleanup = (): void => {
+  readonly #cleanup = (): void => {
     clearTimeout(this.#timer);
     this.#response.removeListener("close", this.#onClose);
     this.#response.removeListener("finish", this.#cleanup);
@@ -106,19 +108,17 @@ class RequestLifecycle implements RequestContext {
     this.#cleanup();
   }
 
-  #armDeadline(): void {
+  readonly #armDeadline = (): void => {
     const remaining = this.#deadline - performance.now();
     if (remaining <= 0) {
       this.#expire();
       return;
     }
     this.#timer = setTimeout(
-      () => {
-        this.#armDeadline();
-      },
-      Math.min(remaining, 2147483647),
+      this.#armDeadline,
+      Math.min(remaining, maxTimerDelayMs),
     );
-  }
+  };
 }
 
 export function createRequestContext(

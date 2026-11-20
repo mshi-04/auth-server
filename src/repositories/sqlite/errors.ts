@@ -1,5 +1,9 @@
 import { BusyError } from "../../errors/index.ts";
 
+const sqlitePrimaryCodeMask = 0xff;
+const sqliteBusyCode = 5;
+const sqliteConstraintUnique = 2067;
+
 export function sqliteCode(error: unknown): number | undefined {
   if (
     typeof error !== "object" ||
@@ -16,7 +20,7 @@ export function sqliteCode(error: unknown): number | undefined {
 }
 
 class SqliteFailure extends Error {
-  override name = "SqliteError";
+  override readonly name = "SqliteError";
   readonly code = "ERR_SQLITE_ERROR";
   readonly errcode: number;
 
@@ -33,7 +37,13 @@ export function withoutSqliteMessage(error: unknown): unknown {
 
 export function isBusy(error: unknown): boolean {
   const code = sqliteCode(error);
-  return code !== undefined && (code & 0xff) === 5;
+  return (
+    code !== undefined && (code & sqlitePrimaryCodeMask) === sqliteBusyCode
+  );
+}
+
+export function isUniqueViolation(error: unknown): boolean {
+  return sqliteCode(error) === sqliteConstraintUnique;
 }
 
 export function throwIfAborted(signal: AbortSignal): void {

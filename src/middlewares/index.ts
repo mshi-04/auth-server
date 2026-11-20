@@ -1,5 +1,4 @@
-export { handleError } from "./error-handler.ts";
 export { readJson } from "./read-json.ts";
-export { createRequestContext } from "./request-lifecycle.ts";
-export { setSecurityHeaders } from "./security-headers.ts";
+export { createRequestHandler } from "./request-handler.ts";
+export { validateHost, validateSameOrigin } from "./request-headers.ts";
 export { validateRequest } from "./validate-request.ts";

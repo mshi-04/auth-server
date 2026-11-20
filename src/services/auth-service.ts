@@ -7,7 +7,7 @@ import {
   UserNotFoundError,
   WeakPasswordError,
   findError,
-  isCausedBy,
+  isAbortedBy,
 } from "../errors/index.ts";
 import {
   EncodedHash,
@@ -30,16 +30,12 @@ function passwordError(message: string, error: unknown): Error {
   return new Error(message, { cause: error });
 }
 
-function isAbortedBySignal(error: unknown, signal: AbortSignal): boolean {
-  return signal.aborted && isCausedBy(error, signal.reason);
-}
-
 export class AuthService {
-  #repository: UserRepository;
-  #passwordProvider: PasswordProvider;
-  #idProvider: IdProvider;
-  #logger: LoggerProvider;
-  #dummyHash: EncodedHash;
+  readonly #repository: UserRepository;
+  readonly #passwordProvider: PasswordProvider;
+  readonly #idProvider: IdProvider;
+  readonly #logger: LoggerProvider;
+  readonly #dummyHash: EncodedHash;
 
   private constructor(
     repository: UserRepository,
@@ -213,7 +209,7 @@ export class AuthService {
     try {
       encoded = await this.#passwordProvider.rehash(parsedPassword, signal);
     } catch (error) {
-      if (!isAbortedBySignal(error, signal)) {
+      if (!isAbortedBy(error, signal)) {
         this.#logger.warn("rehash password failed", { userId, error });
       }
       return;
@@ -223,9 +219,11 @@ export class AuthService {
     try {
       await this.#repository.updatePasswordHash(userId, passwordHash, signal);
     } catch (error) {
-      if (!isAbortedBySignal(error, signal)) {
+      if (!isAbortedBy(error, signal)) {
         this.#logger.warn("save rehashed password failed", { userId, error });
       }
+      return;
     }
+    this.#logger.info("password hash rehashed", { userId });
   }
 }

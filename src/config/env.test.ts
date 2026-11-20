@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { caught } from "../../tests/support/errors.ts";
 import { ConfigError } from "../errors/index.ts";
 import { loadConfig } from "./index.ts";
 
@@ -30,7 +31,15 @@ describe("loadConfig", () => {
 
   it("loads only the supplied environment without creating a database", async () => {
     const env = { DATABASE_PATH: path, PORT: "9000" };
-    expect(loadConfig(env)).toEqual({ databasePath: path, port: 9000 });
+    expect(loadConfig(env)).toEqual({
+      databasePath: path,
+      port: 9000,
+      passwordCost: {
+        memoryKiB: 131072,
+        iterations: 9,
+        parallelism: 2,
+      },
+    });
     expect(env).toEqual({ DATABASE_PATH: path, PORT: "9000" });
     await expect(lstat(path)).rejects.toMatchObject({ code: "ENOENT" });
   });
@@ -74,6 +83,72 @@ describe("loadConfig", () => {
     await expect(lstat(path)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("defaults absent or empty password cost environment variables", () => {
+    expect(
+      loadConfig({
+        DATABASE_PATH: path,
+        PASSWORD_MEMORY_KIB: "",
+        PASSWORD_ITERATIONS: "",
+        PASSWORD_PARALLELISM: "",
+      }).passwordCost,
+    ).toEqual({
+      memoryKiB: 131072,
+      iterations: 9,
+      parallelism: 2,
+    });
+  });
+
+  it.each([
+    {
+      env: { PASSWORD_ITERATIONS: "3" },
+      expected: { memoryKiB: 131072, iterations: 3, parallelism: 2 },
+    },
+    {
+      env: {
+        PASSWORD_MEMORY_KIB: "8",
+        PASSWORD_ITERATIONS: "1",
+        PASSWORD_PARALLELISM: "1",
+      },
+      expected: { memoryKiB: 8, iterations: 1, parallelism: 1 },
+    },
+    {
+      env: {
+        PASSWORD_MEMORY_KIB: "262144",
+        PASSWORD_ITERATIONS: "10",
+        PASSWORD_PARALLELISM: "16",
+      },
+      expected: { memoryKiB: 262144, iterations: 10, parallelism: 16 },
+    },
+  ])("parses valid password cost overrides $env", ({ env, expected }) => {
+    expect(loadConfig({ DATABASE_PATH: path, ...env }).passwordCost).toEqual(
+      expected,
+    );
+  });
+
+  it.each([
+    { PASSWORD_MEMORY_KIB: "15" },
+    { PASSWORD_MEMORY_KIB: "262145" },
+    { PASSWORD_MEMORY_KIB: "64", PASSWORD_PARALLELISM: "9" },
+    { PASSWORD_ITERATIONS: "0" },
+    { PASSWORD_ITERATIONS: "11" },
+    { PASSWORD_PARALLELISM: "0" },
+    { PASSWORD_PARALLELISM: "17" },
+    { PASSWORD_ITERATIONS: "-1" },
+    { PASSWORD_ITERATIONS: "+3" },
+    { PASSWORD_ITERATIONS: " 3" },
+    { PASSWORD_ITERATIONS: "3.5" },
+    { PASSWORD_ITERATIONS: "0x3" },
+    { PASSWORD_MEMORY_KIB: "9".repeat(100) },
+  ])(
+    "rejects invalid password cost %j before creating a database",
+    async (costEnv) => {
+      expect(() => loadConfig({ DATABASE_PATH: path, ...costEnv })).toThrow(
+        ConfigError,
+      );
+      await expect(lstat(path)).rejects.toMatchObject({ code: "ENOENT" });
+    },
+  );
+
   it.each([undefined, ""])(
     "rejects missing DATABASE_PATH (%s)",
     (databasePath) => {
@@ -81,8 +156,12 @@ describe("loadConfig", () => {
       if (databasePath !== undefined) {
         env.DATABASE_PATH = databasePath;
       }
-      expect(() => loadConfig(env)).toThrow(ConfigError);
-      expect(() => loadConfig(env)).toThrow("DATABASE_PATH is required");
+      const error = caught(() => loadConfig(env));
+      expect(error).toBeInstanceOf(ConfigError);
+      expect(error).toHaveProperty(
+        "message",
+        expect.stringContaining("DATABASE_PATH is required"),
+      );
     },
   );
 
@@ -129,16 +208,14 @@ describe("loadConfig", () => {
   });
 
   it("retains the cause of filesystem failures", () => {
-    try {
-      loadConfig({ DATABASE_PATH: join(directory, "missing", "auth.db") });
-      expect.fail("missing parent accepted");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ConfigError);
-      if (!(error instanceof ConfigError)) {
-        throw error;
-      }
-      expect(error.cause).toMatchObject({ code: "ENOENT" });
-    }
+    const error = caught(() =>
+      loadConfig({ DATABASE_PATH: join(directory, "missing", "auth.db") }),
+    );
+    expect(error).toBeInstanceOf(ConfigError);
+    expect(error).toHaveProperty(
+      "cause",
+      expect.objectContaining({ code: "ENOENT" }),
+    );
   });
 
   it.each(["", "auth.db"])(

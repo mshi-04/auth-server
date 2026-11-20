@@ -1,11 +1,13 @@
-import { createServer, IncomingMessage, ServerResponse } from "node:http";
-import type { Server } from "node:http";
+import { IncomingMessage, ServerResponse } from "node:http";
 import { Socket } from "node:net";
 import { describe, expect, it } from "vitest";
+import { RecordingLogger } from "../../tests/support/fakes/logger.ts";
+import { testRequestContext } from "../../tests/support/http.ts";
 import {
   BadRequestError,
   BusyError,
   EmailTakenError,
+  ForbiddenError,
   InvalidCredentialsError,
   InvalidEmailError,
   InvalidHashError,
@@ -13,74 +15,47 @@ import {
   MethodNotAllowedError,
   NotFoundError,
   PayloadTooLargeError,
+  UnsupportedMediaTypeError,
   WeakPasswordError,
 } from "../errors/index.ts";
-import type { RequestContext } from "../models/index.ts";
-import type { LoggerProvider } from "../providers/index.ts";
 import { handleError } from "./error-handler.ts";
 import { setSecurityHeaders } from "./security-headers.ts";
 
-class RecordingLogger implements LoggerProvider {
-  errors: { message: string; attributes?: Record<string, unknown> }[] = [];
-  info(): void {}
-  warn(): void {}
-  error(message: string, attributes?: Record<string, unknown>): void {
-    this.errors.push({
-      message,
-      ...(attributes === undefined ? {} : { attributes }),
-    });
+class RecordingResponse extends ServerResponse {
+  body: unknown;
+
+  override end(
+    chunk?: unknown,
+    encodingOrCallback?: BufferEncoding | (() => void),
+    callback?: () => void,
+  ): this {
+    this.body = chunk;
+    if (typeof encodingOrCallback === "string") {
+      return super.end(chunk, encodingOrCallback, callback);
+    }
+    return super.end(chunk, encodingOrCallback);
   }
 }
 
-function context(canRespond = true): RequestContext {
-  const signal = new AbortController().signal;
-  return {
-    signal,
-    disconnectedSignal: signal,
-    deadlineSignal: signal,
-    deadline: Infinity,
-    canRespond: () => canRespond,
-  };
-}
-
-function listen(server: Server): Promise<number> {
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject);
-      const address = server.address();
-      if (address === null || typeof address === "string") {
-        reject(new Error("Expected TCP listener."));
-        return;
-      }
-      resolve(address.port);
-    });
-  });
-}
-
-async function runError(error: unknown, method = "GET") {
+function runError(error: unknown, method = "GET") {
   const logger = new RecordingLogger();
-  const server = createServer((req, res) => {
-    setSecurityHeaders(res);
-    handleError(error, req, res, context(), logger);
-  });
-  const port = await listen(server);
+  const req = new IncomingMessage(new Socket());
+  req.method = method;
+  const response = new RecordingResponse(req);
+  setSecurityHeaders(response);
   try {
-    const response = await fetch(`http://127.0.0.1:${String(port)}/`, {
-      method,
-    });
-    const body = await response.text();
-    return { response, body, logger };
+    handleError(error, req, response, testRequestContext(), logger);
+    expect(response.getHeader("cache-control")).toBe("no-store");
+    expect(response.getHeader("x-content-type-options")).toBe("nosniff");
+    expect(response.getHeader("content-security-policy")).toContain(
+      "form-action 'none'",
+    );
+    if (response.body !== undefined && typeof response.body !== "string") {
+      throw new Error("Expected a string response body.");
+    }
+    return { response, body: response.body ?? "", logger };
   } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error !== undefined) {
-          reject(error);
-          return;
-        }
-        resolve();
-      });
-    });
+    req.destroy();
   }
 }
 
@@ -97,9 +72,19 @@ describe("handleError", () => {
       detail: "リクエストボディを読み取れませんでした",
     },
     {
+      error: new BadRequestError("invalid-host"),
+      status: 400,
+      detail: "Hostヘッダーが正しくありません",
+    },
+    {
       error: new InvalidCredentialsError(),
       status: 401,
       detail: "メールアドレスまたはパスワードが正しくありません",
+    },
+    {
+      error: new ForbiddenError(),
+      status: 403,
+      detail: "クロスサイトのリクエストは許可されていません",
     },
     {
       error: new NotFoundError(),
@@ -122,6 +107,11 @@ describe("handleError", () => {
       detail: "リクエストボディが上限を超えています",
     },
     {
+      error: new UnsupportedMediaTypeError(),
+      status: 415,
+      detail: "Content-Typeはapplication/jsonを指定してください",
+    },
+    {
       error: new InvalidEmailError(),
       status: 422,
       detail: "メールアドレスの形式が正しくありません",
@@ -138,48 +128,41 @@ describe("handleError", () => {
     },
   ])(
     "returns a fixed problem for $error.name ($status)",
-    async ({ error, status, detail }) => {
-      const { response, body, logger } = await runError(
+    ({ error, status, detail }) => {
+      const { response, body, logger } = runError(
         new Error("wrapper", { cause: error }),
       );
-      expect(response.status).toBe(status);
-      expect(response.headers.get("content-type")).toBe(
+      expect(response.statusCode).toBe(status);
+      expect(response.getHeader("content-type")).toBe(
         "application/problem+json",
       );
       const problem: unknown = JSON.parse(body);
       expect(problem).toEqual({
         type: "about:blank",
-        title: response.statusText,
+        title: response.statusMessage,
         status,
         detail,
       });
-      expect(logger.errors).toEqual([]);
-      expect(response.headers.get("cache-control")).toBe("no-store");
-      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
-      expect(response.headers.get("content-security-policy")).toContain(
-        "form-action 'none'",
-      );
+      expect(logger.errorCalls).toEqual([]);
     },
   );
 
-  it("sets only the supported methods on a 405", async () => {
-    const { response } = await runError(
-      new MethodNotAllowedError(["GET", "HEAD"]),
-    );
-    expect(response.headers.get("allow")).toBe("GET, HEAD");
+  it("sets only the supported methods on a 405", () => {
+    const { response } = runError(new MethodNotAllowedError(["GET", "HEAD"]));
+    expect(response.getHeader("allow")).toBe("GET, HEAD");
   });
 
-  it("keeps authentication error semantics ahead of inner failures", async () => {
-    const { response, logger } = await runError(
+  it("keeps authentication error semantics ahead of inner failures", () => {
+    const { response, logger } = runError(
       new InvalidCredentialsError("login failed", {
         cause: new InvalidEmailError("invalid", {
           cause: new InvalidHashError(),
         }),
       }),
     );
-    expect(response.status).toBe(401);
-    expect(response.headers.has("www-authenticate")).toBe(false);
-    expect(logger.errors).toEqual([]);
+    expect(response.statusCode).toBe(401);
+    expect(response.hasHeader("www-authenticate")).toBe(false);
+    expect(logger.errorCalls).toEqual([]);
   });
 
   it.each([
@@ -188,11 +171,11 @@ describe("handleError", () => {
     "unexpected value",
   ])(
     "logs unexpected errors once without disclosing their causes (%j)",
-    async (error) => {
-      const { response, body, logger } = await runError(error);
-      expect(response.status).toBe(500);
+    (error) => {
+      const { response, body, logger } = runError(error);
+      expect(response.statusCode).toBe(500);
       expect(body).not.toContain("private internal cause");
-      expect(logger.errors).toEqual([
+      expect(logger.errorCalls).toEqual([
         { message: "request failed", attributes: { error } },
       ]);
       const problem: unknown = JSON.parse(body);
@@ -205,21 +188,21 @@ describe("handleError", () => {
     },
   );
 
-  it("stops a cyclic cause chain", async () => {
+  it("stops a cyclic cause chain", () => {
     const error = new Error("cycle");
     error.cause = error;
-    const { response, logger } = await runError(error);
-    expect(response.status).toBe(500);
-    expect(logger.errors).toHaveLength(1);
+    const { response, logger } = runError(error);
+    expect(response.statusCode).toBe(500);
+    expect(logger.errorCalls).toHaveLength(1);
   });
 
-  it("sends headers without a body for HEAD errors", async () => {
-    const { response, body } = await runError(new NotFoundError(), "HEAD");
-    expect(response.status).toBe(404);
-    expect(response.headers.get("content-type")).toBe(
-      "application/problem+json",
-    );
+  it("sends headers without a body for HEAD errors", () => {
+    const { response, body } = runError(new NotFoundError(), "HEAD");
+    expect(response.statusCode).toBe(404);
+    expect(response.getHeader("content-type")).toBe("application/problem+json");
     expect(body).toBe("");
+    expect(response.body).toBeUndefined();
+    expect(response.writableEnded).toBe(true);
   });
 
   it("records and drops the connection when headers were already sent", () => {
@@ -228,8 +211,8 @@ describe("handleError", () => {
     const logger = new RecordingLogger();
     const error = new NotFoundError();
     res.writeHead(200);
-    handleError(error, req, res, context(), logger);
-    expect(logger.errors).toEqual([
+    handleError(error, req, res, testRequestContext(), logger);
+    expect(logger.errorCalls).toEqual([
       {
         message: "request failed after response headers",
         attributes: { error },
@@ -240,10 +223,32 @@ describe("handleError", () => {
     req.destroy();
   });
 
-  it("closes the connection after a 413 response", async () => {
-    const { response } = await runError(new PayloadTooLargeError());
-    expect(response.status).toBe(413);
-    expect(response.headers.get("connection")).toBe("close");
+  it("requests connection closure after a 413 response", () => {
+    const { response } = runError(new PayloadTooLargeError());
+    expect(response.statusCode).toBe(413);
+    expect(response.getHeader("connection")).toBe("close");
+  });
+
+  it.each([
+    [new BadRequestError("invalid-host"), 400],
+    [new ForbiddenError(), 403],
+    [new UnsupportedMediaTypeError(), 415],
+  ])(
+    "requests connection closure after rejecting unread body %o",
+    (error, status) => {
+      const { response } = runError(error);
+      expect(response.statusCode).toBe(status);
+      expect(response.getHeader("connection")).toBe("close");
+    },
+  );
+
+  it.each([
+    new BadRequestError("invalid-input"),
+    new BadRequestError("read-failed"),
+  ])("keeps the connection after a 400 for a read body %o", (error) => {
+    const { response } = runError(error);
+    expect(response.statusCode).toBe(400);
+    expect(response.getHeader("connection")).toBeUndefined();
   });
 
   it.each([new BusyError(), new Error("aborted operation")])(
@@ -252,10 +257,16 @@ describe("handleError", () => {
       const req = new IncomingMessage(new Socket());
       const res = new ServerResponse(req);
       const logger = new RecordingLogger();
-      handleError(error, req, res, context(false), logger);
+      handleError(
+        error,
+        req,
+        res,
+        testRequestContext({ canRespond: false }),
+        logger,
+      );
       expect(res.headersSent).toBe(false);
       expect(res.writableEnded).toBe(false);
-      expect(logger.errors).toEqual([]);
+      expect(logger.errorCalls).toEqual([]);
       req.destroy();
     },
   );

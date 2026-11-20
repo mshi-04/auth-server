@@ -3,6 +3,7 @@ import { isBusy, operationError, throwIfAborted } from "./errors.ts";
 
 const retryTimeoutMs = 5000;
 const retryIntervalMs = 10;
+const busyTimeoutMs = 5000;
 
 export async function openDatabase(
   path: string,
@@ -24,7 +25,7 @@ export async function openDatabase(
     try {
       db = new Database(path, {
         enableForeignKeyConstraints: true,
-        timeout: 5000,
+        timeout: busyTimeoutMs,
       });
     } catch (error) {
       throw operationError(error, "connect to SQLite database", signal);

@@ -1,6 +1,6 @@
 export type NewUser = {
-  id: string;
-  email: string;
-  emailNormalized: string;
-  passwordHash: string;
+  readonly id: string;
+  readonly email: string;
+  readonly emailNormalized: string;
+  readonly passwordHash: string;
 };

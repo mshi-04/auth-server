@@ -5,16 +5,29 @@ import { EmailTakenError, UserNotFoundError } from "../../errors/index.ts";
 import type { Credential, NewUser } from "../../models/index.ts";
 import type { UserRepository } from "../index.ts";
 import {
+  isUniqueViolation,
   operationError,
-  sqliteCode,
   throwIfAborted,
   withoutSqliteMessage,
 } from "./errors.ts";
 import { openDatabase } from "./initialization.ts";
 import { prepareDatabaseFile } from "./permissions.ts";
 
+function runOperation<T>(
+  context: string,
+  signal: AbortSignal,
+  operation: () => T,
+): Promise<T> {
+  try {
+    throwIfAborted(signal);
+    return Promise.resolve(operation());
+  } catch (error) {
+    return Promise.reject(operationError(error, context, signal));
+  }
+}
+
 export class SqliteUserRepository implements UserRepository {
-  #db: Database;
+  readonly #db: Database;
 
   private constructor(db: Database) {
     this.#db = db;
@@ -52,51 +65,16 @@ export class SqliteUserRepository implements UserRepository {
   }
 
   createUser(user: NewUser, signal: AbortSignal): Promise<void> {
-    try {
-      throwIfAborted(signal);
-      this.#db.exec("BEGIN IMMEDIATE");
-      let committed = false;
-      try {
-        try {
-          this.#db
-            .prepare(
-              "INSERT INTO users (id, email, email_normalized) VALUES (?, ?, ?)",
-            )
-            .run(user.id, user.email, user.emailNormalized);
-        } catch (error) {
-          if (sqliteCode(error) === 2067) {
-            throw new EmailTakenError(undefined, {
-              cause: withoutSqliteMessage(error),
-            });
-          }
-          throw error;
-        }
-        this.#db
-          .prepare(
-            "INSERT INTO password_credentials (user_id, hash) VALUES (?, ?)",
-          )
-          .run(user.id, user.passwordHash);
-        this.#db.exec("COMMIT");
-        committed = true;
-      } finally {
-        if (!committed && this.#db.isTransaction) {
-          this.#db.exec("ROLLBACK");
-        }
-      }
-      return Promise.resolve();
-    } catch (error) {
-      return Promise.reject(
-        operationError(error, "Create SQLite user failed.", signal),
-      );
-    }
+    return runOperation("Create SQLite user failed.", signal, () => {
+      this.#insertUserInTransaction(user);
+    });
   }
 
   findCredentialByEmail(
     emailNormalized: string,
     signal: AbortSignal,
   ): Promise<Credential> {
-    try {
-      throwIfAborted(signal);
+    return runOperation("Find SQLite credential failed.", signal, () => {
       const row = this.#db
         .prepare(
           `
@@ -112,12 +90,8 @@ export class SqliteUserRepository implements UserRepository {
       if (typeof row.user_id !== "string" || typeof row.hash !== "string") {
         throw new Error("Invalid SQLite credential row.");
       }
-      return Promise.resolve({ userId: row.user_id, passwordHash: row.hash });
-    } catch (error) {
-      return Promise.reject(
-        operationError(error, "Find SQLite credential failed.", signal),
-      );
-    }
+      return { userId: row.user_id, passwordHash: row.hash };
+    });
   }
 
   updatePasswordHash(
@@ -125,8 +99,7 @@ export class SqliteUserRepository implements UserRepository {
     passwordHash: string,
     signal: AbortSignal,
   ): Promise<void> {
-    try {
-      throwIfAborted(signal);
+    return runOperation("Update SQLite password hash failed.", signal, () => {
       const result = this.#db
         .prepare(
           `
@@ -139,11 +112,38 @@ export class SqliteUserRepository implements UserRepository {
       if (result.changes === 0) {
         throw new UserNotFoundError();
       }
-      return Promise.resolve();
-    } catch (error) {
-      return Promise.reject(
-        operationError(error, "Update SQLite password hash failed.", signal),
-      );
+    });
+  }
+
+  #insertUserInTransaction(user: NewUser): void {
+    this.#db.exec("BEGIN IMMEDIATE");
+    let committed = false;
+    try {
+      try {
+        this.#db
+          .prepare(
+            "INSERT INTO users (id, email, email_normalized) VALUES (?, ?, ?)",
+          )
+          .run(user.id, user.email, user.emailNormalized);
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          throw new EmailTakenError(undefined, {
+            cause: withoutSqliteMessage(error),
+          });
+        }
+        throw error;
+      }
+      this.#db
+        .prepare(
+          "INSERT INTO password_credentials (user_id, hash) VALUES (?, ?)",
+        )
+        .run(user.id, user.passwordHash);
+      this.#db.exec("COMMIT");
+      committed = true;
+    } finally {
+      if (!committed && this.#db.isTransaction) {
+        this.#db.exec("ROLLBACK");
+      }
     }
   }
 }

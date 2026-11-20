@@ -1,5 +1,5 @@
 export class InvalidParamsError extends Error {
-  override name = "InvalidParamsError";
+  override readonly name = "InvalidParamsError";
 
   constructor(
     message = "Invalid password parameters.",
@@ -10,7 +10,7 @@ export class InvalidParamsError extends Error {
 }
 
 export class PolicyViolationError extends Error {
-  override name = "PolicyViolationError";
+  override readonly name = "PolicyViolationError";
 
   constructor(message = "Password policy violation.", options?: ErrorOptions) {
     super(message, options);
@@ -18,7 +18,7 @@ export class PolicyViolationError extends Error {
 }
 
 export class InvalidHashError extends Error {
-  override name = "InvalidHashError";
+  override readonly name = "InvalidHashError";
 
   constructor(message = "Invalid password hash.", options?: ErrorOptions) {
     super(message, options);
@@ -26,7 +26,7 @@ export class InvalidHashError extends Error {
 }
 
 export class PasswordBusyError extends Error {
-  override name = "PasswordBusyError";
+  override readonly name = "PasswordBusyError";
 
   constructor(message = "Password hasher busy.", options?: ErrorOptions) {
     super(message, options);

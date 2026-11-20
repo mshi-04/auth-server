@@ -5,22 +5,25 @@ import {
 } from "node:http";
 import { Socket } from "node:net";
 import { describe, expect, it } from "vitest";
-import { BadRequestError, PayloadTooLargeError } from "../errors/index.ts";
-import type { RequestContext } from "../models/index.ts";
+import { rejected } from "../../tests/support/errors.ts";
+import {
+  closeServer,
+  listenOnLoopback,
+  testRequestContext,
+} from "../../tests/support/http.ts";
+import {
+  BadRequestError,
+  PayloadTooLargeError,
+  UnsupportedMediaTypeError,
+} from "../errors/index.ts";
 import { readJson } from "./read-json.ts";
 
-function context(signal = new AbortController().signal): RequestContext {
-  return {
-    signal,
-    disconnectedSignal: signal,
-    deadlineSignal: signal,
-    deadline: Infinity,
-    canRespond: () => !signal.aborted,
-  };
-}
-
-function request(chunks: readonly Buffer[]): IncomingMessage {
+function request(
+  chunks: readonly Buffer[],
+  contentType = "application/json",
+): IncomingMessage {
   const req = new IncomingMessage(new Socket());
+  req.headers["content-type"] = contentType;
   for (const chunk of chunks) {
     req.push(chunk);
   }
@@ -30,10 +33,16 @@ function request(chunks: readonly Buffer[]): IncomingMessage {
 }
 
 describe("readJson", () => {
-  it("reads chunked UTF-8 without requiring a content type", async () => {
+  it.each([
+    "application/json",
+    "Application/JSON",
+    "application/json; charset=utf-8",
+    "application/json;charset=UTF-8",
+    'application/json; charset="UTF-8"',
+  ])("reads chunked UTF-8 with Content-Type %s", async (contentType) => {
     const body = Buffer.from('{"email":"日本語","password":""}');
-    const req = request([body.subarray(0, 12), body.subarray(12)]);
-    await expect(readJson(req, context())).resolves.toEqual({
+    const req = request([body.subarray(0, 12), body.subarray(12)], contentType);
+    await expect(readJson(req, testRequestContext())).resolves.toEqual({
       email: "日本語",
       password: "",
     });
@@ -41,17 +50,41 @@ describe("readJson", () => {
     expect(req.listenerCount("error")).toBe(0);
   });
 
+  it.each([
+    undefined,
+    "",
+    "text/plain",
+    "application/x-www-form-urlencoded",
+    "application/json;",
+    "application/json; charset=shift_jis",
+    "application/json; charset=utf-8; boundary=x",
+  ])(
+    "rejects unsupported Content-Type %s before reading the body",
+    async (contentType) => {
+      const req = new IncomingMessage(new Socket());
+      if (contentType !== undefined) {
+        req.headers["content-type"] = contentType;
+      }
+      await expect(readJson(req, testRequestContext())).rejects.toBeInstanceOf(
+        UnsupportedMediaTypeError,
+      );
+      expect(req.listenerCount("data")).toBe(0);
+      req.push(null);
+    },
+  );
+
   it("accepts the entire 16 KiB body including trailing whitespace", async () => {
     const body = Buffer.from("{}" + " ".repeat(16 * 1024 - 2));
     const req = request([body]);
     req.headers["content-length"] = String(body.length);
-    await expect(readJson(req, context())).resolves.toEqual({});
+    await expect(readJson(req, testRequestContext())).resolves.toEqual({});
   });
 
   it("rejects an excessive declared length before reading the body", async () => {
     const req = new IncomingMessage(new Socket());
+    req.headers["content-type"] = "application/json";
     req.headers["content-length"] = String(16 * 1024 + 1);
-    await expect(readJson(req, context())).rejects.toBeInstanceOf(
+    await expect(readJson(req, testRequestContext())).rejects.toBeInstanceOf(
       PayloadTooLargeError,
     );
     expect(req.destroyed).toBe(false);
@@ -70,7 +103,7 @@ describe("readJson", () => {
       if (length !== undefined) {
         req.headers["content-length"] = length;
       }
-      await expect(readJson(req, context())).rejects.toBeInstanceOf(
+      await expect(readJson(req, testRequestContext())).rejects.toBeInstanceOf(
         PayloadTooLargeError,
       );
       expect(req.socket.destroyed).toBe(false);
@@ -82,13 +115,13 @@ describe("readJson", () => {
     "rejects malformed JSON without preserving parser content %j",
     async (body) => {
       const req = request([Buffer.from(body)]);
-      const promise = readJson(req, context());
-      await expect(promise).rejects.toMatchObject({
+      const error = await rejected(readJson(req, testRequestContext()));
+      expect(error).toMatchObject({
         name: "BadRequestError",
         kind: "invalid-input",
         message: "Invalid request.",
       });
-      await expect(promise).rejects.not.toHaveProperty("cause");
+      expect(error).not.toHaveProperty("cause");
     },
   );
 
@@ -96,7 +129,10 @@ describe("readJson", () => {
     "leaves structure validation of %j to schemas",
     async (value) => {
       await expect(
-        readJson(request([Buffer.from(JSON.stringify(value))]), context()),
+        readJson(
+          request([Buffer.from(JSON.stringify(value))]),
+          testRequestContext(),
+        ),
       ).resolves.toEqual(value);
     },
   );
@@ -107,7 +143,9 @@ describe("readJson", () => {
       Buffer.from([0xff]),
       Buffer.from('","password":"\\ud800"}'),
     ]);
-    await expect(readJson(request([body]), context())).resolves.toEqual({
+    await expect(
+      readJson(request([body]), testRequestContext()),
+    ).resolves.toEqual({
       email: "\ufffd",
       password: "\ud800",
     });
@@ -116,7 +154,7 @@ describe("readJson", () => {
   it("retains the last duplicate key and exact key casing", async () => {
     const body = '{"email":"first","email":"last","Email":"uppercase"}';
     await expect(
-      readJson(request([Buffer.from(body)]), context()),
+      readJson(request([Buffer.from(body)]), testRequestContext()),
     ).resolves.toEqual({ email: "last", Email: "uppercase" });
   });
 
@@ -124,13 +162,15 @@ describe("readJson", () => {
     "classifies a body %s separately without retaining transport secrets",
     async (event) => {
       const req = new IncomingMessage(new Socket());
-      const promise = readJson(req, context());
+      req.headers["content-type"] = "application/json";
+      const promise = readJson(req, testRequestContext());
       req.emit(event, new Error("secret request payload"));
-      await expect(promise).rejects.toMatchObject({
+      const error = await rejected(promise);
+      expect(error).toMatchObject({
         kind: "read-failed",
         name: "BadRequestError",
       });
-      await expect(promise).rejects.not.toHaveProperty("cause");
+      expect(error).not.toHaveProperty("cause");
       req.push(null);
     },
   );
@@ -138,7 +178,11 @@ describe("readJson", () => {
   it("rejects promptly and removes its listeners when aborted mid-body", async () => {
     const controller = new AbortController();
     const req = new IncomingMessage(new Socket());
-    const promise = readJson(req, context(controller.signal));
+    req.headers["content-type"] = "application/json";
+    const promise = readJson(
+      req,
+      testRequestContext({ signal: controller.signal }),
+    );
     const reason = new Error("deadline");
     controller.abort(reason);
     await expect(promise).rejects.toBe(reason);
@@ -151,7 +195,7 @@ describe("readJson", () => {
     const reason = new Error("disconnected");
     const req = request([Buffer.from("{}")]);
     await expect(
-      readJson(req, context(AbortSignal.abort(reason))),
+      readJson(req, testRequestContext({ signal: AbortSignal.abort(reason) })),
     ).rejects.toBe(reason);
     expect(req.listenerCount("data")).toBe(0);
     req.destroy();
@@ -159,8 +203,9 @@ describe("readJson", () => {
 
   it("classifies an already destroyed body as unreadable", async () => {
     const req = new IncomingMessage(new Socket());
+    req.headers["content-type"] = "application/json";
     req.destroy();
-    await expect(readJson(req, context())).rejects.toBeInstanceOf(
+    await expect(readJson(req, testRequestContext())).rejects.toBeInstanceOf(
       BadRequestError,
     );
   });
@@ -176,28 +221,19 @@ describe("readJson", () => {
     });
     let readResult: Promise<unknown> | undefined;
     const server = createServer((req) => {
-      readResult = readJson(req, context());
-      readResult.catch(() => undefined);
+      readResult = rejected(readJson(req, testRequestContext()));
       req.once("data", markStarted);
       req.once("close", markClosed);
     });
-    const port = await new Promise<number>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", () => {
-        server.off("error", reject);
-        const address = server.address();
-        if (address === null || typeof address === "string") {
-          reject(new Error("Expected TCP listener."));
-          return;
-        }
-        resolve(address.port);
-      });
-    });
+    const port = await listenOnLoopback(server);
     const client = httpRequest({
       host: "127.0.0.1",
       port,
       method: "POST",
-      headers: { "Content-Length": "100" },
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": "100",
+      },
     });
     client.on("error", () => undefined);
     try {
@@ -206,17 +242,13 @@ describe("readJson", () => {
       client.destroy();
       await closed;
       expect(readResult).toBeDefined();
-      await expect(readResult).rejects.toMatchObject({
+      expect(await readResult).toMatchObject({
         name: "BadRequestError",
         kind: "read-failed",
       });
     } finally {
       client.destroy();
-      await new Promise<void>((resolve) => {
-        server.close(() => {
-          resolve();
-        });
-      });
+      await closeServer(server);
     }
   });
 });

@@ -4,6 +4,8 @@
     "module": "nodenext",
     "noEmit": true,
     "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "erasableSyntaxOnly": true,
@@ -13,5 +15,10 @@
     "allowJs": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", ".github/scripts/**/*.ts", "vitest.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "tests/support/**/*.ts",
+    ".github/scripts/**/*.ts",
+    "vitest.config.ts"
+  ]
 }

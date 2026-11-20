@@ -9,11 +9,13 @@ export {
 export { ConfigError } from "./config-errors.ts";
 export {
   BadRequestError,
+  ForbiddenError,
   MethodNotAllowedError,
   NotFoundError,
   PayloadTooLargeError,
+  UnsupportedMediaTypeError,
 } from "./request-errors.ts";
-export { causeChain, findError, isCausedBy } from "./find-error.ts";
+export { causeChain, findError, hasCode, isAbortedBy } from "./find-error.ts";
 export {
   InvalidHashError,
   InvalidParamsError,

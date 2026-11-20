@@ -1,8 +1,33 @@
 import type { IncomingMessage } from "node:http";
-import { BadRequestError, PayloadTooLargeError } from "../errors/index.ts";
+import {
+  BadRequestError,
+  PayloadTooLargeError,
+  UnsupportedMediaTypeError,
+} from "../errors/index.ts";
 import type { RequestContext } from "../models/index.ts";
 
 const maxBodyBytes = 16 * 1024;
+
+function isJsonContentType(contentType: string | undefined): boolean {
+  if (contentType === undefined) {
+    return false;
+  }
+  const [mediaType, parameter, ...rest] = contentType.split(";");
+  if (
+    rest.length > 0 ||
+    mediaType?.trim().toLowerCase() !== "application/json"
+  ) {
+    return false;
+  }
+  if (parameter !== undefined) {
+    const normalizedParameter = parameter.trim().toLowerCase();
+    return (
+      normalizedParameter === "charset=utf-8" ||
+      normalizedParameter === 'charset="utf-8"'
+    );
+  }
+  return true;
+}
 
 function drainRequest(req: IncomingMessage): void {
   if (req.destroyed || req.readableEnded) {
@@ -28,8 +53,8 @@ function readBody(req: IncomingMessage, signal: AbortSignal): Promise<Buffer> {
     function cleanup(): void {
       req.off("data", onData);
       req.off("end", onEnd);
-      req.off("error", onError);
-      req.off("aborted", onAborted);
+      req.off("error", onReadFailed);
+      req.off("aborted", onReadFailed);
       signal.removeEventListener("abort", onAbort);
     }
 
@@ -61,11 +86,7 @@ function readBody(req: IncomingMessage, signal: AbortSignal): Promise<Buffer> {
       resolve(Buffer.concat(chunks, size));
     }
 
-    function onError(): void {
-      fail(new BadRequestError("read-failed"));
-    }
-
-    function onAborted(): void {
+    function onReadFailed(): void {
       fail(new BadRequestError("read-failed"));
     }
 
@@ -75,8 +96,8 @@ function readBody(req: IncomingMessage, signal: AbortSignal): Promise<Buffer> {
 
     req.on("data", onData);
     req.once("end", onEnd);
-    req.once("error", onError);
-    req.once("aborted", onAborted);
+    req.once("error", onReadFailed);
+    req.once("aborted", onReadFailed);
     signal.addEventListener("abort", onAbort, { once: true });
     if (signal.aborted) {
       onAbort();
@@ -87,7 +108,7 @@ function readBody(req: IncomingMessage, signal: AbortSignal): Promise<Buffer> {
       return;
     }
     if (req.destroyed) {
-      onAborted();
+      onReadFailed();
     }
   });
 }
@@ -97,6 +118,10 @@ export async function readJson(
   context: RequestContext,
 ): Promise<unknown> {
   context.signal.throwIfAborted();
+  if (!isJsonContentType(req.headers["content-type"])) {
+    drainRequest(req);
+    throw new UnsupportedMediaTypeError();
+  }
   const contentLength = req.headers["content-length"];
   if (contentLength !== undefined && Number(contentLength) > maxBodyBytes) {
     drainRequest(req);

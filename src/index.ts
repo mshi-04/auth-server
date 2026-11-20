@@ -1,17 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { createServer, ServerResponse } from "node:http";
-import type { IncomingMessage, Server } from "node:http";
+import type { Server } from "node:http";
 import { Socket } from "node:net";
 import { loadConfig } from "./config/index.ts";
 import type { Config } from "./config/index.ts";
 import { AuthController, WebController } from "./controllers/index.ts";
 import type { WebAssets } from "./controllers/index.ts";
-import { isCausedBy } from "./errors/index.ts";
-import {
-  createRequestContext,
-  handleError,
-  setSecurityHeaders,
-} from "./middlewares/index.ts";
+import { hasCode, isAbortedBy } from "./errors/index.ts";
+import { createRequestHandler } from "./middlewares/index.ts";
 import type { LoggerProvider } from "./providers/index.ts";
 import { CryptoIdProvider } from "./providers/crypto-id-provider.ts";
 import { JsonLoggerProvider } from "./providers/json-logger-provider.ts";
@@ -22,6 +18,13 @@ import {
 import { SqliteUserRepository } from "./repositories/sqlite/index.ts";
 import { createRoutes } from "./routes/index.ts";
 import { AuthService } from "./services/index.ts";
+
+const headersTimeoutMs = 5_000;
+const requestTimeoutMs = 10_000;
+const keepAliveTimeoutMs = 60_000;
+const connectionsCheckingIntervalMs = 1_000;
+const idleSweepIntervalMs = 100;
+const shutdownTimeoutMs = 30_000;
 
 export async function loadWebAssets(): Promise<WebAssets> {
   const [html, css, js] = await Promise.all([
@@ -37,40 +40,17 @@ export function createHttpServer(
   assets: WebAssets,
   logger: LoggerProvider,
 ): Server {
-  const route = createRoutes(
-    AuthController.create(service),
-    WebController.create(assets),
+  const onRequest = createRequestHandler(
+    createRoutes(AuthController.create(service), WebController.create(assets)),
+    logger,
   );
-
-  function onRequest(req: IncomingMessage, res: ServerResponse): void {
-    const deadline = performance.now() + 30_000;
-    setSecurityHeaders(res);
-    const context = createRequestContext(res, deadline);
-
-    async function dispatch(): Promise<void> {
-      try {
-        await route(req, res, context);
-      } catch (error) {
-        handleError(error, req, res, context, logger);
-      } finally {
-        context.dispose();
-      }
-    }
-
-    dispatch().catch((error: unknown) => {
-      if (!context.signal.aborted) {
-        logger.error("request failed", { error });
-      }
-      res.destroy();
-    });
-  }
 
   const server = createServer(
     {
-      headersTimeout: 5_000,
-      requestTimeout: 10_000,
-      keepAliveTimeout: 60_000,
-      connectionsCheckingInterval: 1_000,
+      headersTimeout: headersTimeoutMs,
+      requestTimeout: requestTimeoutMs,
+      keepAliveTimeout: keepAliveTimeoutMs,
+      connectionsCheckingInterval: connectionsCheckingIntervalMs,
     },
     onRequest,
   );
@@ -100,19 +80,16 @@ export function shutdownServer(server: Server): Promise<void> {
     // close() は呼んだ時点の待機中の接続しか閉じないため、処理中だった接続も応答後に閉じる。
     const idleSweeper = setInterval(() => {
       server.closeIdleConnections();
-    }, 100);
+    }, idleSweepIntervalMs);
     const timer = setTimeout(() => {
       clearInterval(idleSweeper);
       server.closeAllConnections();
       resolve();
-    }, 30_000);
+    }, shutdownTimeoutMs);
     server.close((error?: Error) => {
       clearInterval(idleSweeper);
       clearTimeout(timer);
-      if (
-        error !== undefined &&
-        !("code" in error && error.code === "ERR_SERVER_NOT_RUNNING")
-      ) {
+      if (error !== undefined && !hasCode(error, "ERR_SERVER_NOT_RUNNING")) {
         reject(new Error("Shut down HTTP server failed.", { cause: error }));
         return;
       }
@@ -174,7 +151,10 @@ async function start(
     signal,
   );
   try {
-    const passwordProvider = Argon2PasswordProvider.create(defaultParams());
+    const passwordProvider = Argon2PasswordProvider.create({
+      ...defaultParams(),
+      ...config.passwordCost,
+    });
     const idProvider = CryptoIdProvider.create();
     const service = await AuthService.create(
       repository,
@@ -205,7 +185,7 @@ export async function run(
   try {
     await start(config, logger, signal);
   } catch (error) {
-    if (signal.aborted && isCausedBy(error, signal.reason)) {
+    if (isAbortedBy(error, signal)) {
       return;
     }
     throw error;

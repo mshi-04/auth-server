@@ -1,6 +1,7 @@
 import { PasswordBusyError } from "../../errors/index.ts";
 
-type Waiter = { grant: () => boolean };
+type Waiter = { readonly grant: () => boolean };
+const maxTimerDelayMs = 2_147_483_647;
 
 export function abortedError(signal: AbortSignal): PasswordBusyError {
   return new PasswordBusyError(undefined, { cause: signal.reason });
@@ -8,9 +9,9 @@ export function abortedError(signal: AbortSignal): PasswordBusyError {
 
 export class Semaphore {
   #active = 0;
-  #limit: number;
-  #timeoutMs: number;
-  #queue = new Set<Waiter>();
+  readonly #limit: number;
+  readonly #timeoutMs: number;
+  readonly #queue = new Set<Waiter>();
 
   private constructor(limit: number, timeoutMs: number) {
     this.#limit = limit;
@@ -68,7 +69,7 @@ export class Semaphore {
           return;
         }
         // Node clamps larger delays to 1 ms; split long valid timeouts instead.
-        timer = setTimeout(armTimeout, Math.min(remaining, 2147483647));
+        timer = setTimeout(armTimeout, Math.min(remaining, maxTimerDelayMs));
       };
       this.#queue.add(waiter);
       signal.addEventListener("abort", abort, { once: true });

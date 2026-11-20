@@ -1,11 +1,8 @@
 import { lstat, open } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { dirname } from "node:path";
+import { hasCode } from "../../errors/index.ts";
 import { throwIfAborted } from "./errors.ts";
-
-function hasCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
-}
 
 export function requirePrivateOwnership(
   info: Pick<Stats, "uid" | "mode">,

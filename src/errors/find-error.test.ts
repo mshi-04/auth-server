@@ -1,5 +1,11 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { causeChain, findError, isCausedBy } from "./find-error.ts";
+import {
+  causeChain,
+  findError,
+  hasCode,
+  isAbortedBy,
+  isCausedBy,
+} from "./find-error.ts";
 
 class ExpectedError extends Error {
   override name = "ExpectedError";
@@ -165,6 +171,41 @@ describe("isCausedBy", () => {
   });
 });
 
+describe("isAbortedBy", () => {
+  it("matches the abort reason itself when the signal is aborted", () => {
+    const reason = new Error("aborted");
+    const signal = AbortSignal.abort(reason);
+
+    expect(isAbortedBy(reason, signal)).toBe(true);
+  });
+
+  it("matches the abort reason through nested causes", () => {
+    const reason = new Error("aborted");
+    const signal = AbortSignal.abort(reason);
+    const error = new Error("outer", {
+      cause: new Error("inner", { cause: reason }),
+    });
+
+    expect(isAbortedBy(error, signal)).toBe(true);
+  });
+
+  it("returns false when the signal is not aborted", () => {
+    const controller = new AbortController();
+
+    expect(isAbortedBy(controller.signal.reason, controller.signal)).toBe(
+      false,
+    );
+    expect(isAbortedBy(new Error("failure"), controller.signal)).toBe(false);
+  });
+
+  it("returns false when the signal was aborted with a different reason", () => {
+    const signal = AbortSignal.abort(new Error("aborted"));
+    const error = new Error("outer", { cause: new Error("aborted") });
+
+    expect(isAbortedBy(error, signal)).toBe(false);
+  });
+});
+
 describe("causeChain", () => {
   it("yields each error from the outermost and stops at a cycle", () => {
     const inner = new Error("inner");
@@ -177,5 +218,21 @@ describe("causeChain", () => {
   it("yields a non-Error value once without following it", () => {
     expect([...causeChain("reason")]).toEqual(["reason"]);
     expect([...causeChain(undefined)]).toEqual([]);
+  });
+});
+
+describe("hasCode", () => {
+  it("matches an Error with the expected code", () => {
+    expect(hasCode(new ExpectedError("expected"), "EXPECTED")).toBe(true);
+  });
+
+  it("rejects an Error without code or with a different code", () => {
+    expect(hasCode(new Error("plain"), "EXPECTED")).toBe(false);
+    expect(hasCode(new ExpectedError("expected"), "OTHER")).toBe(false);
+  });
+
+  it("rejects non-Error values even when they have a code property", () => {
+    expect(hasCode({ code: "EXPECTED" }, "EXPECTED")).toBe(false);
+    expect(hasCode(undefined, "EXPECTED")).toBe(false);
   });
 });

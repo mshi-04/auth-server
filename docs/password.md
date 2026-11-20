@@ -1,6 +1,6 @@
 # パスワードのモデルと Provider
 
-機能仕様の正本とする。設計全体の入口は [design.md](../design.md)、配置と依存は [architecture.md](../architecture.md)を参照する。
+機能仕様の正本とする。目的・スコープと文書の入口は [README](../README.md)、配置と依存は [architecture.md](architecture.md)を参照する。
 
 ## 使用ライブラリ
 
@@ -13,7 +13,7 @@
 | 比較 | `node:crypto` の `timingSafeEqual` |
 | 正規化 | `String.prototype.normalize('NFKC')` |
 
-- 非同期 Argon2id の実行経路の調査根拠は [性能測定と調査記録](../password-benchmarks.md#node-の実行経路)を参照する
+- 非同期 Argon2id の実行経路の調査根拠は [性能測定と調査記録](password-benchmarks.md#node-の実行経路)を参照する
 - 同期版の `argon2Sync` は計算中にイベントループを止めるため使わない
 
 ## パラメータ
@@ -31,7 +31,7 @@ type Params = {
   waitTimeoutMs: number;
 };
 
-type Cost = Pick<Params, "memoryKiB" | "iterations" | "parallelism">;
+type Cost = Readonly<Pick<Params, "memoryKiB" | "iterations" | "parallelism">>;
 ```
 
 | 項目 | 初期値 | ベンチマーク後の採用値 |
@@ -45,7 +45,8 @@ type Cost = Pick<Params, "memoryKiB" | "iterations" | "parallelism">;
 | セマフォ待機タイムアウト | 5 秒 | 5 秒 |
 
 - `defaultParams()` が採用値を返す。省略した項目の暗黙補完は行わない
-- 採用値は [Go の性能調整結果](../password-benchmarks.md#go-tuning-2026-10-18)で決めた値を出発点とし、TS 実装で再測定して 1 回 200〜500ms 程度に収まるか確認する
+- memory・iterations・parallelism の採用値は `models` の `defaultCost` に置き、`defaultParams()` と Config の既定値で共用する。共有値のため実行時に凍結する
+- 採用値は [Go の性能調整結果](password-benchmarks.md#go-tuning-2026-10-18)で決めた値を出発点とし、TS 実装で再測定して 1 回 200〜500ms 程度に収まるか確認する
 - 参考：RFC 9106 の推奨第 2 案は m=64 MiB、t=3、p=4。OWASP の最低ラインは m=19 MiB、t=2、p=1
 
 生成設定と保存済み PHC の検証には、現行設定と独立した次の固定範囲を使う。上限はこの学習用実装でのリソース制限であり、Argon2 自体の上限ではない。
@@ -83,6 +84,8 @@ salt と hash は base64（パディングなし。標準のアルファベッ�
 
 ```ts
 function defaultParams(): Params;
+const defaultCost: Cost;
+function isValidCost(cost: Cost): boolean;
 
 class Password {
   static parse(raw: string): Password;
@@ -155,12 +158,12 @@ class Argon2PasswordProvider implements PasswordProvider {
 | ポリシー境界値 | 11 / 12 / 128 / 129 文字、NFKC で文字数が変わる入力、サロゲートペアを含む入力、ペアになっていないサロゲート。解析時の最大長検査と `hash` の最小長検査を分けて検証 |
 | 値オブジェクト | 解析済みの空文字、全出力経路（`toString`・`toJSON`・`util.inspect`・別のオブジェクトのプロパティ）での伏字、エラーに秘密を含めないこと |
 | セマフォ | 同時数を超えた呼び出しがタイムアウトで `PasswordBusyError` になる。中断済みの `signal` で計算を開始しない。Argon2id の計算中は枠を保持し、終了後に解放する |
-| ベンチマーク | `hash`（既定のパラメータ）、`hash saturated`（既定のパラメータで同時ハッシュ数いっぱいに並列実行したときの 1 回あたりの所要時間）、`hash candidates`（下記の候補）。`vitest bench` で計測 |
+| ベンチマーク | `hash`（既定のパラメータ）、`hash saturated`（既定のパラメータで同時ハッシュ数いっぱいに並列実行したときの 1 回あたりの所要時間）、`verify default`（既定のパラメータのハッシュに対する `verify`）、`verify legacy`（初期値の 64 MiB・反復 3・並列 2 の旧パラメータのハッシュに対する `verify`）、`verify difference`（2 つの `verify` の平均の差と比）、`hash candidates`（下記の候補。`AUTH_PASSWORD_BENCH_CANDIDATES=1` のときだけ実行）。`verify default`・`verify legacy` は、いずれも現行設定の Provider で検証し、誤ったパスワードでのログイン失敗（登録有無の推測に使われる経路）の `verify` 単体を測る。正しいパスワードでは再ハッシュと保存が加わるため対象外とする。2 つの差は、設定を強化した後（既存ユーザーが `verify legacy`、ダミー検証が `verify default`）と、弱めた後（既存ユーザーが `verify default`、ダミー検証が `verify legacy` 相当）の両方向の応答時間差を表す。`verify difference` は同じ実行で計測した 2 つの値だけを使う。`vitest bench` で計測 |
 | イベントループ遅延 | 既定のパラメータで同時ハッシュ数いっぱいに並列実行している間、`node:perf_hooks` の `monitorEventLoopDelay` でイベントループの遅延を測る。遅延の最大値が 1 回のハッシュの所要時間より十分に小さく（目安は 50ms 未満）、計算中も他の処理が止まらないことを確かめる |
 | スレッドプール待ち | 非同期版の `randomBytes` など、要求の処理で Argon2id 以外の libuv スレッドプール処理を採用する場合だけ、同時ハッシュ数いっぱいの状態で、その処理の開始から完了までの時間を測る。対象となる処理が無ければ測定は不要とする。`monitorEventLoopDelay` とは別に測り、スレッドプールのキュー待ちによる遅延を確かめる |
 
 - 単体テストは小さい計算パラメータを使う。セマフォのテストはテスト側で枠を占有し、Vitest の偽タイマーで待機時間を進めて、重い計算の実行時間に依存させない
-- コマンドの現在の参照先と移行時の変更は [開発ガイド](../development.md#コマンド)に従う。ベンチマークは WSL の Node 26 で `npm run bench`（`vitest bench --run src/providers/password`）を 3 回実行し、各回の平均の中央値を使う
+- コマンドの現在の参照先と移行時の変更は [開発ガイド](development.md#コマンド)に従う。ベンチマークは WSL の Node 26 で `npm run bench`（`vitest bench --run src/providers/password`）を 3 回実行し、各回の平均の中央値を使う
 - TS 実装ではまず既定値（128 MiB・反復 9・並列 2）の `hash` を測り、中央値が 200〜500ms に入るか確認する。入れば既定パラメータは変更しない
 - 目標から外れた場合は、64 MiB と 128 MiB の反復 2〜10 を候補として測る。候補に入る設定が無ければ、速すぎる場合は 128→256 MiB、遅すぎる場合は 32→19 MiB の順に評価する。最初に目標に入るメモリ設定で、中央値が 300ms に最も近い反復数を採用する。同差なら反復数が多い方を採用する
-- 採用値を本書へ、測定結果を [性能測定と調査記録](../password-benchmarks.md)へ記録してから `defaultParams()` を変更する。候補内で目標を達成できなければ、未達を報告し、次段階へ進む前に調整方針を確認する
+- 採用値を本書へ、測定結果を [性能測定と調査記録](password-benchmarks.md)へ記録してから `defaultCost`・`defaultParams()` を変更する。候補内で目標を達成できなければ、未達を報告し、次段階へ進む前に調整方針を確認する
