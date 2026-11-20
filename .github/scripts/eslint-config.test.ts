@@ -12,10 +12,12 @@ const linter = new Linter();
 const policyRules = [
   "project/dependencies",
   "no-restricted-imports",
+  "no-restricted-properties",
   "no-restricted-syntax",
 ];
 const service = "src/services/auth-service.ts";
 const passwordProvider = "src/providers/password/argon2-password-provider.ts";
+const idProvider = "src/providers/crypto-id-provider.ts";
 const secretImport =
   'import { readPassword } from "../../models/password/values.ts"; export class Argon2PasswordProvider {}';
 const testingHook =
@@ -64,6 +66,22 @@ const cases: SmokeCase[] = [
     'import "../models/index.ts";',
     service,
     'import("../models/index.ts");',
+  ],
+  [
+    "forbidden API named imports",
+    "no-restricted-syntax",
+    idProvider,
+    'import { randomBytes } from "node:crypto"; void randomBytes;',
+    idProvider,
+    'import { randomInt } from "node:crypto"; void randomInt;',
+  ],
+  [
+    "forbidden API properties",
+    "no-restricted-properties",
+    idProvider,
+    'import * as crypto from "node:crypto"; void crypto.randomBytes;',
+    idProvider,
+    'import * as crypto from "node:crypto"; void crypto.randomInt;',
   ],
   [
     "model secrets",

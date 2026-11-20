@@ -13,6 +13,19 @@ import {
 import { openDatabase } from "./initialization.ts";
 import { prepareDatabaseFile } from "./permissions.ts";
 
+function runOperation<T>(
+  context: string,
+  signal: AbortSignal,
+  operation: () => T,
+): Promise<T> {
+  try {
+    throwIfAborted(signal);
+    return Promise.resolve(operation());
+  } catch (error) {
+    return Promise.reject(operationError(error, context, signal));
+  }
+}
+
 export class SqliteUserRepository implements UserRepository {
   readonly #db: Database;
 
@@ -52,23 +65,16 @@ export class SqliteUserRepository implements UserRepository {
   }
 
   createUser(user: NewUser, signal: AbortSignal): Promise<void> {
-    try {
-      throwIfAborted(signal);
+    return runOperation("Create SQLite user failed.", signal, () => {
       this.#insertUserInTransaction(user);
-      return Promise.resolve();
-    } catch (error) {
-      return Promise.reject(
-        operationError(error, "Create SQLite user failed.", signal),
-      );
-    }
+    });
   }
 
   findCredentialByEmail(
     emailNormalized: string,
     signal: AbortSignal,
   ): Promise<Credential> {
-    try {
-      throwIfAborted(signal);
+    return runOperation("Find SQLite credential failed.", signal, () => {
       const row = this.#db
         .prepare(
           `
@@ -84,12 +90,8 @@ export class SqliteUserRepository implements UserRepository {
       if (typeof row.user_id !== "string" || typeof row.hash !== "string") {
         throw new Error("Invalid SQLite credential row.");
       }
-      return Promise.resolve({ userId: row.user_id, passwordHash: row.hash });
-    } catch (error) {
-      return Promise.reject(
-        operationError(error, "Find SQLite credential failed.", signal),
-      );
-    }
+      return { userId: row.user_id, passwordHash: row.hash };
+    });
   }
 
   updatePasswordHash(
@@ -97,8 +99,7 @@ export class SqliteUserRepository implements UserRepository {
     passwordHash: string,
     signal: AbortSignal,
   ): Promise<void> {
-    try {
-      throwIfAborted(signal);
+    return runOperation("Update SQLite password hash failed.", signal, () => {
       const result = this.#db
         .prepare(
           `
@@ -111,12 +112,7 @@ export class SqliteUserRepository implements UserRepository {
       if (result.changes === 0) {
         throw new UserNotFoundError();
       }
-      return Promise.resolve();
-    } catch (error) {
-      return Promise.reject(
-        operationError(error, "Update SQLite password hash failed.", signal),
-      );
-    }
+    });
   }
 
   #insertUserInTransaction(user: NewUser): void {

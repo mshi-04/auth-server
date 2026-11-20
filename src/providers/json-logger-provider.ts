@@ -210,13 +210,16 @@ export class JsonLoggerProvider implements LoggerProvider {
     attributes: Record<string, unknown> | undefined,
   ): void {
     try {
-      const entry = Object.fromEntries([
+      const entries: [string, JsonValue][] = [
         ["time", new Date().toISOString()],
         ["level", level],
         ["msg", message],
         ...attributeEntries(attributes),
-      ]);
-      this.#output.write(`${JSON.stringify(entry)}\n`);
+      ];
+      const fields = entries.map(
+        ([key, value]) => `${JSON.stringify(key)}:${JSON.stringify(value)}`,
+      );
+      this.#output.write(`{${fields.join(",")}}\n`);
     } catch {
       return;
     }

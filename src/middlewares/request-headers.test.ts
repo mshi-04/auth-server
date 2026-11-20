@@ -2,6 +2,7 @@ import { IncomingMessage } from "node:http";
 import { Socket } from "node:net";
 import type { IncomingHttpHeaders } from "node:http";
 import { describe, expect, it } from "vitest";
+import { caught } from "../../tests/support/errors.ts";
 import { BadRequestError, ForbiddenError } from "../errors/index.ts";
 import { validateHost, validateSameOrigin } from "./request-headers.ts";
 
@@ -44,17 +45,12 @@ describe("validateHost", () => {
   ])(
     "rejects invalid Host header %s with BadRequestError(invalid-host)",
     (host) => {
-      expect(() => {
-        validateHost(makeRequest({ host }));
-      }).toThrow(
-        expect.objectContaining({
-          name: "BadRequestError",
-          kind: "invalid-host",
-        }),
-      );
-      expect(() => {
-        validateHost(makeRequest({ host }));
-      }).toThrow(BadRequestError);
+      const error = caught(() => validateHost(makeRequest({ host })));
+      expect(error).toBeInstanceOf(BadRequestError);
+      expect(error).toMatchObject({
+        name: "BadRequestError",
+        kind: "invalid-host",
+      });
     },
   );
 });

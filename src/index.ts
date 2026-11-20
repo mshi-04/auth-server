@@ -1,17 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { createServer, ServerResponse } from "node:http";
-import type { IncomingMessage, Server } from "node:http";
+import type { Server } from "node:http";
 import { Socket } from "node:net";
 import { loadConfig } from "./config/index.ts";
 import type { Config } from "./config/index.ts";
 import { AuthController, WebController } from "./controllers/index.ts";
 import type { WebAssets } from "./controllers/index.ts";
 import { hasCode, isAbortedBy } from "./errors/index.ts";
-import {
-  createRequestContext,
-  handleError,
-  setSecurityHeaders,
-} from "./middlewares/index.ts";
+import { createRequestHandler } from "./middlewares/index.ts";
 import type { LoggerProvider } from "./providers/index.ts";
 import { CryptoIdProvider } from "./providers/crypto-id-provider.ts";
 import { JsonLoggerProvider } from "./providers/json-logger-provider.ts";
@@ -23,7 +19,6 @@ import { SqliteUserRepository } from "./repositories/sqlite/index.ts";
 import { createRoutes } from "./routes/index.ts";
 import { AuthService } from "./services/index.ts";
 
-const responseDeadlineMs = 30_000;
 const headersTimeoutMs = 5_000;
 const requestTimeoutMs = 10_000;
 const keepAliveTimeoutMs = 60_000;
@@ -45,33 +40,10 @@ export function createHttpServer(
   assets: WebAssets,
   logger: LoggerProvider,
 ): Server {
-  const route = createRoutes(
-    AuthController.create(service),
-    WebController.create(assets),
+  const onRequest = createRequestHandler(
+    createRoutes(AuthController.create(service), WebController.create(assets)),
+    logger,
   );
-
-  function onRequest(req: IncomingMessage, res: ServerResponse): void {
-    const deadline = performance.now() + responseDeadlineMs;
-    setSecurityHeaders(res);
-    const context = createRequestContext(res, deadline);
-
-    async function dispatch(): Promise<void> {
-      try {
-        await route(req, res, context);
-      } catch (error) {
-        handleError(error, req, res, context, logger);
-      } finally {
-        context.dispose();
-      }
-    }
-
-    dispatch().catch((error: unknown) => {
-      if (!context.signal.aborted) {
-        logger.error("request failed", { error });
-      }
-      res.destroy();
-    });
-  }
 
   const server = createServer(
     {

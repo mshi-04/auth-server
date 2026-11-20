@@ -3,12 +3,12 @@ import { caught } from "../../tests/support/errors.ts";
 import { InvalidEmailError } from "../errors/index.ts";
 import { normalizeEmail, parseEmail } from "./index.ts";
 
-interface ValidEmailCase {
+type ValidEmailCase = {
   name: string;
   input: string;
   parsed: string;
   normalized: string;
-}
+};
 
 const validEmailCases: ValidEmailCase[] = [
   {
@@ -64,10 +64,10 @@ const validEmailCases: ValidEmailCase[] = [
   },
 ];
 
-interface InvalidEmailCase {
+type InvalidEmailCase = {
   name: string;
   input: string;
-}
+};
 
 const invalidEmailCases: InvalidEmailCase[] = [
   { name: "empty string", input: "" },
